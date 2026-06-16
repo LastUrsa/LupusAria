@@ -1,0 +1,234 @@
+package config
+
+import (
+	"bufio"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	Twitch TwitchConfig
+	AI     AIConfig
+	Bot    BotConfig
+}
+
+type TwitchConfig struct {
+	BotUsername    string
+	OAuthToken     string
+	Channel        string
+	ClientID       string
+	ClientSecret   string
+	RefreshToken   string
+	TokenStatePath string
+}
+
+type AIConfig struct {
+	Provider              string
+	APIKey                string
+	BaseURL               string
+	Model                 string
+	InputPricePerMillion  float64
+	OutputPricePerMillion float64
+}
+
+type BotConfig struct {
+	Name               string
+	Personality        string
+	MaxContextMessages int
+	GlobalCooldown     time.Duration
+	UserCooldown       time.Duration
+	DailyBudgetUSD     float64
+	MonthlyBudgetUSD   float64
+	MaxRequestsPerHour int
+	BudgetStatePath    string
+}
+
+func Load(envPath string) (Config, error) {
+	values := readEnvironment()
+
+	if _, err := os.Stat(envPath); err == nil {
+		fileValues, err := readEnvFile(envPath)
+		if err != nil {
+			return Config{}, err
+		}
+		for key, value := range fileValues {
+			if _, exists := values[key]; !exists {
+				values[key] = value
+			}
+		}
+	}
+
+	aiProvider := strings.ToLower(get(values, "AI_PROVIDER", "mock"))
+	aiModel := get(values, "AI_MODEL", "gpt-4.1-mini")
+	if aiProvider == "gemini" {
+		aiModel = get(values, "GEMINI_MODEL", "gemini-3.1-flash-lite")
+	}
+	inputPrice, outputPrice := defaultAIPrices(aiProvider, aiModel)
+
+	cfg := Config{
+		Twitch: TwitchConfig{
+			BotUsername:    get(values, "TWITCH_BOT_USERNAME", ""),
+			OAuthToken:     get(values, "TWITCH_OAUTH_TOKEN", ""),
+			Channel:        normalizeChannel(get(values, "TWITCH_CHANNEL", "")),
+			ClientID:       get(values, "TWITCH_CLIENT_ID", ""),
+			ClientSecret:   get(values, "TWITCH_CLIENT_SECRET", ""),
+			RefreshToken:   get(values, "TWITCH_REFRESH_TOKEN", ""),
+			TokenStatePath: get(values, "TWITCH_TOKEN_STATE_PATH", ".lupusaria-twitch-token.json"),
+		},
+		AI: AIConfig{
+			Provider:              aiProvider,
+			APIKey:                get(values, "AI_API_KEY", get(values, "GEMINI_API_KEY", "")),
+			BaseURL:               strings.TrimRight(get(values, "AI_BASE_URL", "https://api.openai.com/v1"), "/"),
+			Model:                 aiModel,
+			InputPricePerMillion:  getFloat(values, "AI_INPUT_PRICE_PER_1M_TOKENS", inputPrice),
+			OutputPricePerMillion: getFloat(values, "AI_OUTPUT_PRICE_PER_1M_TOKENS", outputPrice),
+		},
+		Bot: BotConfig{
+			Name:               get(values, "BOT_NAME", "LupusAria"),
+			Personality:        get(values, "BOT_PERSONALITY", "Warm, grounded, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
+			MaxContextMessages: getInt(values, "MAX_CONTEXT_MESSAGES", 30),
+			GlobalCooldown:     time.Duration(getInt(values, "GLOBAL_COOLDOWN_SECONDS", 6)) * time.Second,
+			UserCooldown:       time.Duration(getInt(values, "USER_COOLDOWN_SECONDS", 20)) * time.Second,
+			DailyBudgetUSD:     getFloat(values, "DAILY_AI_BUDGET_USD", 0.50),
+			MonthlyBudgetUSD:   getFloat(values, "MONTHLY_AI_BUDGET_USD", 5),
+			MaxRequestsPerHour: getInt(values, "MAX_AI_REQUESTS_PER_HOUR", 30),
+			BudgetStatePath:    get(values, "AI_BUDGET_STATE_PATH", ".lupusaria-budget.json"),
+		},
+	}
+
+	if err := validate(cfg); err != nil {
+		return Config{}, err
+	}
+
+	return cfg, nil
+}
+
+func validate(cfg Config) error {
+	var missing []string
+	if cfg.Twitch.BotUsername == "" {
+		missing = append(missing, "TWITCH_BOT_USERNAME")
+	}
+	if cfg.Twitch.OAuthToken == "" && cfg.Twitch.RefreshToken == "" {
+		missing = append(missing, "TWITCH_OAUTH_TOKEN or TWITCH_REFRESH_TOKEN")
+	}
+	if cfg.Twitch.Channel == "" {
+		missing = append(missing, "TWITCH_CHANNEL")
+	}
+	if cfg.Twitch.RefreshToken != "" {
+		if cfg.Twitch.ClientID == "" {
+			missing = append(missing, "TWITCH_CLIENT_ID")
+		}
+		if cfg.Twitch.ClientSecret == "" {
+			missing = append(missing, "TWITCH_CLIENT_SECRET")
+		}
+	}
+	if cfg.AI.Provider == "openai-compatible" && cfg.AI.APIKey == "" {
+		missing = append(missing, "AI_API_KEY")
+	}
+	if cfg.AI.Provider == "gemini" && cfg.AI.APIKey == "" {
+		missing = append(missing, "GEMINI_API_KEY")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required configuration: %s", strings.Join(missing, ", "))
+	}
+	if cfg.Bot.MaxContextMessages < 1 {
+		return errors.New("MAX_CONTEXT_MESSAGES must be greater than zero")
+	}
+	if cfg.Bot.DailyBudgetUSD < 0 || cfg.Bot.MonthlyBudgetUSD < 0 {
+		return errors.New("AI budget values must be zero or greater")
+	}
+	if cfg.Bot.MaxRequestsPerHour < 0 {
+		return errors.New("MAX_AI_REQUESTS_PER_HOUR must be zero or greater")
+	}
+	return nil
+}
+
+func readEnvironment() map[string]string {
+	values := map[string]string{}
+	for _, item := range os.Environ() {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	return values
+}
+
+func readEnvFile(path string) (map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	values := map[string]string{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		values[strings.TrimSpace(key)] = strings.Trim(strings.TrimSpace(value), `"'`)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func get(values map[string]string, key, fallback string) string {
+	if value, ok := values[key]; ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return fallback
+}
+
+func getInt(values map[string]string, key string, fallback int) int {
+	raw := get(values, key, "")
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func getFloat(values map[string]string, key string, fallback float64) float64 {
+	raw := get(values, key, "")
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func normalizeChannel(channel string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(channel)), "#")
+}
+
+func defaultAIPrices(provider, model string) (float64, float64) {
+	normalized := strings.ToLower(provider + " " + model)
+	switch {
+	case strings.Contains(normalized, "mock"):
+		return 0, 0
+	case strings.Contains(normalized, "flash-lite"):
+		return 0.25, 1.50
+	case strings.Contains(normalized, "gemini") && strings.Contains(normalized, "flash"):
+		return 1.50, 9.00
+	default:
+		return 0, 0
+	}
+}

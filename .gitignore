@@ -1,0 +1,9 @@
+.env
+*.db
+*.sqlite
+*.log
+.lupusaria-budget.json
+.lupusaria-twitch-token.json
+/bin/
+/dist/
+/tmp/
