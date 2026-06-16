@@ -72,7 +72,8 @@ ANNOUNCEMENT_POLL_SECONDS=20
 	if cfg.AdAlerts.WarningLead != 8*time.Minute || cfg.AdAlerts.PollInterval != 45*time.Second {
 		t.Fatalf("ad alerts = %#v", cfg.AdAlerts)
 	}
-	if !cfg.Announcements.Enabled || cfg.Announcements.Path != ".custom-announcements.json" || cfg.Announcements.PollInterval != 20*time.Second {
+	wantAnnouncementsPath := filepath.Join(filepath.Dir(envPath), ".custom-announcements.json")
+	if !cfg.Announcements.Enabled || cfg.Announcements.Path != wantAnnouncementsPath || cfg.Announcements.PollInterval != 20*time.Second {
 		t.Fatalf("announcements = %#v", cfg.Announcements)
 	}
 }
@@ -107,6 +108,38 @@ func TestLoadReportsMissingRequiredConfig(t *testing.T) {
 	_, err := Load(envPath)
 	if err == nil {
 		t.Fatal("expected missing config error")
+	}
+}
+
+func TestLoadPartialAllowsMissingRequiredConfig(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `TWITCH_CHANNEL=lastursa`)
+
+	cfg, err := LoadPartial(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Twitch.Channel != "lastursa" {
+		t.Fatalf("channel = %q, want lastursa", cfg.Twitch.Channel)
+	}
+}
+
+func TestLoadResolvesLocalStatePathsBesideEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, ".lupusaria-twitch-token.json")
+	if cfg.Twitch.TokenStatePath != want {
+		t.Fatalf("token state path = %q, want %q", cfg.Twitch.TokenStatePath, want)
 	}
 }
 

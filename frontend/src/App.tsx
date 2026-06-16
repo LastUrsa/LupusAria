@@ -23,12 +23,29 @@ const emptySettings: Settings = {
   error: '',
   channel: '',
   botUsername: '',
+  configPath: '',
+  twitchOAuthToken: '',
+  twitchRefreshToken: '',
+  twitchClientId: '',
+  twitchClientSecret: '',
+  twitchAdsOAuthToken: '',
+  twitchAdsRefreshToken: '',
+  hasTwitchOAuthToken: false,
+  hasTwitchRefreshToken: false,
+  hasTwitchClientId: false,
+  hasTwitchClientSecret: false,
+  hasTwitchAdsOAuthToken: false,
+  hasTwitchAdsRefreshToken: false,
   aiProvider: 'mock',
+  aiApiKey: '',
+  geminiApiKey: '',
   aiModel: 'gpt-4.1-mini',
   geminiModel: 'gemini-3.1-flash-lite',
   maxRequestsPerHour: 30,
   dailyBudgetUsd: 0.5,
   monthlyBudgetUsd: 5,
+  hasAiApiKey: false,
+  hasGeminiApiKey: false,
   enableMentions: true,
   enableAsk: true,
   enableLurk: true,
@@ -211,6 +228,7 @@ export default function App() {
               <Card title="Twitch">
                 <TextField label="Channel" value={settings.channel} onChange={(value) => update('channel', value)} />
                 <TextField label="Bot username" value={settings.botUsername} onChange={(value) => update('botUsername', value)} />
+                <ReadOnlyField label="Config path" value={settings.configPath} />
               </Card>
               <Card title="Runtime">
                 <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
@@ -218,6 +236,24 @@ export default function App() {
                 <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Announcements" value={settings.announcementsEnabled ? 'Enabled' : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
+              </Card>
+              <Card title="Twitch credentials" wide>
+                <div className="info-callout">
+                  <strong>Saved secrets are hidden.</strong>
+                  <span>Leave a field blank to keep the saved value. Type a new value only when replacing it.</span>
+                </div>
+                <div className="split">
+                  <SecretField label="Client ID" saved={settings.hasTwitchClientId} value={settings.twitchClientId} onChange={(value) => update('twitchClientId', value)} />
+                  <SecretField label="Client secret" saved={settings.hasTwitchClientSecret} value={settings.twitchClientSecret} onChange={(value) => update('twitchClientSecret', value)} />
+                </div>
+                <div className="split">
+                  <SecretField label="Bot OAuth token" saved={settings.hasTwitchOAuthToken} value={settings.twitchOAuthToken} onChange={(value) => update('twitchOAuthToken', value)} />
+                  <SecretField label="Bot refresh token" saved={settings.hasTwitchRefreshToken} value={settings.twitchRefreshToken} onChange={(value) => update('twitchRefreshToken', value)} />
+                </div>
+                <div className="split">
+                  <SecretField label="Ads OAuth token" saved={settings.hasTwitchAdsOAuthToken} value={settings.twitchAdsOAuthToken} onChange={(value) => update('twitchAdsOAuthToken', value)} />
+                  <SecretField label="Ads refresh token" saved={settings.hasTwitchAdsRefreshToken} value={settings.twitchAdsRefreshToken} onChange={(value) => update('twitchAdsRefreshToken', value)} />
+                </div>
               </Card>
             </div>
           )}
@@ -249,6 +285,10 @@ export default function App() {
                 </select>
               </label>
               <TextField label="Gemini model" value={settings.geminiModel} onChange={(value) => update('geminiModel', value)} />
+              <div className="split">
+                <SecretField label="Gemini API key" saved={settings.hasGeminiApiKey} value={settings.geminiApiKey} onChange={(value) => update('geminiApiKey', value)} />
+                <SecretField label="OpenAI-compatible API key" saved={settings.hasAiApiKey} value={settings.aiApiKey} onChange={(value) => update('aiApiKey', value)} />
+              </div>
               <div className="split">
                 <NumberField label="Requests per hour" value={settings.maxRequestsPerHour} onChange={(value) => update('maxRequestsPerHour', value)} />
                 <NumberField label="Max context messages" value={settings.maxContextMessages} onChange={(value) => update('maxContextMessages', value)} />
@@ -371,6 +411,24 @@ function TextField({ label, value, onChange }: { label: string; value: string; o
     <label className="field">
       <span>{label}</span>
       <input value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  )
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input value={value} readOnly />
+    </label>
+  )
+}
+
+function SecretField({ label, saved, value, onChange }: { label: string; saved: boolean; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="field">
+      <span>{label}{saved ? ' saved' : ''}</span>
+      <input type="password" value={value} placeholder={saved ? 'Saved' : ''} onChange={(event) => onChange(event.target.value)} />
     </label>
   )
 }

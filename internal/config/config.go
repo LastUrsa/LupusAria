@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -86,6 +87,14 @@ type AnnouncementsConfig struct {
 }
 
 func Load(envPath string) (Config, error) {
+	return load(envPath, true)
+}
+
+func LoadPartial(envPath string) (Config, error) {
+	return load(envPath, false)
+}
+
+func load(envPath string, validateRequired bool) (Config, error) {
 	values := readEnvironment()
 
 	if _, err := os.Stat(envPath); err == nil {
@@ -99,6 +108,7 @@ func Load(envPath string) (Config, error) {
 			}
 		}
 	}
+	baseDir := filepath.Dir(envPath)
 
 	aiProvider := strings.ToLower(get(values, "AI_PROVIDER", "mock"))
 	aiModel := get(values, "AI_MODEL", "gpt-4.1-mini")
@@ -115,10 +125,10 @@ func Load(envPath string) (Config, error) {
 			ClientID:          get(values, "TWITCH_CLIENT_ID", ""),
 			ClientSecret:      get(values, "TWITCH_CLIENT_SECRET", ""),
 			RefreshToken:      get(values, "TWITCH_REFRESH_TOKEN", ""),
-			TokenStatePath:    get(values, "TWITCH_TOKEN_STATE_PATH", ".lupusaria-twitch-token.json"),
+			TokenStatePath:    resolveLocalPath(baseDir, get(values, "TWITCH_TOKEN_STATE_PATH", ".lupusaria-twitch-token.json")),
 			AdsOAuthToken:     get(values, "TWITCH_ADS_OAUTH_TOKEN", ""),
 			AdsRefreshToken:   get(values, "TWITCH_ADS_REFRESH_TOKEN", ""),
-			AdsTokenStatePath: get(values, "TWITCH_ADS_TOKEN_STATE_PATH", ".lupusaria-twitch-ads-token.json"),
+			AdsTokenStatePath: resolveLocalPath(baseDir, get(values, "TWITCH_ADS_TOKEN_STATE_PATH", ".lupusaria-twitch-ads-token.json")),
 		},
 		AI: AIConfig{
 			Provider:              aiProvider,
@@ -144,7 +154,7 @@ func Load(envPath string) (Config, error) {
 			DailyBudgetUSD:     getFloat(values, "DAILY_AI_BUDGET_USD", 0.50),
 			MonthlyBudgetUSD:   getFloat(values, "MONTHLY_AI_BUDGET_USD", 5),
 			MaxRequestsPerHour: getInt(values, "MAX_AI_REQUESTS_PER_HOUR", 30),
-			BudgetStatePath:    get(values, "AI_BUDGET_STATE_PATH", ".lupusaria-budget.json"),
+			BudgetStatePath:    resolveLocalPath(baseDir, get(values, "AI_BUDGET_STATE_PATH", ".lupusaria-budget.json")),
 		},
 		RecentStreamers: RecentStreamersConfig{
 			Enabled:             getBool(values, "AUTOSO_ENABLED", true),
@@ -165,12 +175,17 @@ func Load(envPath string) (Config, error) {
 		},
 		Announcements: AnnouncementsConfig{
 			Enabled:      getBool(values, "ANNOUNCEMENTS_ENABLED", false),
-			Path:         get(values, "ANNOUNCEMENTS_PATH", ".lupusaria-announcements.json"),
+			Path:         resolveLocalPath(baseDir, get(values, "ANNOUNCEMENTS_PATH", ".lupusaria-announcements.json")),
 			PollInterval: time.Duration(getInt(values, "ANNOUNCEMENT_POLL_SECONDS", 30)) * time.Second,
 		},
 	}
 
-	if err := validate(cfg); err != nil {
+	if validateRequired {
+		if err := validate(cfg); err != nil {
+			return Config{}, err
+		}
+	}
+	if err := validateRanges(cfg); err != nil {
 		return Config{}, err
 	}
 
@@ -216,6 +231,10 @@ func validate(cfg Config) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required configuration: %s", strings.Join(missing, ", "))
 	}
+	return validateRanges(cfg)
+}
+
+func validateRanges(cfg Config) error {
 	if cfg.Bot.MaxContextMessages < 1 {
 		return errors.New("MAX_CONTEXT_MESSAGES must be greater than zero")
 	}
@@ -256,6 +275,14 @@ func validate(cfg Config) error {
 		return errors.New("ANNOUNCEMENT_POLL_SECONDS must be zero or greater")
 	}
 	return nil
+}
+
+func resolveLocalPath(baseDir, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || filepath.IsAbs(value) {
+		return value
+	}
+	return filepath.Join(baseDir, value)
 }
 
 func adWarningLead(values map[string]string) time.Duration {

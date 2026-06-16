@@ -54,7 +54,7 @@ func TestUpdateEnvFileUpdatesPreservesAndAppends(t *testing.T) {
 }
 
 func TestUpdateEnvFileCreatesMissingFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".env")
+	path := filepath.Join(t.TempDir(), "nested", ".env")
 
 	if err := updateEnvFile(path, map[string]string{"TWITCH_CHANNEL": "lastursa"}); err != nil {
 		t.Fatal(err)
@@ -66,6 +66,74 @@ func TestUpdateEnvFileCreatesMissingFile(t *testing.T) {
 	}
 	if got := string(raw); got != "TWITCH_CHANNEL=lastursa\n" {
 		t.Fatalf("env = %q", got)
+	}
+}
+
+func TestAppEnvPathUsesOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	t.Setenv(envPathOverride, path)
+
+	got, err := appEnvPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != path {
+		t.Fatalf("appEnvPath = %q, want %q", got, path)
+	}
+}
+
+func TestGetSettingsWorksBeforeEnvExists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	t.Setenv(envPathOverride, path)
+
+	settings, err := NewApp().GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.ConfigPath != path {
+		t.Fatalf("config path = %q, want %q", settings.ConfigPath, path)
+	}
+	if settings.Channel != "" || settings.BotUsername != "" {
+		t.Fatalf("first-run twitch settings should be empty: %#v", settings)
+	}
+}
+
+func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	t.Setenv(envPathOverride, path)
+
+	app := NewApp()
+	settings, err := app.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.Channel = "lastursa"
+	settings.BotUsername = "LupusAria"
+	settings.TwitchClientID = "client-id"
+	settings.TwitchClientSecret = "client-secret"
+	settings.TwitchRefreshToken = "refresh-token"
+	settings.GeminiAPIKey = "gemini-key"
+
+	if err := app.SaveSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{
+		"TWITCH_CHANNEL=lastursa",
+		"TWITCH_BOT_USERNAME=LupusAria",
+		"TWITCH_CLIENT_ID=client-id",
+		"TWITCH_CLIENT_SECRET=client-secret",
+		"TWITCH_REFRESH_TOKEN=refresh-token",
+		"GEMINI_API_KEY=gemini-key",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("saved env missing %q:\n%s", want, got)
+		}
 	}
 }
 

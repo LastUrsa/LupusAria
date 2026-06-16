@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +17,7 @@ import (
 	"lupusaria/internal/config"
 )
 
-const envPath = ".env"
+const envPathOverride = "LUPUSARIA_ENV_PATH"
 
 type App struct {
 	ctx context.Context
@@ -35,13 +36,32 @@ type ControlSettings struct {
 
 	Channel     string `json:"channel"`
 	BotUsername string `json:"botUsername"`
+	ConfigPath  string `json:"configPath"`
+
+	TwitchOAuthToken      string `json:"twitchOAuthToken"`
+	TwitchRefreshToken    string `json:"twitchRefreshToken"`
+	TwitchClientID        string `json:"twitchClientId"`
+	TwitchClientSecret    string `json:"twitchClientSecret"`
+	TwitchAdsOAuthToken   string `json:"twitchAdsOAuthToken"`
+	TwitchAdsRefreshToken string `json:"twitchAdsRefreshToken"`
+
+	HasTwitchOAuthToken      bool `json:"hasTwitchOAuthToken"`
+	HasTwitchRefreshToken    bool `json:"hasTwitchRefreshToken"`
+	HasTwitchClientID        bool `json:"hasTwitchClientId"`
+	HasTwitchClientSecret    bool `json:"hasTwitchClientSecret"`
+	HasTwitchAdsOAuthToken   bool `json:"hasTwitchAdsOAuthToken"`
+	HasTwitchAdsRefreshToken bool `json:"hasTwitchAdsRefreshToken"`
 
 	AIProvider         string  `json:"aiProvider"`
+	AIAPIKey           string  `json:"aiApiKey"`
+	GeminiAPIKey       string  `json:"geminiApiKey"`
 	AIModel            string  `json:"aiModel"`
 	GeminiModel        string  `json:"geminiModel"`
 	MaxRequestsPerHour int     `json:"maxRequestsPerHour"`
 	DailyBudgetUSD     float64 `json:"dailyBudgetUsd"`
 	MonthlyBudgetUSD   float64 `json:"monthlyBudgetUsd"`
+	HasAIAPIKey        bool    `json:"hasAiApiKey"`
+	HasGeminiAPIKey    bool    `json:"hasGeminiApiKey"`
 
 	EnableMentions bool `json:"enableMentions"`
 	EnableAsk      bool `json:"enableAsk"`
@@ -93,13 +113,25 @@ func (a *App) shutdown(ctx context.Context) {
 }
 
 func (a *App) GetSettings() (ControlSettings, error) {
-	cfg, err := config.Load(envPath)
+	envPath, err := appEnvPath()
+	if err != nil {
+		return ControlSettings{}, err
+	}
+	cfg, err := config.LoadPartial(envPath)
 	if err != nil {
 		return ControlSettings{}, err
 	}
 	settings := ControlSettings{
 		Channel:     cfg.Twitch.Channel,
 		BotUsername: cfg.Twitch.BotUsername,
+		ConfigPath:  envPath,
+
+		HasTwitchOAuthToken:      cfg.Twitch.OAuthToken != "",
+		HasTwitchRefreshToken:    cfg.Twitch.RefreshToken != "",
+		HasTwitchClientID:        cfg.Twitch.ClientID != "",
+		HasTwitchClientSecret:    cfg.Twitch.ClientSecret != "",
+		HasTwitchAdsOAuthToken:   cfg.Twitch.AdsOAuthToken != "",
+		HasTwitchAdsRefreshToken: cfg.Twitch.AdsRefreshToken != "",
 
 		AIProvider:         cfg.AI.Provider,
 		AIModel:            cfg.AI.Model,
@@ -107,6 +139,8 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		MaxRequestsPerHour: cfg.Bot.MaxRequestsPerHour,
 		DailyBudgetUSD:     cfg.Bot.DailyBudgetUSD,
 		MonthlyBudgetUSD:   cfg.Bot.MonthlyBudgetUSD,
+		HasAIAPIKey:        cfg.AI.Provider == "openai-compatible" && cfg.AI.APIKey != "",
+		HasGeminiAPIKey:    cfg.AI.Provider == "gemini" && cfg.AI.APIKey != "",
 
 		EnableMentions: cfg.Bot.EnableMentions,
 		EnableAsk:      cfg.Bot.EnableAsk,
@@ -147,6 +181,10 @@ func (a *App) GetSettings() (ControlSettings, error) {
 }
 
 func (a *App) SaveSettings(settings ControlSettings) error {
+	envPath, err := appEnvPath()
+	if err != nil {
+		return err
+	}
 	updates := map[string]string{
 		"TWITCH_CHANNEL":           settings.Channel,
 		"TWITCH_BOT_USERNAME":      settings.BotUsername,
@@ -183,6 +221,14 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"ANNOUNCEMENTS_ENABLED":     boolString(settings.AnnouncementsEnabled),
 		"ANNOUNCEMENT_POLL_SECONDS": strconv.Itoa(settings.AnnouncementPollSeconds),
 	}
+	addSecretUpdate(updates, "TWITCH_OAUTH_TOKEN", settings.TwitchOAuthToken)
+	addSecretUpdate(updates, "TWITCH_REFRESH_TOKEN", settings.TwitchRefreshToken)
+	addSecretUpdate(updates, "TWITCH_CLIENT_ID", settings.TwitchClientID)
+	addSecretUpdate(updates, "TWITCH_CLIENT_SECRET", settings.TwitchClientSecret)
+	addSecretUpdate(updates, "TWITCH_ADS_OAUTH_TOKEN", settings.TwitchAdsOAuthToken)
+	addSecretUpdate(updates, "TWITCH_ADS_REFRESH_TOKEN", settings.TwitchAdsRefreshToken)
+	addSecretUpdate(updates, "AI_API_KEY", settings.AIAPIKey)
+	addSecretUpdate(updates, "GEMINI_API_KEY", settings.GeminiAPIKey)
 	if err := updateEnvFile(envPath, updates); err != nil {
 		return err
 	}
@@ -191,7 +237,11 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 }
 
 func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {
-	cfg, err := config.Load(envPath)
+	envPath, err := appEnvPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.LoadPartial(envPath)
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +265,11 @@ func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {
 }
 
 func (a *App) SaveAnnouncements(settings []AnnouncementSettings) error {
-	cfg, err := config.Load(envPath)
+	envPath, err := appEnvPath()
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadPartial(envPath)
 	if err != nil {
 		return err
 	}
@@ -252,6 +306,16 @@ func (a *App) StartBot() error {
 
 	logger := slog.New(slog.NewTextHandler(logWriter{app: a}, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	a.appendLog("starting bot")
+	envPath, err := appEnvPath()
+	if err != nil {
+		cancel()
+		a.mu.Lock()
+		a.running = false
+		a.cancelBot = nil
+		a.lastError = err.Error()
+		a.mu.Unlock()
+		return err
+	}
 	go func() {
 		err := botrunner.Run(ctx, envPath, logger)
 		a.mu.Lock()
@@ -313,6 +377,9 @@ func (w logWriter) Write(p []byte) (int, error) {
 }
 
 func updateEnvFile(path string, updates map[string]string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
 	lines, err := readEnvLines(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -341,6 +408,24 @@ func updateEnvFile(path string, updates map[string]string) error {
 		return err
 	}
 	return os.Chmod(path, 0600)
+}
+
+func appEnvPath() (string, error) {
+	if override := strings.TrimSpace(os.Getenv(envPathOverride)); override != "" {
+		return override, nil
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "Starsong Tools", "LupusAria", ".env"), nil
+}
+
+func addSecretUpdate(updates map[string]string, key, value string) {
+	value = strings.TrimSpace(value)
+	if value != "" {
+		updates[key] = value
+	}
 }
 
 func readEnvLines(path string) ([]string, error) {

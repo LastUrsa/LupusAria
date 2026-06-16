@@ -50,6 +50,14 @@ On Linux, Wails requires WebKitGTK development packages. If Wails reports `Packa
 
 Windows releases are built through GitHub Actions. The installer follows the Starsong Installer Standard: publisher `Starsong Tools`, default install root `%ProgramFiles%\Starsong Tools`, and app path `%ProgramFiles%\Starsong Tools\LupusAria`.
 
+Installed app settings are stored in the current user's config folder, not beside the installed executable:
+
+```text
+%APPDATA%\Starsong Tools\LupusAria\.env
+```
+
+The desktop app shows the active config path on the Overview tab. Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
+
 ## Twitch Tokens
 
 For chat, use a bot-account token with chat read/write scopes:
@@ -59,6 +67,8 @@ twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters'
 ```
 
 The bot account should be a moderator in the channel. This is required for Twitch chatter snapshots and helps AutoSO commands work reliably.
+
+Set the bot username, channel, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Overview tab.
 
 Ad alerts require a broadcaster token with `channel:read:ads`:
 
@@ -85,6 +95,7 @@ The knowledge base is tag-matched. If no section matches a viewer request, the p
 ## Security Notes
 
 - Keep `.env`, token state files, budget state files, and announcement config files local and gitignored.
+- Installed app secrets live under `%APPDATA%\Starsong Tools\LupusAria`.
 - The app writes local secret/state files with owner-only permissions.
 - Use least-privilege Twitch tokens.
 - Do not expose the desktop control panel over a network.
