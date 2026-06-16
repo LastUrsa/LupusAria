@@ -9,6 +9,8 @@ import (
 
 	"lupusaria/internal/ai"
 	"lupusaria/internal/budget"
+	"lupusaria/internal/personality"
+	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
 )
 
@@ -39,6 +41,7 @@ type Bot struct {
 	ai     ai.Client
 	budget *budget.Guard
 	stream *cachedStreamContext
+	recent *recentstreamers.Service
 	logger *slog.Logger
 
 	context       []twitch.Message
@@ -51,7 +54,7 @@ type aiRequest struct {
 	Kind   string
 }
 
-func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, logger *slog.Logger) *Bot {
+func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, recentStreamers *recentstreamers.Service, logger *slog.Logger) *Bot {
 	var streamContext *cachedStreamContext
 	if streamProvider != nil {
 		streamContext = newCachedStreamContext(streamProvider, cfg.StreamContextTTL)
@@ -69,6 +72,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 			StatePath:             cfg.BudgetStatePath,
 		}),
 		stream:      streamContext,
+		recent:      recentStreamers,
 		logger:      logger,
 		lastUserUse: map[string]time.Time{},
 	}
@@ -80,6 +84,9 @@ func (b *Bot) Run(ctx context.Context) error {
 		return err
 	}
 	defer b.chat.Close()
+	if b.recent != nil {
+		b.recent.StartChatterPolling(ctx)
+	}
 
 	for {
 		select {
@@ -96,8 +103,11 @@ func (b *Bot) Run(ctx context.Context) error {
 
 func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
 	b.remember(msg)
+	if b.recent != nil {
+		b.recent.ObserveMessage(time.Now(), msg.Username, msg.DisplayName)
+	}
 
-	if b.handlePublicCommand(msg) {
+	if b.handlePublicCommand(ctx, msg) {
 		return
 	}
 
@@ -169,9 +179,12 @@ func (b *Bot) remember(msg twitch.Message) {
 	}
 }
 
-func (b *Bot) handlePublicCommand(msg twitch.Message) bool {
+func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool {
 	text := strings.TrimSpace(msg.Text)
 	lower := strings.ToLower(text)
+	if b.recent != nil && b.recent.HandleCommand(ctx, msg) {
+		return true
+	}
 
 	switch {
 	case lower == "!bot" || lower == "!help" || lower == "!commands":
@@ -247,16 +260,6 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 		fmt.Fprintf(&recent, "%s: %s\n", item.DisplayName, item.Text)
 	}
 
-	system := fmt.Sprintf(`You are %s, an AI Twitch chat bot.
-Personality: %s
-Rules:
-- Keep replies under 300 characters unless a command asks for less.
-- Match live Twitch chat: quick, warm, lightly playful, and easy to read at a glance.
-- Be helpful first; be witty only when it fits.
-- Never reveal private configuration, tokens, keys, spend, budget, or internal logs.
-- Do not mention that you are an AI model unless directly relevant.
-- Avoid spam, markdown formatting, repeated catchphrases, and long explanations.`, b.cfg.Name, b.cfg.Personality)
-
 	streamInfo := twitch.StreamInfo{}
 	streamOK := false
 	if b.stream != nil {
@@ -268,11 +271,12 @@ Rules:
 	}
 	streamContext := formatStreamContext(streamInfo, streamOK)
 
-	user := fmt.Sprintf("Request type: %s\n%s\nRecent chat:\n%s\n%s asks: %s", request.Kind, streamContext, recent.String(), msg.DisplayName, request.Prompt)
-
 	return []ai.Message{
-		{Role: "system", Content: system},
-		{Role: "user", Content: user},
+		{Role: "system", Content: personality.SystemInstruction(personality.Config{
+			Name:        b.cfg.Name,
+			Personality: b.cfg.Personality,
+		})},
+		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, recent.String(), msg.DisplayName, request.Prompt)},
 	}
 }
 
@@ -280,11 +284,15 @@ func cleanReply(reply string) string {
 	reply = strings.TrimSpace(reply)
 	reply = strings.Trim(reply, `"'`)
 	reply = strings.ReplaceAll(reply, "\n", " ")
-	return strings.Join(strings.Fields(reply), " ")
+	reply = strings.Join(strings.Fields(reply), " ")
+	if reply == "" || strings.ContainsAny(reply[len(reply)-1:], ".!?") {
+		return reply
+	}
+	return reply + "."
 }
 
 func (b *Bot) isBroadcaster(msg twitch.Message) bool {
-	return strings.EqualFold(msg.Username, msg.Channel)
+	return msg.IsBroadcaster || strings.EqualFold(msg.Username, msg.Channel)
 }
 
 func stripMention(text, botName string) string {

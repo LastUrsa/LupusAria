@@ -22,11 +22,13 @@ type Config struct {
 }
 
 type Message struct {
-	Channel     string
-	Username    string
-	DisplayName string
-	Text        string
-	Raw         string
+	Channel       string
+	Username      string
+	DisplayName   string
+	Text          string
+	Raw           string
+	IsBroadcaster bool
+	IsMod         bool
 }
 
 type Client struct {
@@ -165,12 +167,26 @@ func parseMessage(raw string) (Message, bool) {
 	if displayName == "" {
 		displayName = username
 	}
+	isBroadcaster := hasBadge(tags["badges"], "broadcaster")
+	isMod := isBroadcaster || hasBadge(tags["badges"], "moderator") || tags["mod"] == "1"
 
 	return Message{
-		Channel:     strings.TrimPrefix(channelPart, "#"),
-		Username:    strings.ToLower(username),
-		DisplayName: displayName,
-		Text:        text,
-		Raw:         raw,
+		Channel:       strings.TrimPrefix(channelPart, "#"),
+		Username:      strings.ToLower(username),
+		DisplayName:   displayName,
+		Text:          text,
+		Raw:           raw,
+		IsBroadcaster: isBroadcaster,
+		IsMod:         isMod,
 	}, true
+}
+
+func hasBadge(raw, badge string) bool {
+	for _, item := range strings.Split(raw, ",") {
+		name, _, _ := strings.Cut(item, "/")
+		if name == badge {
+			return true
+		}
+	}
+	return false
 }

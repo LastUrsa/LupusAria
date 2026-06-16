@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"lupusaria/internal/ai"
 	"lupusaria/internal/bot"
 	"lupusaria/internal/config"
+	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
 )
 
@@ -53,8 +55,23 @@ func main() {
 	}, logger)
 
 	var streamProvider bot.StreamInfoProvider
+	var helix *twitch.HelixClient
+	var recentService *recentstreamers.Service
 	if cfg.Twitch.ClientID != "" {
-		streamProvider = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
+		helix = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
+		streamProvider = helix
+		broadcasterID, moderatorID := resolveRecentStreamerIDs(context.Background(), helix, cfg.Twitch.Channel, cfg.Twitch.BotUsername, logger)
+		recentService = recentstreamers.New(recentstreamers.Config{
+			Channel:             cfg.Twitch.Channel,
+			BroadcasterID:       broadcasterID,
+			ModeratorID:         moderatorID,
+			MinWatch:            cfg.RecentStreamers.MinWatch,
+			RecentWindow:        cfg.RecentStreamers.RecentWindow,
+			PageSize:            cfg.RecentStreamers.PageSize,
+			ShoutoutDelay:       cfg.RecentStreamers.ShoutoutDelay,
+			CacheTTL:            cfg.RecentStreamers.CacheTTL,
+			ChatterPollInterval: cfg.RecentStreamers.ChatterPollInterval,
+		}, chat, helix, logger)
 	}
 
 	runner := bot.New(bot.Config{
@@ -70,7 +87,7 @@ func main() {
 		InputPricePerMillion:  cfg.AI.InputPricePerMillion,
 		OutputPricePerMillion: cfg.AI.OutputPricePerMillion,
 		BudgetStatePath:       cfg.Bot.BudgetStatePath,
-	}, chat, aiClient, streamProvider, logger)
+	}, chat, aiClient, streamProvider, recentService, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -81,4 +98,29 @@ func main() {
 	}
 
 	fmt.Println("LupusAria stopped.")
+}
+
+func resolveRecentStreamerIDs(ctx context.Context, helix *twitch.HelixClient, channel, botUsername string, logger *slog.Logger) (string, string) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	users, err := helix.GetUsersByLogin(ctx, []string{channel, botUsername})
+	if err != nil {
+		logger.Warn("failed to resolve twitch user IDs for recent streamer tracking", "error", err)
+		return "", ""
+	}
+
+	var broadcasterID, moderatorID string
+	for _, user := range users {
+		switch strings.ToLower(user.Login) {
+		case strings.ToLower(channel):
+			broadcasterID = user.ID
+		case strings.ToLower(botUsername):
+			moderatorID = user.ID
+		}
+	}
+	if broadcasterID == "" || moderatorID == "" {
+		logger.Warn("recent streamer chatter polling needs broadcaster and bot user IDs", "broadcaster_found", broadcasterID != "", "bot_found", moderatorID != "")
+	}
+	return broadcasterID, moderatorID
 }

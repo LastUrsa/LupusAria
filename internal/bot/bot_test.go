@@ -49,7 +49,7 @@ func TestPublicBotCommandDoesNotExposeCost(t *testing.T) {
 	chat := &fakeChat{}
 	b := testBot(chat)
 
-	handled := b.handlePublicCommand(twitch.Message{
+	handled := b.handlePublicCommand(context.Background(), twitch.Message{
 		Channel:     "lastursa",
 		Username:    "viewer",
 		DisplayName: "Viewer",
@@ -75,7 +75,7 @@ func TestResetRequiresBroadcaster(t *testing.T) {
 	b := testBot(chat)
 	b.context = []twitch.Message{{Text: "keep me"}}
 
-	handled := b.handlePublicCommand(twitch.Message{
+	handled := b.handlePublicCommand(context.Background(), twitch.Message{
 		Channel:     "lastursa",
 		Username:    "viewer",
 		DisplayName: "Viewer",
@@ -98,7 +98,7 @@ func TestResetAllowsBroadcaster(t *testing.T) {
 	b := testBot(chat)
 	b.context = []twitch.Message{{Text: "clear me"}}
 
-	handled := b.handlePublicCommand(twitch.Message{
+	handled := b.handlePublicCommand(context.Background(), twitch.Message{
 		Channel:     "lastursa",
 		Username:    "lastursa",
 		DisplayName: "LastUrsa",
@@ -183,7 +183,7 @@ func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 		GameName:    "Science & Technology",
 		ViewerCount: 7,
 		Live:        true,
-	}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	messages := b.buildAIMessages(context.Background(), twitch.Message{
 		Channel:     "lastursa",
@@ -203,6 +203,18 @@ func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 	}
 }
 
+func TestCleanReplyAddsTerminalPunctuation(t *testing.T) {
+	got := cleanReply(`"just a little stardust"`)
+	if got != "just a little stardust." {
+		t.Fatalf("cleanReply = %q", got)
+	}
+
+	got = cleanReply("already complete!")
+	if got != "already complete!" {
+		t.Fatalf("cleanReply should preserve punctuation, got %q", got)
+	}
+}
+
 func testBot(chat *fakeChat) *Bot {
 	return New(Config{
 		Name:                  "LupusAria",
@@ -216,5 +228,5 @@ func testBot(chat *fakeChat) *Bot {
 		MaxRequestsPerHour:    0,
 		InputPricePerMillion:  0,
 		OutputPricePerMillion: 0,
-	}, chat, fakeAI{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, chat, fakeAI{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

@@ -11,9 +11,10 @@ import (
 )
 
 type Config struct {
-	Twitch TwitchConfig
-	AI     AIConfig
-	Bot    BotConfig
+	Twitch          TwitchConfig
+	AI              AIConfig
+	Bot             BotConfig
+	RecentStreamers RecentStreamersConfig
 }
 
 type TwitchConfig struct {
@@ -46,6 +47,15 @@ type BotConfig struct {
 	MonthlyBudgetUSD   float64
 	MaxRequestsPerHour int
 	BudgetStatePath    string
+}
+
+type RecentStreamersConfig struct {
+	MinWatch            time.Duration
+	RecentWindow        time.Duration
+	PageSize            int
+	ShoutoutDelay       time.Duration
+	CacheTTL            time.Duration
+	ChatterPollInterval time.Duration
 }
 
 func Load(envPath string) (Config, error) {
@@ -90,7 +100,7 @@ func Load(envPath string) (Config, error) {
 		},
 		Bot: BotConfig{
 			Name:               get(values, "BOT_NAME", "LupusAria"),
-			Personality:        get(values, "BOT_PERSONALITY", "Warm, grounded, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
+			Personality:        get(values, "BOT_PERSONALITY", "Warm, steady, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
 			MaxContextMessages: getInt(values, "MAX_CONTEXT_MESSAGES", 30),
 			StreamContextTTL:   time.Duration(getInt(values, "STREAM_CONTEXT_TTL_SECONDS", 120)) * time.Second,
 			GlobalCooldown:     time.Duration(getInt(values, "GLOBAL_COOLDOWN_SECONDS", 6)) * time.Second,
@@ -99,6 +109,14 @@ func Load(envPath string) (Config, error) {
 			MonthlyBudgetUSD:   getFloat(values, "MONTHLY_AI_BUDGET_USD", 5),
 			MaxRequestsPerHour: getInt(values, "MAX_AI_REQUESTS_PER_HOUR", 30),
 			BudgetStatePath:    get(values, "AI_BUDGET_STATE_PATH", ".lupusaria-budget.json"),
+		},
+		RecentStreamers: RecentStreamersConfig{
+			MinWatch:            time.Duration(getInt(values, "RECENT_STREAMER_MIN_WATCH_MINUTES", 15)) * time.Minute,
+			RecentWindow:        time.Duration(getInt(values, "RECENT_STREAMER_RECENT_DAYS", 14)) * 24 * time.Hour,
+			PageSize:            getInt(values, "RECENT_STREAMER_PAGE_SIZE", 5),
+			ShoutoutDelay:       time.Duration(getInt(values, "RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS", 2)) * time.Second,
+			CacheTTL:            time.Duration(getInt(values, "RECENT_STREAMER_CACHE_HOURS", 6)) * time.Hour,
+			ChatterPollInterval: time.Duration(getInt(values, "RECENT_STREAMER_CHATTERS_POLL_SECONDS", 60)) * time.Second,
 		},
 	}
 
@@ -148,6 +166,24 @@ func validate(cfg Config) error {
 	}
 	if cfg.Bot.MaxRequestsPerHour < 0 {
 		return errors.New("MAX_AI_REQUESTS_PER_HOUR must be zero or greater")
+	}
+	if cfg.RecentStreamers.MinWatch < 0 {
+		return errors.New("RECENT_STREAMER_MIN_WATCH_MINUTES must be zero or greater")
+	}
+	if cfg.RecentStreamers.RecentWindow < 0 {
+		return errors.New("RECENT_STREAMER_RECENT_DAYS must be zero or greater")
+	}
+	if cfg.RecentStreamers.PageSize < 1 {
+		return errors.New("RECENT_STREAMER_PAGE_SIZE must be greater than zero")
+	}
+	if cfg.RecentStreamers.ShoutoutDelay < 0 {
+		return errors.New("RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS must be zero or greater")
+	}
+	if cfg.RecentStreamers.CacheTTL < 0 {
+		return errors.New("RECENT_STREAMER_CACHE_HOURS must be zero or greater")
+	}
+	if cfg.RecentStreamers.ChatterPollInterval < 0 {
+		return errors.New("RECENT_STREAMER_CHATTERS_POLL_SECONDS must be zero or greater")
 	}
 	return nil
 }

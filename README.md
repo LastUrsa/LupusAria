@@ -14,6 +14,7 @@ This bot is designed for one streamer, not a hosted multi-tenant service. Runnin
 - Responds to `@BotName ...` and `!ask ...`.
 - Keeps recent chat context in memory.
 - Adds cached Twitch stream context to AI prompts.
+- Tracks recent streamer shoutout candidates from chatters and watch time.
 - Uses global and per-user cooldowns.
 - Supports a `mock` AI provider for safe local testing.
 - Supports Gemini for low-cost real replies.
@@ -33,6 +34,14 @@ go run ./cmd/lupusaria
 ## Twitch Token
 
 For local development, use a token for the bot account with chat read/write scopes. Twitch tokens usually look like `oauth:...` for IRC.
+
+Recent streamer watch-time tracking uses Twitch's chatters endpoint so lurkers can count too. Generate the bot token with:
+
+```bash
+twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters'
+```
+
+The bot account also needs to be a moderator in your channel for the chatters endpoint and for `!so @name` chat commands to work reliably.
 
 ## Cost Controls
 
@@ -58,13 +67,26 @@ GEMINI_MODEL=gemini-3.1-flash-lite
 
 ## Commands
 
-- `@LupusAria <message>` asks the bot directly.
-- `!ask <question>` asks the bot directly.
-- `!lurk [reason]` generates a short lurk send-off.
-- `!bot`, `!help`, or `!commands` show public usage.
-- `!reset` clears recent chat context for the broadcaster only.
+See [docs/commands.md](docs/commands.md) for the command list, AI usage, and user scope.
 
 Spend and budget details are intentionally not exposed through public chat commands.
+
+## Personality
+
+See [docs/personality.md](docs/personality.md) for LupusAria's voice, tone, formatting rules, and privacy boundaries.
+
+## Recent Streamer Shoutouts
+
+The recent streamer system defaults to viewers who have watched at least 15 minutes during this bot run and streamed within the last 14 days. Twitch user and recent stream lookups are cached for 6 hours.
+
+```env
+RECENT_STREAMER_MIN_WATCH_MINUTES=15
+RECENT_STREAMER_RECENT_DAYS=14
+RECENT_STREAMER_PAGE_SIZE=5
+RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=2
+RECENT_STREAMER_CACHE_HOURS=6
+RECENT_STREAMER_CHATTERS_POLL_SECONDS=60
+```
 
 ## Twitch Token Refresh
 

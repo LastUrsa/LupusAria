@@ -31,6 +31,8 @@ type Response struct {
 	Usage Usage
 }
 
+const maxOutputTokens = 256
+
 type Client interface {
 	Complete(ctx context.Context, messages []Message) (Response, error)
 }
@@ -75,7 +77,7 @@ func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Respon
 			{Role: "user", Parts: []geminiPart{{Text: prompt}}},
 		},
 		GenerationConfig: geminiGenerationConfig{
-			MaxOutputTokens: 180,
+			MaxOutputTokens: maxOutputTokens,
 			ThinkingConfig:  geminiThinkingConfig{ThinkingLevel: "low"},
 		},
 	}
@@ -177,7 +179,7 @@ func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Messag
 		Model:       c.model,
 		Messages:    messages,
 		Temperature: 0.7,
-		MaxTokens:   180,
+		MaxTokens:   maxOutputTokens,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
