@@ -39,6 +39,7 @@ type BotConfig struct {
 	Name               string
 	Personality        string
 	MaxContextMessages int
+	StreamContextTTL   time.Duration
 	GlobalCooldown     time.Duration
 	UserCooldown       time.Duration
 	DailyBudgetUSD     float64
@@ -91,6 +92,7 @@ func Load(envPath string) (Config, error) {
 			Name:               get(values, "BOT_NAME", "LupusAria"),
 			Personality:        get(values, "BOT_PERSONALITY", "Warm, grounded, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
 			MaxContextMessages: getInt(values, "MAX_CONTEXT_MESSAGES", 30),
+			StreamContextTTL:   time.Duration(getInt(values, "STREAM_CONTEXT_TTL_SECONDS", 120)) * time.Second,
 			GlobalCooldown:     time.Duration(getInt(values, "GLOBAL_COOLDOWN_SECONDS", 6)) * time.Second,
 			UserCooldown:       time.Duration(getInt(values, "USER_COOLDOWN_SECONDS", 20)) * time.Second,
 			DailyBudgetUSD:     getFloat(values, "DAILY_AI_BUDGET_USD", 0.50),
@@ -137,6 +139,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.Bot.MaxContextMessages < 1 {
 		return errors.New("MAX_CONTEXT_MESSAGES must be greater than zero")
+	}
+	if cfg.Bot.StreamContextTTL < 0 {
+		return errors.New("STREAM_CONTEXT_TTL_SECONDS must be zero or greater")
 	}
 	if cfg.Bot.DailyBudgetUSD < 0 || cfg.Bot.MonthlyBudgetUSD < 0 {
 		return errors.New("AI budget values must be zero or greater")

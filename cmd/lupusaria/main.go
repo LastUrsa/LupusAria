@@ -52,10 +52,16 @@ func main() {
 		Channel:  cfg.Twitch.Channel,
 	}, logger)
 
+	var streamProvider bot.StreamInfoProvider
+	if cfg.Twitch.ClientID != "" {
+		streamProvider = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
+	}
+
 	runner := bot.New(bot.Config{
 		Name:                  cfg.Bot.Name,
 		Personality:           cfg.Bot.Personality,
 		MaxContextMessages:    cfg.Bot.MaxContextMessages,
+		StreamContextTTL:      cfg.Bot.StreamContextTTL,
 		GlobalCooldown:        cfg.Bot.GlobalCooldown,
 		UserCooldown:          cfg.Bot.UserCooldown,
 		DailyBudgetUSD:        cfg.Bot.DailyBudgetUSD,
@@ -64,7 +70,7 @@ func main() {
 		InputPricePerMillion:  cfg.AI.InputPricePerMillion,
 		OutputPricePerMillion: cfg.AI.OutputPricePerMillion,
 		BudgetStatePath:       cfg.Bot.BudgetStatePath,
-	}, chat, aiClient, logger)
+	}, chat, aiClient, streamProvider, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -22,6 +22,7 @@ type Config struct {
 	Name                  string
 	Personality           string
 	MaxContextMessages    int
+	StreamContextTTL      time.Duration
 	GlobalCooldown        time.Duration
 	UserCooldown          time.Duration
 	DailyBudgetUSD        float64
@@ -37,6 +38,7 @@ type Bot struct {
 	chat   Chat
 	ai     ai.Client
 	budget *budget.Guard
+	stream *cachedStreamContext
 	logger *slog.Logger
 
 	context       []twitch.Message
@@ -49,7 +51,11 @@ type aiRequest struct {
 	Kind   string
 }
 
-func New(cfg Config, chat Chat, aiClient ai.Client, logger *slog.Logger) *Bot {
+func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, logger *slog.Logger) *Bot {
+	var streamContext *cachedStreamContext
+	if streamProvider != nil {
+		streamContext = newCachedStreamContext(streamProvider, cfg.StreamContextTTL)
+	}
 	return &Bot{
 		cfg:  cfg,
 		chat: chat,
@@ -62,6 +68,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, logger *slog.Logger) *Bot {
 			OutputPricePerMillion: cfg.OutputPricePerMillion,
 			StatePath:             cfg.BudgetStatePath,
 		}),
+		stream:      streamContext,
 		logger:      logger,
 		lastUserUse: map[string]time.Time{},
 	}
@@ -118,7 +125,7 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	messages := b.buildAIMessages(msg, request)
+	messages := b.buildAIMessages(ctx, msg, request)
 	response, err := b.ai.Complete(ctx, messages)
 	if err != nil {
 		b.logger.Warn("ai request failed", "error", err)
@@ -234,7 +241,7 @@ func (b *Bot) cooldown(username string) (time.Duration, bool) {
 	return 0, true
 }
 
-func (b *Bot) buildAIMessages(msg twitch.Message, request aiRequest) []ai.Message {
+func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request aiRequest) []ai.Message {
 	var recent strings.Builder
 	for _, item := range b.context {
 		fmt.Fprintf(&recent, "%s: %s\n", item.DisplayName, item.Text)
@@ -250,7 +257,18 @@ Rules:
 - Do not mention that you are an AI model unless directly relevant.
 - Avoid spam, markdown formatting, repeated catchphrases, and long explanations.`, b.cfg.Name, b.cfg.Personality)
 
-	user := fmt.Sprintf("Request type: %s\nRecent chat:\n%s\n%s asks: %s", request.Kind, recent.String(), msg.DisplayName, request.Prompt)
+	streamInfo := twitch.StreamInfo{}
+	streamOK := false
+	if b.stream != nil {
+		var err error
+		streamInfo, streamOK, err = b.stream.Get(ctx, msg.Channel)
+		if err != nil {
+			b.logger.Warn("failed to fetch stream context", "error", err)
+		}
+	}
+	streamContext := formatStreamContext(streamInfo, streamOK)
+
+	user := fmt.Sprintf("Request type: %s\n%s\nRecent chat:\n%s\n%s asks: %s", request.Kind, streamContext, recent.String(), msg.DisplayName, request.Prompt)
 
 	return []ai.Message{
 		{Role: "system", Content: system},

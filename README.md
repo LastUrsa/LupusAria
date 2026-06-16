@@ -13,6 +13,7 @@ This bot is designed for one streamer, not a hosted multi-tenant service. Runnin
 - Connects to Twitch chat over IRC/TLS.
 - Responds to `@BotName ...` and `!ask ...`.
 - Keeps recent chat context in memory.
+- Adds cached Twitch stream context to AI prompts.
 - Uses global and per-user cooldowns.
 - Supports a `mock` AI provider for safe local testing.
 - Supports Gemini for low-cost real replies.
@@ -39,6 +40,7 @@ The bot only calls AI when directly mentioned or when `!ask` is used. Cooldowns 
 
 - `GLOBAL_COOLDOWN_SECONDS`
 - `USER_COOLDOWN_SECONDS`
+- `STREAM_CONTEXT_TTL_SECONDS`
 - `MAX_AI_REQUESTS_PER_HOUR`
 - `DAILY_AI_BUDGET_USD`
 - `MONTHLY_AI_BUDGET_USD`

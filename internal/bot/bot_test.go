@@ -37,6 +37,14 @@ func (fakeAI) Complete(context.Context, []ai.Message) (ai.Response, error) {
 	return ai.Response{Text: "ok"}, nil
 }
 
+type fakeStreamProvider struct {
+	info twitch.StreamInfo
+}
+
+func (f fakeStreamProvider) GetStreamInfo(context.Context, string) (twitch.StreamInfo, error) {
+	return f.info, nil
+}
+
 func TestPublicBotCommandDoesNotExposeCost(t *testing.T) {
 	chat := &fakeChat{}
 	b := testBot(chat)
@@ -155,11 +163,13 @@ func TestExtractAIRequests(t *testing.T) {
 	}
 }
 
-func testBot(chat *fakeChat) *Bot {
-	return New(Config{
+func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
 		Name:                  "LupusAria",
 		Personality:           "test",
 		MaxContextMessages:    30,
+		StreamContextTTL:      time.Minute,
 		GlobalCooldown:        time.Second,
 		UserCooldown:          time.Second,
 		DailyBudgetUSD:        0,
@@ -167,5 +177,44 @@ func testBot(chat *fakeChat) *Bot {
 		MaxRequestsPerHour:    0,
 		InputPricePerMillion:  0,
 		OutputPricePerMillion: 0,
-	}, chat, fakeAI{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, chat, fakeAI{}, fakeStreamProvider{info: twitch.StreamInfo{
+		Channel:     "lastursa",
+		Title:       "Testing LupusAria",
+		GameName:    "Science & Technology",
+		ViewerCount: 7,
+		Live:        true,
+	}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	messages := b.buildAIMessages(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "!ask hello",
+	}, aiRequest{Kind: "ask", Prompt: "hello"})
+
+	if len(messages) != 2 {
+		t.Fatalf("expected two AI messages, got %d", len(messages))
+	}
+	userPrompt := messages[1].Content
+	for _, want := range []string{"Stream context: live", "Science & Technology", "Testing LupusAria", "Viewers: 7"} {
+		if !strings.Contains(userPrompt, want) {
+			t.Fatalf("prompt missing %q: %s", want, userPrompt)
+		}
+	}
+}
+
+func testBot(chat *fakeChat) *Bot {
+	return New(Config{
+		Name:                  "LupusAria",
+		Personality:           "test",
+		MaxContextMessages:    30,
+		StreamContextTTL:      time.Minute,
+		GlobalCooldown:        time.Second,
+		UserCooldown:          time.Second,
+		DailyBudgetUSD:        0,
+		MonthlyBudgetUSD:      0,
+		MaxRequestsPerHour:    0,
+		InputPricePerMillion:  0,
+		OutputPricePerMillion: 0,
+	}, chat, fakeAI{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
