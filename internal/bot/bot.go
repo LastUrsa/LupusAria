@@ -10,6 +10,7 @@ import (
 
 	"lupusaria/internal/adalerts"
 	"lupusaria/internal/ai"
+	"lupusaria/internal/announcements"
 	"lupusaria/internal/budget"
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/personality"
@@ -52,6 +53,7 @@ type Bot struct {
 	budget *budget.Guard
 	stream *cachedStreamContext
 	recent *recentstreamers.Service
+	ann    *announcements.Service
 	know   knowledge.Base
 	logger *slog.Logger
 
@@ -66,7 +68,7 @@ type aiRequest struct {
 	Kind   string
 }
 
-func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, recentStreamers *recentstreamers.Service, logger *slog.Logger) *Bot {
+func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, recentStreamers *recentstreamers.Service, announcementService *announcements.Service, logger *slog.Logger) *Bot {
 	var streamContext *cachedStreamContext
 	if streamProvider != nil {
 		streamContext = newCachedStreamContext(streamProvider, cfg.StreamContextTTL)
@@ -85,6 +87,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 		}),
 		stream:      streamContext,
 		recent:      recentStreamers,
+		ann:         announcementService,
 		know:        cfg.Knowledge,
 		logger:      logger,
 		lastUserUse: map[string]time.Time{},
@@ -99,6 +102,9 @@ func (b *Bot) Run(ctx context.Context) error {
 	defer b.chat.Close()
 	if b.recent != nil {
 		b.recent.StartChatterPolling(ctx)
+	}
+	if b.ann != nil {
+		b.ann.Start(ctx)
 	}
 
 	for {
@@ -202,6 +208,9 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 	text := strings.TrimSpace(msg.Text)
 	lower := strings.ToLower(text)
 	if b.recent != nil && b.recent.HandleCommand(ctx, msg) {
+		return true
+	}
+	if b.ann != nil && b.ann.HandleCommand(ctx, msg, b.isBroadcaster(msg)) {
 		return true
 	}
 

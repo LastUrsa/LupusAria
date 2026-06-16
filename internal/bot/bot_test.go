@@ -320,7 +320,7 @@ func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 		GameName:    "Science & Technology",
 		ViewerCount: 7,
 		Live:        true,
-	}}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	messages := b.buildAIMessages(context.Background(), twitch.Message{
 		Channel:     "lastursa",
@@ -359,7 +359,7 @@ Tags: music, songs
 Tags: project
 - Project facts.
 `),
-	}, chat, fakeAI{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	messages := b.buildAIMessages(context.Background(), twitch.Message{
 		Channel:     "lastursa",
@@ -395,7 +395,7 @@ func TestBuildAIMessagesOmitsIrrelevantKnowledge(t *testing.T) {
 Tags: music, songs
 - Ursa makes verified star songs.
 `),
-	}, chat, fakeAI{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	messages := b.buildAIMessages(context.Background(), twitch.Message{
 		Channel:     "lastursa",
@@ -443,5 +443,5 @@ func testBot(chat *fakeChat) *Bot {
 		MaxRequestsPerHour:    0,
 		InputPricePerMillion:  0,
 		OutputPricePerMillion: 0,
-	}, chat, fakeAI{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

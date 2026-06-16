@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { GetLogs, GetSettings, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
+import { GetAnnouncements, GetLogs, GetSettings, SaveAnnouncements, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
 import './App.css'
 
 type Settings = main.ControlSettings
-type Section = 'overview' | 'chat' | 'ai' | 'autoso' | 'ads' | 'activity'
+type Announcement = main.AnnouncementSettings
+type Section = 'overview' | 'chat' | 'ai' | 'autoso' | 'ads' | 'announcements' | 'activity'
 
 const sections: Array<{ id: Section; label: string }> = [
   { id: 'overview', label: 'Overview' },
@@ -12,6 +13,7 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'ai', label: 'AI' },
   { id: 'autoso', label: 'AutoSO' },
   { id: 'ads', label: 'Ads' },
+  { id: 'announcements', label: 'Announcements' },
   { id: 'activity', label: 'Activity' }
 ]
 
@@ -45,12 +47,15 @@ const emptySettings: Settings = {
   adPollSeconds: 30,
   adWarningMessage: 'Heads up: ads are scheduled in about %s.',
   adStartMessage: 'Ad break starting now. Good moment to stretch, hydrate, and rest your eyes.',
-  adEndMessage: 'Welcome back. Ads should be done now.'
+  adEndMessage: 'Welcome back. Ads should be done now.',
+  announcementsEnabled: false,
+  announcementPollSeconds: 30
 }
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(emptySettings)
   const [logs, setLogs] = useState<string[]>([])
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [section, setSection] = useState<Section>('overview')
@@ -62,6 +67,7 @@ export default function App() {
       const next = await GetSettings()
       if (replaceSettings || !dirtyRef.current) {
         setSettings(next)
+        setAnnouncements((await GetAnnouncements()) ?? [])
       } else {
         setSettings((current) => ({
           ...current,
@@ -86,6 +92,7 @@ export default function App() {
     setBusy(true)
     try {
       await SaveSettings(settings)
+      await SaveAnnouncements(announcements)
       dirtyRef.current = false
       setDirty(false)
       setNotice('Settings saved. Restart the bot to apply runtime changes.')
@@ -129,6 +136,36 @@ export default function App() {
     setSettings((current) => ({ ...current, [key]: value }))
   }
 
+  const updateAnnouncement = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => {
+    dirtyRef.current = true
+    setDirty(true)
+    setAnnouncements((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)))
+  }
+
+  const addAnnouncement = (kind: 'command' | 'timer') => {
+    dirtyRef.current = true
+    setDirty(true)
+    const nextNumber = announcements.length + 1
+    setAnnouncements((current) => [
+      ...current,
+      {
+        id: `${kind}-${nextNumber}`,
+        enabled: true,
+        kind,
+        command: kind === 'command' ? `!${kind}${nextNumber}` : '',
+        afterMinutes: kind === 'timer' ? 30 : 0,
+        repeatMinutes: kind === 'timer' ? 0 : 0,
+        message: ''
+      }
+    ])
+  }
+
+  const removeAnnouncement = (index: number) => {
+    dirtyRef.current = true
+    setDirty(true)
+    setAnnouncements((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -154,7 +191,7 @@ export default function App() {
         <header className="topbar">
           <div>
             <h2>{sections.find((item) => item.id === section)?.label}</h2>
-            <p>Local Twitch bot controls for chat replies, AutoSO, and ad alerts.</p>
+            <p>Local Twitch bot controls for chat replies, AutoSO, announcements, and ad alerts.</p>
           </div>
           <div className="runtime-panel">
             <span className={`status-pill ${settings.running ? 'running' : 'stopped'}`}>{settings.status}</span>
@@ -180,6 +217,7 @@ export default function App() {
                 <StatusRow label="AI provider" value={settings.aiProvider} />
                 <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
+                <StatusRow label="Announcements" value={settings.announcementsEnabled ? 'Enabled' : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
               </Card>
             </div>
           )}
@@ -250,6 +288,54 @@ export default function App() {
               <TextArea label="Warning fallback message" value={settings.adWarningMessage} onChange={(value) => update('adWarningMessage', value)} />
               <TextArea label="Start fallback message" value={settings.adStartMessage} onChange={(value) => update('adStartMessage', value)} />
               <TextArea label="End fallback message" value={settings.adEndMessage} onChange={(value) => update('adEndMessage', value)} />
+            </Card>
+          )}
+
+          {section === 'announcements' && (
+            <Card title="Announcements" wide>
+              <div className="info-callout">
+                <strong>Static messages, no AI cost.</strong>
+                <span>Command announcements are broadcaster-only. Timer announcements use Twitch stream start time and repeat until stream end when an interval is set.</span>
+              </div>
+              <div className="split">
+                <Toggle label="Enable announcements" checked={settings.announcementsEnabled} onChange={(value) => update('announcementsEnabled', value)} />
+                <NumberField label="Timer poll seconds" value={settings.announcementPollSeconds} onChange={(value) => update('announcementPollSeconds', value)} />
+              </div>
+              <div className="announcement-actions">
+                <button type="button" onClick={() => addAnnouncement('command')}>Add command</button>
+                <button className="secondary" type="button" onClick={() => addAnnouncement('timer')}>Add timer</button>
+              </div>
+              <div className="announcement-list">
+                {announcements.length === 0 ? (
+                  <p className="muted">No announcements configured.</p>
+                ) : announcements.map((item, index) => (
+                  <div className="announcement-row" key={`${item.id}-${index}`}>
+                    <div className="announcement-row-header">
+                      <Toggle label="Enabled" checked={item.enabled} onChange={(value) => updateAnnouncement(index, 'enabled', value)} />
+                      <label className="field compact-field">
+                        <span>Type</span>
+                        <select value={item.kind} onChange={(event) => updateAnnouncement(index, 'kind', event.target.value)}>
+                          <option value="command">Command</option>
+                          <option value="timer">Timer</option>
+                        </select>
+                      </label>
+                      <button className="danger" type="button" onClick={() => removeAnnouncement(index)}>Remove</button>
+                    </div>
+                    <div className="split">
+                      <TextField label="ID" value={item.id} onChange={(value) => updateAnnouncement(index, 'id', value)} />
+                      {item.kind === 'timer' ? (
+                        <>
+                          <NumberField label="First send minute" value={item.afterMinutes} onChange={(value) => updateAnnouncement(index, 'afterMinutes', value)} />
+                          <NumberField label="Repeat interval minutes" value={item.repeatMinutes} onChange={(value) => updateAnnouncement(index, 'repeatMinutes', value)} />
+                        </>
+                      ) : (
+                        <TextField label="Command" value={item.command} onChange={(value) => updateAnnouncement(index, 'command', value)} />
+                      )}
+                    </div>
+                    <TextArea label="Message" value={item.message} onChange={(value) => updateAnnouncement(index, 'message', value)} />
+                  </div>
+                ))}
+              </div>
             </Card>
           )}
 

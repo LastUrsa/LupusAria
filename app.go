@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"lupusaria/internal/announcements"
 	"lupusaria/internal/botrunner"
 	"lupusaria/internal/config"
 )
@@ -64,6 +65,19 @@ type ControlSettings struct {
 	AdWarningMessage string `json:"adWarningMessage"`
 	AdStartMessage   string `json:"adStartMessage"`
 	AdEndMessage     string `json:"adEndMessage"`
+
+	AnnouncementsEnabled    bool `json:"announcementsEnabled"`
+	AnnouncementPollSeconds int  `json:"announcementPollSeconds"`
+}
+
+type AnnouncementSettings struct {
+	ID            string `json:"id"`
+	Enabled       bool   `json:"enabled"`
+	Kind          string `json:"kind"`
+	Command       string `json:"command"`
+	AfterMinutes  int    `json:"afterMinutes"`
+	RepeatMinutes int    `json:"repeatMinutes"`
+	Message       string `json:"message"`
 }
 
 func NewApp() *App {
@@ -116,6 +130,9 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		AdWarningMessage: cfg.AdAlerts.WarningMessage,
 		AdStartMessage:   cfg.AdAlerts.StartMessage,
 		AdEndMessage:     cfg.AdAlerts.EndMessage,
+
+		AnnouncementsEnabled:    cfg.Announcements.Enabled,
+		AnnouncementPollSeconds: int(cfg.Announcements.PollInterval / time.Second),
 	}
 	a.mu.Lock()
 	settings.Running = a.running
@@ -162,11 +179,62 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"AD_ALERT_WARNING_MESSAGE": settings.AdWarningMessage,
 		"AD_ALERT_START_MESSAGE":   settings.AdStartMessage,
 		"AD_ALERT_END_MESSAGE":     settings.AdEndMessage,
+
+		"ANNOUNCEMENTS_ENABLED":     boolString(settings.AnnouncementsEnabled),
+		"ANNOUNCEMENT_POLL_SECONDS": strconv.Itoa(settings.AnnouncementPollSeconds),
 	}
 	if err := updateEnvFile(envPath, updates); err != nil {
 		return err
 	}
 	a.appendLog("settings saved")
+	return nil
+}
+
+func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {
+	cfg, err := config.Load(envPath)
+	if err != nil {
+		return nil, err
+	}
+	items, err := announcements.Load(cfg.Announcements.Path)
+	if err != nil {
+		return nil, err
+	}
+	settings := make([]AnnouncementSettings, 0, len(items))
+	for _, item := range items {
+		settings = append(settings, AnnouncementSettings{
+			ID:            item.ID,
+			Enabled:       item.Enabled,
+			Kind:          item.Kind,
+			Command:       item.Command,
+			AfterMinutes:  item.AfterMinutes,
+			RepeatMinutes: item.RepeatMinutes,
+			Message:       item.Message,
+		})
+	}
+	return settings, nil
+}
+
+func (a *App) SaveAnnouncements(settings []AnnouncementSettings) error {
+	cfg, err := config.Load(envPath)
+	if err != nil {
+		return err
+	}
+	items := make([]announcements.Announcement, 0, len(settings))
+	for _, item := range settings {
+		items = append(items, announcements.Announcement{
+			ID:            item.ID,
+			Enabled:       item.Enabled,
+			Kind:          item.Kind,
+			Command:       item.Command,
+			AfterMinutes:  item.AfterMinutes,
+			RepeatMinutes: item.RepeatMinutes,
+			Message:       item.Message,
+		})
+	}
+	if err := announcements.Save(cfg.Announcements.Path, items); err != nil {
+		return err
+	}
+	a.appendLog("announcements saved")
 	return nil
 }
 

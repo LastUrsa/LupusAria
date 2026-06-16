@@ -10,6 +10,7 @@ import (
 
 	"lupusaria/internal/adalerts"
 	"lupusaria/internal/ai"
+	"lupusaria/internal/announcements"
 	"lupusaria/internal/bot"
 	"lupusaria/internal/config"
 	"lupusaria/internal/knowledge"
@@ -81,6 +82,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	var streamProvider bot.StreamInfoProvider
 	var helix *twitch.HelixClient
 	var recentService *recentstreamers.Service
+	var announcementService *announcements.Service
 	var adService *adalerts.Service
 	var broadcasterID string
 	if cfg.Twitch.ClientID != "" {
@@ -103,6 +105,19 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		}
 	}
 
+	announcementItems, err := announcements.Load(cfg.Announcements.Path)
+	if err != nil {
+		logger.Warn("failed to load announcements; continuing without them", "path", cfg.Announcements.Path, "error", err)
+	} else if cfg.Announcements.Enabled {
+		announcementService = announcements.New(announcements.Config{
+			Enabled:      cfg.Announcements.Enabled,
+			Channel:      cfg.Twitch.Channel,
+			PollInterval: cfg.Announcements.PollInterval,
+			Items:        announcementItems,
+		}, chat, streamProvider, logger)
+		logger.Info("loaded announcements", "path", cfg.Announcements.Path, "count", len(announcementItems))
+	}
+
 	runner := bot.New(bot.Config{
 		Name:                  cfg.Bot.Name,
 		Channel:               cfg.Twitch.Channel,
@@ -123,7 +138,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		OutputPricePerMillion: cfg.AI.OutputPricePerMillion,
 		BudgetStatePath:       cfg.Bot.BudgetStatePath,
 		Knowledge:             knowledgeBase,
-	}, chat, aiClient, streamProvider, recentService, logger)
+	}, chat, aiClient, streamProvider, recentService, announcementService, logger)
 
 	if cfg.AdAlerts.Enabled && cfg.Twitch.ClientID != "" {
 		adsHelix := twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.AdsOAuthToken)

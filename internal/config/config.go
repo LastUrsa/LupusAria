@@ -16,6 +16,7 @@ type Config struct {
 	Bot             BotConfig
 	RecentStreamers RecentStreamersConfig
 	AdAlerts        AdAlertsConfig
+	Announcements   AnnouncementsConfig
 }
 
 type TwitchConfig struct {
@@ -76,6 +77,12 @@ type AdAlertsConfig struct {
 	WarningMessage string
 	StartMessage   string
 	EndMessage     string
+}
+
+type AnnouncementsConfig struct {
+	Enabled      bool
+	Path         string
+	PollInterval time.Duration
 }
 
 func Load(envPath string) (Config, error) {
@@ -155,6 +162,11 @@ func Load(envPath string) (Config, error) {
 			WarningMessage: get(values, "AD_ALERT_WARNING_MESSAGE", "Heads up: ads are scheduled in about %s."),
 			StartMessage:   get(values, "AD_ALERT_START_MESSAGE", "Ad break starting now. Good moment to stretch, hydrate, and rest your eyes."),
 			EndMessage:     get(values, "AD_ALERT_END_MESSAGE", "Welcome back. Ads should be done now."),
+		},
+		Announcements: AnnouncementsConfig{
+			Enabled:      getBool(values, "ANNOUNCEMENTS_ENABLED", false),
+			Path:         get(values, "ANNOUNCEMENTS_PATH", ".lupusaria-announcements.json"),
+			PollInterval: time.Duration(getInt(values, "ANNOUNCEMENT_POLL_SECONDS", 30)) * time.Second,
 		},
 	}
 
@@ -239,6 +251,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.AdAlerts.PollInterval < 0 {
 		return errors.New("AD_ALERT_POLL_SECONDS must be zero or greater")
+	}
+	if cfg.Announcements.PollInterval < 0 {
+		return errors.New("ANNOUNCEMENT_POLL_SECONDS must be zero or greater")
 	}
 	return nil
 }

@@ -48,6 +48,9 @@ ENABLE_RESET_COMMAND=true
 AUTOSO_ENABLED=on
 AD_ALERT_WARNING_MINUTES=8
 AD_ALERT_POLL_SECONDS=45
+ANNOUNCEMENTS_ENABLED=true
+ANNOUNCEMENTS_PATH=.custom-announcements.json
+ANNOUNCEMENT_POLL_SECONDS=20
 `)
 
 	cfg, err := Load(envPath)
@@ -68,6 +71,9 @@ AD_ALERT_POLL_SECONDS=45
 	}
 	if cfg.AdAlerts.WarningLead != 8*time.Minute || cfg.AdAlerts.PollInterval != 45*time.Second {
 		t.Fatalf("ad alerts = %#v", cfg.AdAlerts)
+	}
+	if !cfg.Announcements.Enabled || cfg.Announcements.Path != ".custom-announcements.json" || cfg.Announcements.PollInterval != 20*time.Second {
+		t.Fatalf("announcements = %#v", cfg.Announcements)
 	}
 }
 

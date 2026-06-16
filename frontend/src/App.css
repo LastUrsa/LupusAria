@@ -152,6 +152,10 @@ h2 {
   gap: 16px;
 }
 
+.card.wide {
+  grid-column: 1 / -1;
+}
+
 .card {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -209,6 +213,10 @@ h2 {
   font-weight: 400;
 }
 
+.compact-field {
+  min-width: 150px;
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -263,6 +271,38 @@ h2 {
   line-height: 1.5;
 }
 
+.announcement-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.announcement-list {
+  display: grid;
+  gap: 12px;
+}
+
+.announcement-row {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(146, 148, 152, 0.18);
+  border-radius: var(--radius-md);
+  background: rgba(21, 23, 27, 0.28);
+}
+
+.announcement-row-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.danger {
+  color: var(--color-semantic-danger);
+  border-color: rgba(255, 122, 122, 0.38);
+  background: rgba(74, 16, 20, 0.28);
+}
+
 .muted {
   color: var(--color-neutral-400);
 }
@@ -271,9 +311,18 @@ h2 {
   position: sticky;
   bottom: 0;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 16px;
   padding: 14px 0 0;
   background: linear-gradient(180deg, transparent, #1f2130 34%);
+}
+
+.actions button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 112px;
+  min-height: 36px;
+  padding: 7px 12px;
 }

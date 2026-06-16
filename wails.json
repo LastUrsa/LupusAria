@@ -9,7 +9,8 @@
   "info": {
     "companyName": "Starsong Tools",
     "productName": "LupusAria",
-    "productVersion": "0.1.0"
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2026 Starsong Tools"
   },
   "author": {
     "name": "Starsong Tools"

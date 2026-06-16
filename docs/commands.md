@@ -15,6 +15,7 @@ This file tracks public chat behavior, command scope, and AI usage.
 | `!autoso next` | Broadcaster | No | Sends the next page from the current queue. |
 | `!autoso refresh` | Broadcaster | No | Rebuilds the queue from current watch-time and stream-history data. |
 | `!autoso status` | Broadcaster | No | Shows tracker counts without cost or secret details. |
+| Configured announcement commands | Broadcaster | No | Sends static messages configured in the desktop app. |
 | Ad alerts | Automatic | Yes | Uses AI by default; configured messages are fallbacks. |
 
 Broadcaster commands are restricted to the channel owner. The bot checks Twitch IRC tags when available and falls back to matching the username against the channel name.
@@ -70,6 +71,32 @@ AD_ALERT_END_MESSAGE=Welcome back. Ads should be done now.
 `AD_ALERT_WARNING_MESSAGE` should include one `%s` placeholder, such as `5 minutes`.
 
 Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally.
+
+## Announcements
+
+Announcements are static messages managed in the desktop app. They do not call AI.
+
+Types:
+
+- Command announcements: broadcaster-only commands such as `!music`.
+- Timer announcements: messages based on elapsed stream time from Twitch's stream start time.
+
+Announcement rows are stored locally at `ANNOUNCEMENTS_PATH`, which defaults to `.lupusaria-announcements.json`.
+
+Key settings:
+
+```env
+ANNOUNCEMENTS_ENABLED=false
+ANNOUNCEMENTS_PATH=.lupusaria-announcements.json
+ANNOUNCEMENT_POLL_SECONDS=30
+```
+
+Timer announcements require Twitch stream context. If Twitch stream info is unavailable, command announcements can still work.
+
+Timer rows use:
+
+- First send minute: first elapsed stream minute when the message can send.
+- Repeat interval minutes: repeat interval after the first send. Use `0` for a one-shot timer. Any positive interval repeats until the stream ends.
 
 ## Public Safety
 

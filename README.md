@@ -11,6 +11,7 @@ It is built for one streamer: simple to run locally, cheap to operate, and easy 
 - Short rolling chat context plus cached Twitch stream context.
 - Deterministic Ursa knowledge injection from `docs/knowledge/ursa.md`.
 - AutoSO tracking from chatters, watch time, and recent stream history.
+- Configurable command and stream-timer announcements.
 - Optional ad alerts with Twitch ad schedule support.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
 - Gemini, OpenAI-compatible, and mock AI providers.
@@ -43,9 +44,11 @@ Build the executable:
 /home/don/go/bin/wails build
 ```
 
-The app can start and stop the bot, edit non-secret settings, toggle chat abilities, configure AutoSO, configure ad alerts, and show recent activity.
+The app can start and stop the bot, edit non-secret settings, toggle chat abilities, configure AutoSO, configure announcements, configure ad alerts, and show recent activity.
 
 On Linux, Wails requires WebKitGTK development packages. If Wails reports `Package 'webkit2gtk-4.0' not found`, install the Wails Linux dependencies for your distro and rerun the build.
+
+Windows releases are built through GitHub Actions. The installer follows the Starsong Installer Standard: publisher `Starsong Tools`, default install root `%ProgramFiles%\Starsong Tools`, and app path `%ProgramFiles%\Starsong Tools\LupusAria`.
 
 ## Twitch Tokens
 
@@ -81,12 +84,43 @@ The knowledge base is tag-matched. If no section matches a viewer request, the p
 
 ## Security Notes
 
-- Keep `.env`, token state files, and budget state files local and gitignored.
+- Keep `.env`, token state files, budget state files, and announcement config files local and gitignored.
 - The app writes local secret/state files with owner-only permissions.
 - Use least-privilege Twitch tokens.
 - Do not expose the desktop control panel over a network.
 - Public chat commands must not reveal tokens, secrets, logs, file paths, budget state, or spend details.
 - Before releases, run `govulncheck ./...` and `npm audit`.
+
+## Quality Gates
+
+Run the same core checks used by GitHub Actions:
+
+```bash
+npm --prefix frontend run build
+go test ./...
+go test -race ./...
+go vet ./...
+npm --prefix frontend audit --audit-level=moderate
+govulncheck ./...
+```
+
+The `CI / Quality Gates` workflow runs these checks on pull requests and pushes to `main`.
+
+## Release Process
+
+Releases are built by `.github/workflows/release.yml` from a `v*` tag or manual workflow dispatch.
+
+The release workflow:
+
+- runs the quality gates
+- builds the Windows executable and NSIS installer
+- packages a portable zip
+- writes `SHA256SUMS.txt`
+- extracts human-readable notes from `RELEASE_NOTES.md`
+- uploads release artifacts
+- publishes or updates the GitHub Release when enabled
+
+Before tagging, add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
 
 ## Docs
 

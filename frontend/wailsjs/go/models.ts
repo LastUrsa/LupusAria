@@ -1,5 +1,29 @@
 export namespace main {
-	
+
+	export class AnnouncementSettings {
+	    id: string;
+	    enabled: boolean;
+	    kind: string;
+	    command: string;
+	    afterMinutes: number;
+	    repeatMinutes: number;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AnnouncementSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.enabled = source["enabled"];
+	        this.kind = source["kind"];
+	        this.command = source["command"];
+	        this.afterMinutes = source["afterMinutes"];
+	        this.repeatMinutes = source["repeatMinutes"];
+	        this.message = source["message"];
+	    }
+	}
 	export class ControlSettings {
 	    running: boolean;
 	    status: string;
@@ -31,6 +55,8 @@ export namespace main {
 	    adWarningMessage: string;
 	    adStartMessage: string;
 	    adEndMessage: string;
+	    announcementsEnabled: boolean;
+	    announcementPollSeconds: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ControlSettings(source);
@@ -68,8 +94,9 @@ export namespace main {
 	        this.adWarningMessage = source["adWarningMessage"];
 	        this.adStartMessage = source["adStartMessage"];
 	        this.adEndMessage = source["adEndMessage"];
+	        this.announcementsEnabled = source["announcementsEnabled"];
+	        this.announcementPollSeconds = source["announcementPollSeconds"];
 	    }
 	}
 
 }
-

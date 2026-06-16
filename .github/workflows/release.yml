@@ -1,0 +1,322 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, with or without a leading v
+        required: true
+        type: string
+      publish_release:
+        description: Create or update the GitHub Release after artifacts build
+        required: true
+        default: false
+        type: boolean
+      draft:
+        description: Create the manually published release as a draft
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: Mark the manually published release as a prerelease
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Run Go race tests
+        run: go test -race ./...
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=moderate
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  windows-release:
+    name: Windows Release
+    runs-on: windows-latest
+    needs: quality-gates
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: release_meta
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $tag = "${{ github.ref_name }}"
+            $version = $tag.TrimStart("v")
+            $draft = "false"
+            $prerelease = if ($version.Contains("-")) { "true" } else { "false" }
+            $publishRelease = "true"
+          }
+          else {
+            $inputVersion = "${{ github.event.inputs.version }}"
+            $version = $inputVersion.TrimStart("v")
+            $tag = "v$version"
+            $draft = "${{ github.event.inputs.draft }}"
+            $prerelease = "${{ github.event.inputs.prerelease }}"
+            $publishRelease = "${{ github.event.inputs.publish_release }}"
+          }
+
+          $releaseDir = "build/bin/release"
+          $installerSource = "build/bin/LupusAria-amd64-installer.exe"
+          $exeSource = "build/bin/LupusAria.exe"
+          $installerName = "LupusAria-$tag-windows-amd64-installer.exe"
+          $exeName = "LupusAria-$tag-windows-amd64.exe"
+          $portableName = "LupusAria-$tag-windows-amd64-portable.zip"
+          $checksumsName = "SHA256SUMS.txt"
+          $notesFile = "build/bin/release-notes.md"
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "draft=$draft" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+          "publish_release=$publishRelease" >> $env:GITHUB_OUTPUT
+          "release_dir=$releaseDir" >> $env:GITHUB_OUTPUT
+          "installer_source=$installerSource" >> $env:GITHUB_OUTPUT
+          "exe_source=$exeSource" >> $env:GITHUB_OUTPUT
+          "installer_name=$installerName" >> $env:GITHUB_OUTPUT
+          "exe_name=$exeName" >> $env:GITHUB_OUTPUT
+          "portable_name=$portableName" >> $env:GITHUB_OUTPUT
+          "checksums_name=$checksumsName" >> $env:GITHUB_OUTPUT
+          "notes_file=$notesFile" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.4'
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Build Windows installer and executable
+        shell: pwsh
+        run: |
+          $env:Path += ";$(go env GOPATH)\bin;C:\Program Files (x86)\NSIS;C:\Program Files (x86)\NSIS\Bin"
+          wails build -clean -platform windows/amd64 -nsis
+
+      - name: Validate installer metadata
+        shell: pwsh
+        run: |
+          $wails = Get-Content -LiteralPath "wails.json" -Raw | ConvertFrom-Json
+          if ($wails.info.companyName -ne "Starsong Tools") {
+            throw "wails.json info.companyName must be Starsong Tools"
+          }
+          if ($wails.author.name -ne "Starsong Tools") {
+            throw "wails.json author.name must be Starsong Tools"
+          }
+          if ($wails.info.productName -ne "LupusAria") {
+            throw "wails.json info.productName must be LupusAria"
+          }
+          "Installer default follows Wails NSIS path: %ProgramFiles%\Starsong Tools\LupusAria" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
+      - name: Validate release notes
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.release_meta.outputs.tag }}"
+          $notesPath = "RELEASE_NOTES.md"
+          $outputPath = "${{ steps.release_meta.outputs.notes_file }}"
+          $lines = Get-Content -LiteralPath $notesPath
+
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -eq "## $tag") {
+              $start = $i
+              break
+            }
+          }
+          if ($start -lt 0) {
+            throw "Missing release notes section for $tag in $notesPath"
+          }
+
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^##\s+') {
+              $end = $i
+              break
+            }
+          }
+
+          $bodyLines = New-Object System.Collections.Generic.List[string]
+          for ($i = $start + 1; $i -lt $end; $i++) {
+            $bodyLines.Add($lines[$i])
+          }
+          while ($bodyLines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($bodyLines[0])) {
+            $bodyLines.RemoveAt(0)
+          }
+          while ($bodyLines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($bodyLines[$bodyLines.Count - 1])) {
+            $bodyLines.RemoveAt($bodyLines.Count - 1)
+          }
+          if ($bodyLines.Count -eq 0) {
+            throw "Release notes section for $tag is empty"
+          }
+
+          Set-Content -LiteralPath $outputPath -Value $bodyLines
+
+      - name: Package release assets
+        shell: pwsh
+        run: |
+          $releaseDir = "${{ steps.release_meta.outputs.release_dir }}"
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+
+          $installerSource = "${{ steps.release_meta.outputs.installer_source }}"
+          $exeSource = "${{ steps.release_meta.outputs.exe_source }}"
+          if (-not (Test-Path -LiteralPath $installerSource)) {
+            throw "Missing expected installer: $installerSource"
+          }
+          if (-not (Test-Path -LiteralPath $exeSource)) {
+            throw "Missing expected executable: $exeSource"
+          }
+
+          $installerTarget = Join-Path $releaseDir "${{ steps.release_meta.outputs.installer_name }}"
+          $exeTarget = Join-Path $releaseDir "${{ steps.release_meta.outputs.exe_name }}"
+          $portableTarget = Join-Path $releaseDir "${{ steps.release_meta.outputs.portable_name }}"
+          Copy-Item -LiteralPath $installerSource -Destination $installerTarget -Force
+          Copy-Item -LiteralPath $exeSource -Destination $exeTarget -Force
+          Compress-Archive -LiteralPath $exeSource -DestinationPath $portableTarget -Force
+
+          $checksumPath = Join-Path $releaseDir "${{ steps.release_meta.outputs.checksums_name }}"
+          $files = @($installerTarget, $exeTarget, $portableTarget)
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLower()
+            $name = Split-Path -Path $file -Leaf
+            "$hash *$name"
+          }
+          Set-Content -LiteralPath $checksumPath -Value $lines
+
+      - name: Verify release assets
+        shell: pwsh
+        run: |
+          $releaseDir = "${{ steps.release_meta.outputs.release_dir }}"
+          $required = @(
+            (Join-Path $releaseDir "${{ steps.release_meta.outputs.installer_name }}"),
+            (Join-Path $releaseDir "${{ steps.release_meta.outputs.exe_name }}"),
+            (Join-Path $releaseDir "${{ steps.release_meta.outputs.portable_name }}"),
+            (Join-Path $releaseDir "${{ steps.release_meta.outputs.checksums_name }}"),
+            "${{ steps.release_meta.outputs.notes_file }}"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path -LiteralPath $path)) {
+              throw "Missing expected release asset: $path"
+            }
+          }
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lupusaria-${{ steps.release_meta.outputs.tag }}-windows-amd64
+          path: |
+            ${{ steps.release_meta.outputs.release_dir }}/*
+            ${{ steps.release_meta.outputs.notes_file }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub release
+        if: steps.release_meta.outputs.publish_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.release_meta.outputs.tag }}"
+          $title = "LupusAria $tag"
+          $notesFile = "${{ steps.release_meta.outputs.notes_file }}"
+          $files = @(
+            "${{ steps.release_meta.outputs.release_dir }}/${{ steps.release_meta.outputs.installer_name }}",
+            "${{ steps.release_meta.outputs.release_dir }}/${{ steps.release_meta.outputs.exe_name }}",
+            "${{ steps.release_meta.outputs.release_dir }}/${{ steps.release_meta.outputs.portable_name }}",
+            "${{ steps.release_meta.outputs.release_dir }}/${{ steps.release_meta.outputs.checksums_name }}"
+          )
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $files --clobber
+            gh release edit $tag --title $title --notes-file $notesFile
+          }
+          else {
+            $args = @(
+              "release", "create", $tag
+            ) + $files + @(
+              "--title", $title,
+              "--notes-file", $notesFile,
+              "--target", $env:GITHUB_SHA
+            )
+
+            if ("${{ steps.release_meta.outputs.draft }}" -eq "true") {
+              $args += "--draft"
+            }
+            if ("${{ steps.release_meta.outputs.prerelease }}" -eq "true") {
+              $args += "--prerelease"
+            }
+
+            gh @args
+          }
