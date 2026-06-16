@@ -1,0 +1,99 @@
+:root {
+  --color-brand-anchor: #32334f;
+  --color-brand-accent: #50657f;
+  --color-brand-accent-hover: #627a96;
+  --color-brand-accent-soft: #445875;
+  --color-brand-highlight: #f5ba04;
+  --color-brand-highlight-ink: #241e05;
+  --color-neutral-950: #15171b;
+  --color-neutral-900: #232538;
+  --color-neutral-800: #2b2d45;
+  --color-neutral-700: #32334f;
+  --color-neutral-600: #3b3d5d;
+  --color-neutral-400: #929498;
+  --color-neutral-300: #b9babe;
+  --color-neutral-100: #ebebeb;
+  --color-semantic-success: #89c89d;
+  --color-semantic-warning: #d6b36a;
+  --color-semantic-danger: #ff7a7a;
+  --border: rgba(146, 148, 152, 0.22);
+  --border-strong: rgba(146, 148, 152, 0.42);
+  --shadow-sm: 0 6px 16px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.24);
+  --shadow-lg: 0 22px 58px rgba(0, 0, 0, 0.28);
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-pill: 999px;
+  color: var(--color-neutral-100);
+  background: linear-gradient(180deg, #353652 0%, #26273d 48%, #1f2130 100%);
+  font-family: "Nunito", "Segoe UI", Aptos, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 900px;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #353652 0%, #26273d 48%, #1f2130 100%);
+  color: var(--color-neutral-100);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--color-brand-accent) 52%, var(--border) 48%);
+  border-radius: var(--radius-md);
+  padding: 9px 14px;
+  color: var(--color-neutral-100);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-brand-accent) 86%, white 14%), var(--color-brand-accent));
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+button:hover {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-brand-accent-hover) 84%, white 16%), var(--color-brand-accent-hover));
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-neutral-600) 64%, white 6%), var(--color-neutral-800));
+  border-color: var(--border-strong);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid rgba(146, 148, 152, 0.32);
+  border-radius: var(--radius-md);
+  color: var(--color-neutral-100);
+  background: var(--color-neutral-900);
+  padding: 9px 10px;
+}
+
+textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-brand-accent-hover) 72%, white 28%);
+  outline-offset: 2px;
+}

@@ -125,8 +125,15 @@ func (c *Client) writeRaw(line string) error {
 	if c.conn == nil {
 		return io.ErrClosedPipe
 	}
+	line = sanitizeIRCLine(line)
 	_, err := fmt.Fprintf(c.conn, "%s\r\n", line)
 	return err
+}
+
+func sanitizeIRCLine(line string) string {
+	line = strings.ReplaceAll(line, "\r", " ")
+	line = strings.ReplaceAll(line, "\n", " ")
+	return strings.Join(strings.Fields(line), " ")
 }
 
 func parseMessage(raw string) (Message, bool) {

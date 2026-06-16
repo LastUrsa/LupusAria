@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"lupusaria/internal/ai"
+	"lupusaria/internal/knowledge"
 	"lupusaria/internal/twitch"
 )
 
@@ -45,7 +46,49 @@ func (f fakeStreamProvider) GetStreamInfo(context.Context, string) (twitch.Strea
 	return f.info, nil
 }
 
-func TestPublicBotCommandDoesNotExposeCost(t *testing.T) {
+func TestHandleMessageIgnoresOwnMessages(t *testing.T) {
+	chat := &fakeChat{}
+	b := testBot(chat)
+
+	b.handleMessage(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "lupusaria",
+		DisplayName: "LupusAria",
+		Text:        "@LupusAria hello from myself",
+	})
+
+	if len(chat.sent) != 0 {
+		t.Fatalf("bot should not respond to itself, sent %#v", chat.sent)
+	}
+	if context := b.recentContext(); len(context) != 0 {
+		t.Fatalf("bot should not remember its own messages, context %#v", context)
+	}
+}
+
+func TestBotAndHelpCommandsAreIgnored(t *testing.T) {
+	for _, text := range []string{"!bot", "!help"} {
+		t.Run(text, func(t *testing.T) {
+			chat := &fakeChat{}
+			b := testBot(chat)
+
+			handled := b.handlePublicCommand(context.Background(), twitch.Message{
+				Channel:     "lastursa",
+				Username:    "viewer",
+				DisplayName: "Viewer",
+				Text:        text,
+			})
+
+			if handled {
+				t.Fatalf("%s should not be handled", text)
+			}
+			if len(chat.sent) != 0 {
+				t.Fatalf("%s should not send chat responses, sent %#v", text, chat.sent)
+			}
+		})
+	}
+}
+
+func TestCommandsShowsPublicCommandList(t *testing.T) {
 	chat := &fakeChat{}
 	b := testBot(chat)
 
@@ -53,19 +96,24 @@ func TestPublicBotCommandDoesNotExposeCost(t *testing.T) {
 		Channel:     "lastursa",
 		Username:    "viewer",
 		DisplayName: "Viewer",
-		Text:        "!bot",
+		Text:        "!commands",
 	})
 
 	if !handled {
-		t.Fatal("expected !bot to be handled as a public command")
+		t.Fatal("expected !commands to be handled")
 	}
 	if len(chat.sent) != 1 {
-		t.Fatalf("expected one chat response, got %d", len(chat.sent))
+		t.Fatalf("expected one response, got %#v", chat.sent)
 	}
 	lower := strings.ToLower(chat.sent[0])
+	for _, want := range []string{"!ask", "!lurk", "!autoso"} {
+		if !strings.Contains(lower, want) {
+			t.Fatalf("command list missing %q: %q", want, chat.sent[0])
+		}
+	}
 	for _, forbidden := range []string{"cost", "budget", "token", "secret", "key"} {
 		if strings.Contains(lower, forbidden) {
-			t.Fatalf("public help exposed private term %q in %q", forbidden, chat.sent[0])
+			t.Fatalf("public command list exposed private term %q in %q", forbidden, chat.sent[0])
 		}
 	}
 }
@@ -73,7 +121,7 @@ func TestPublicBotCommandDoesNotExposeCost(t *testing.T) {
 func TestResetRequiresBroadcaster(t *testing.T) {
 	chat := &fakeChat{}
 	b := testBot(chat)
-	b.context = []twitch.Message{{Text: "keep me"}}
+	b.remember(twitch.Message{Username: "viewer", Text: "keep me"})
 
 	handled := b.handlePublicCommand(context.Background(), twitch.Message{
 		Channel:     "lastursa",
@@ -85,7 +133,7 @@ func TestResetRequiresBroadcaster(t *testing.T) {
 	if !handled {
 		t.Fatal("expected !reset to be handled")
 	}
-	if len(b.context) != 1 {
+	if len(b.recentContext()) != 1 {
 		t.Fatal("non-broadcaster reset should not clear context")
 	}
 	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "Only the broadcaster") {
@@ -96,7 +144,7 @@ func TestResetRequiresBroadcaster(t *testing.T) {
 func TestResetAllowsBroadcaster(t *testing.T) {
 	chat := &fakeChat{}
 	b := testBot(chat)
-	b.context = []twitch.Message{{Text: "clear me"}}
+	b.remember(twitch.Message{Username: "viewer", Text: "clear me"})
 
 	handled := b.handlePublicCommand(context.Background(), twitch.Message{
 		Channel:     "lastursa",
@@ -108,8 +156,46 @@ func TestResetAllowsBroadcaster(t *testing.T) {
 	if !handled {
 		t.Fatal("expected !reset to be handled")
 	}
-	if len(b.context) != 0 {
+	if len(b.recentContext()) != 0 {
 		t.Fatal("broadcaster reset should clear context")
+	}
+}
+
+func TestCommandTogglesDisablePublicCommands(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*Bot)
+		message   twitch.Message
+	}{
+		{
+			name: "commands disabled",
+			configure: func(b *Bot) {
+				b.cfg.EnableCommands = false
+			},
+			message: twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer", Text: "!commands"},
+		},
+		{
+			name: "reset disabled",
+			configure: func(b *Bot) {
+				b.cfg.EnableReset = false
+			},
+			message: twitch.Message{Channel: "lastursa", Username: "lastursa", DisplayName: "LastUrsa", Text: "!reset"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat := &fakeChat{}
+			b := testBot(chat)
+			tt.configure(b)
+
+			if handled := b.handlePublicCommand(context.Background(), tt.message); handled {
+				t.Fatal("command should not be handled when disabled")
+			}
+			if len(chat.sent) != 0 {
+				t.Fatalf("disabled command should not send chat, sent %#v", chat.sent)
+			}
+		})
 	}
 }
 
@@ -163,11 +249,62 @@ func TestExtractAIRequests(t *testing.T) {
 	}
 }
 
+func TestAITogglesDisableRequests(t *testing.T) {
+	tests := []struct {
+		name      string
+		configure func(*Bot)
+		text      string
+	}{
+		{
+			name: "ask disabled",
+			configure: func(b *Bot) {
+				b.cfg.EnableAsk = false
+			},
+			text: "!ask hello?",
+		},
+		{
+			name: "lurk disabled",
+			configure: func(b *Bot) {
+				b.cfg.EnableLurk = false
+			},
+			text: "!lurk grabbing water",
+		},
+		{
+			name: "mentions disabled",
+			configure: func(b *Bot) {
+				b.cfg.EnableMentions = false
+			},
+			text: "@LupusAria hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := testBot(&fakeChat{})
+			tt.configure(b)
+
+			if request, ok := b.extractAIRequest(twitch.Message{
+				Channel:     "lastursa",
+				Username:    "viewer",
+				DisplayName: "Viewer",
+				Text:        tt.text,
+			}); ok {
+				t.Fatalf("disabled AI request should not be extracted: %#v", request)
+			}
+		})
+	}
+}
+
 func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 	chat := &fakeChat{}
 	b := New(Config{
 		Name:                  "LupusAria",
 		Personality:           "test",
+		EnableMentions:        true,
+		EnableAsk:             true,
+		EnableLurk:            true,
+		EnableCommands:        true,
+		EnableReset:           true,
 		MaxContextMessages:    30,
 		StreamContextTTL:      time.Minute,
 		GlobalCooldown:        time.Second,
@@ -203,6 +340,79 @@ func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 	}
 }
 
+func TestBuildAIMessagesIncludesRelevantKnowledge(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		EnableAsk:          true,
+		EnableLurk:         true,
+		EnableCommands:     true,
+		EnableReset:        true,
+		MaxContextMessages: 30,
+		Knowledge: knowledge.Parse(`## Music
+Tags: music, songs
+- Ursa makes verified star songs.
+
+## Projects
+Tags: project
+- Project facts.
+`),
+	}, chat, fakeAI{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	messages := b.buildAIMessages(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "!ask what music does Ursa make?",
+	}, aiRequest{Kind: "ask", Prompt: "what music does Ursa make?"})
+
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Known facts selected for this request:") {
+		t.Fatalf("prompt missing selected knowledge marker: %s", userPrompt)
+	}
+	if !strings.Contains(userPrompt, "Ursa makes verified star songs") {
+		t.Fatalf("prompt missing relevant knowledge: %s", userPrompt)
+	}
+	if strings.Contains(userPrompt, "Project facts") {
+		t.Fatalf("prompt included unrelated knowledge: %s", userPrompt)
+	}
+}
+
+func TestBuildAIMessagesOmitsIrrelevantKnowledge(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		EnableAsk:          true,
+		EnableLurk:         true,
+		EnableCommands:     true,
+		EnableReset:        true,
+		MaxContextMessages: 30,
+		Knowledge: knowledge.Parse(`## Music
+Tags: music, songs
+- Ursa makes verified star songs.
+`),
+	}, chat, fakeAI{}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	messages := b.buildAIMessages(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "!ask any dinner ideas?",
+	}, aiRequest{Kind: "ask", Prompt: "any dinner ideas?"})
+
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Known facts: none selected for this request.") {
+		t.Fatalf("prompt should explicitly omit knowledge: %s", userPrompt)
+	}
+	if strings.Contains(userPrompt, "Ursa makes verified star songs") {
+		t.Fatalf("prompt included irrelevant knowledge: %s", userPrompt)
+	}
+}
+
 func TestCleanReplyAddsTerminalPunctuation(t *testing.T) {
 	got := cleanReply(`"just a little stardust"`)
 	if got != "just a little stardust." {
@@ -219,6 +429,11 @@ func testBot(chat *fakeChat) *Bot {
 	return New(Config{
 		Name:                  "LupusAria",
 		Personality:           "test",
+		EnableMentions:        true,
+		EnableAsk:             true,
+		EnableLurk:            true,
+		EnableCommands:        true,
+		EnableReset:           true,
 		MaxContextMessages:    30,
 		StreamContextTTL:      time.Minute,
 		GlobalCooldown:        time.Second,

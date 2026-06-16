@@ -5,7 +5,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,8 +108,61 @@ func TestBuildQueueFiltersAndSortsRecentStreamers(t *testing.T) {
 		got = append(got, candidate.Login)
 	}
 	want := []string{"bob", "alice"}
-	if !reflect.DeepEqual(got, want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("queue = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildQueueExcludesChannelOwner(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	helix := &fakeHelix{
+		users: map[string]twitch.UserInfo{
+			"lastursa": {ID: "owner", Login: "lastursa", DisplayName: "LastUrsa"},
+			"alice":    {ID: "1", Login: "alice", DisplayName: "Alice"},
+		},
+		streamedAt: map[string]time.Time{
+			"owner": now.Add(-30 * time.Minute),
+			"1":     now.Add(-1 * time.Hour),
+		},
+	}
+	service := testService(&fakeChat{}, helix)
+	service.ApplySnapshot(now.Add(-20*time.Minute), []ViewerIdentity{
+		{Login: "lastursa", DisplayName: "LastUrsa"},
+		{Login: "alice", DisplayName: "Alice"},
+	})
+	service.ApplySnapshot(now, []ViewerIdentity{
+		{Login: "lastursa", DisplayName: "LastUrsa"},
+		{Login: "alice", DisplayName: "Alice"},
+	})
+
+	queue, err := service.buildQueue(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queue) != 1 {
+		t.Fatalf("queue = %#v, want one candidate", queue)
+	}
+	if queue[0].Login != "alice" {
+		t.Fatalf("queue included channel owner or wrong candidate: %#v", queue)
+	}
+}
+
+func TestStatusExcludesChannelOwnerFromWatchedCount(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	service := testService(&fakeChat{}, &fakeHelix{})
+	service.ApplySnapshot(now.Add(-20*time.Minute), []ViewerIdentity{
+		{Login: "lastursa", DisplayName: "LastUrsa"},
+		{Login: "alice", DisplayName: "Alice"},
+	})
+	service.ApplySnapshot(now, []ViewerIdentity{
+		{Login: "lastursa", DisplayName: "LastUrsa"},
+		{Login: "alice", DisplayName: "Alice"},
+	})
+
+	got := service.status()
+	if !strings.Contains(got, "1 viewers over") {
+		t.Fatalf("status should count only non-owner viewers, got %q", got)
 	}
 }
 
@@ -129,7 +183,7 @@ func TestSendNextPagesAndMarksOnlySuccessfulShoutouts(t *testing.T) {
 		"Shouting out 2 streamer(s). 1 left in queue.",
 		"!so @alice",
 	}
-	if !reflect.DeepEqual(chat.sent, wantSent) {
+	if !slices.Equal(chat.sent, wantSent) {
 		t.Fatalf("sent = %#v, want %#v", chat.sent, wantSent)
 	}
 	if !service.shoutedThisRun["alice"] {
@@ -213,7 +267,7 @@ func TestRecentStreamersCommandSimulation(t *testing.T) {
 		"!so @dozyjinro",
 		"!so @parfaitfair",
 	}
-	if !reflect.DeepEqual(chat.sent, want) {
+	if !slices.Equal(chat.sent, want) {
 		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
 	}
 }

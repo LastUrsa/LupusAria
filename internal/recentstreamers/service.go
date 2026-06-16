@@ -227,7 +227,7 @@ func (s *Service) status() string {
 
 	watched := 0
 	for _, viewer := range s.viewers {
-		if viewer.Watch >= s.cfg.MinWatch {
+		if viewer.Watch >= s.cfg.MinWatch && !s.isChannelOwner(viewer.Login) {
 			watched++
 		}
 	}
@@ -403,6 +403,9 @@ func (s *Service) viewerCandidates() []viewerState {
 
 	candidates := make([]viewerState, 0, len(s.viewers))
 	for _, viewer := range s.viewers {
+		if s.isChannelOwner(viewer.Login) {
+			continue
+		}
 		if viewer.Watch >= s.cfg.MinWatch {
 			candidates = append(candidates, *viewer)
 		}
@@ -493,6 +496,10 @@ func (s *Service) markShouted(login string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.shoutedThisRun[normalizeLogin(login)] = true
+}
+
+func (s *Service) isChannelOwner(login string) bool {
+	return normalizeLogin(login) == normalizeLogin(s.cfg.Channel)
 }
 
 func normalizeLogin(login string) string {

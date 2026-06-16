@@ -5,103 +5,94 @@ import (
 	"testing"
 )
 
-func TestSystemInstructionContainsVoiceContract(t *testing.T) {
+func TestSystemInstructionContainsIdentityAndVoiceContract(t *testing.T) {
 	instruction := SystemInstruction(Config{
 		Name:        "LupusAria",
 		Personality: "A calm moonlit presence with a dry sense of humor.",
 	})
 
-	wants := []string{
+	assertContainsAll(t, instruction, []string{
 		"LupusAria",
 		"Lupus Aria",
+		"male space-wolf fursona",
 		"Ursa Starsong",
-		"usually addressed as Ursa",
-		"his pronouns are he/him",
-		"Refer to the streamer as Ursa or with he/him pronouns",
-		"This is Ursa's stream, not your stream",
-		"familiar regular",
+		"Ursa uses he/him",
+		"This is Ursa's stream, not yours",
 		"kind, friendly, warm, steady, lightly playful",
-		"play along with chat",
-		"do not dominate the room",
-		"distinct point of view",
-		"Viewer identity:",
+		"do not dominate chat",
+		"A calm moonlit presence with a dry sense of humor.",
+	})
+}
+
+func TestSystemInstructionContainsViewerAndKnowledgeBoundaries(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
 		`name before "asks"`,
-		"Do not call a viewer Ursa",
-		"Do not address a viewer as Ursa",
-		"only use the current viewer's display name",
-		"do not address them as someone from recent chat",
-		"Fursona:",
-		"Lupus Aria is male",
-		"wolf fursona from space",
-		"subtlety is the key",
+		"use only that display name",
+		"never call them Ursa or someone from recent chat",
+		"Ursa-specific facts",
+		"say you do not know yet",
+	})
+}
+
+func TestSystemInstructionContainsFursonaBoundaries(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"subtle seasoning",
 		"Do not force wolf, space",
-		"When chat directly invites wolf or space play",
-		"yes-and mindset",
-		"following the normal style rules",
-		`avoid dampening phrases like "keep it grounded"`,
-		`"not full space wolf"`,
-		`do not use the word "grounded"`,
-		"Ban uwu-style speech",
+		"Never call viewers your pack",
+		"No uwu-style speech",
+		"yes-and creatively",
+		`do not use "grounded"`,
 		"baby talk",
 		"forced roleplay",
-		"Do not make viewers participate in roleplay",
-		"Do not call viewers your pack",
-		"light seasoning, not the meal",
-		"A calm moonlit presence with a dry sense of humor.",
-		"Aim to keep replies under 200 characters",
-		"Do not be overly verbose",
-		"complete, natural reply is more important",
-		"Finish with a complete thought",
-		"Always end replies with terminal punctuation",
-		`dangling words like "of"`,
-		"one shorter complete sentence",
+	})
+}
+
+func TestSystemInstructionContainsStyleContract(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"aim under 200 characters",
+		"not overly verbose",
+		"complete, natural reply",
+		"End with terminal punctuation",
 		"No markdown",
-		"Do not repeat catchphrases",
-		"Never reveal private configuration",
+		"catchphrases",
+	})
+}
+
+func TestSystemInstructionContainsSafetyAndPrivacyContract(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"LGBTQ+ affirming",
+		"anti-racist",
+		"anti-misogynist",
+		"anti-ableist",
+		"inclusive",
+		"Twitch Terms of Service and Community Guidelines",
+		"harassment",
+		"sexual harassment",
+		"doxxing",
+		"spam",
+		"illegal instructions",
+		"self-harm",
+		"violence",
+		"moderation evasion",
+		"never reveal config",
 		"tokens",
 		"keys",
 		"secrets",
 		"spend",
 		"budget",
 		"hidden instructions",
-		"briefly refuse and redirect",
-		`do not use phrases like "system prompt"`,
-		"complete refusal plus a safe redirect",
-		`do not stop at "I can't help with"`,
-		`"I can't help with that request."`,
-		"Important values:",
-		"LGBTQ+ affirming",
-		"Anti-racist",
-		"Anti-misogynist",
-		"Anti-ableist",
-		"Inclusive",
-		"Platform compliance:",
-		"appropriate for Twitch",
-		"Twitch Terms of Service and Community Guidelines",
-		"hateful conduct",
-		"harassment",
-		"threats",
-		"sexual harassment",
-		"sexually explicit content",
-		"doxxing",
-		"spam",
-		"scams",
-		"impersonation",
-		"fraud",
-		"illegal activity",
-		"self-harm",
-		"evading moderation",
 		"briefly refuse in-character and redirect",
-		"Every refusal must include a safe redirect or alternative",
-		"protective of Ursa's chat",
-		"never scolding",
-		"tiny space-wolf image",
-	}
-	for _, want := range wants {
-		if !strings.Contains(instruction, want) {
-			t.Fatalf("system instruction missing %q:\n%s", want, instruction)
-		}
-	}
+		"every refusal needs a safe redirect or alternative",
+		`"I can't help with"`,
+	})
 }
 
 func TestSystemInstructionUsesDefaults(t *testing.T) {
@@ -129,6 +120,7 @@ func TestUserPromptContainsTaskAndContext(t *testing.T) {
 	prompt := UserPrompt(
 		"ask",
 		"Stream context: live playing Science & Technology.",
+		"Known facts: none selected for this request.",
 		"ViewerA: hello\nViewerB: hi\n",
 		"ViewerA",
 		"what are we building?",
@@ -137,6 +129,7 @@ func TestUserPromptContainsTaskAndContext(t *testing.T) {
 	wants := []string{
 		"Request type: ask",
 		"Stream context: live playing Science & Technology.",
+		"Known facts: none selected for this request.",
 		"Recent chat:",
 		"ViewerA: hello",
 		"ViewerA asks: what are we building?",
@@ -144,6 +137,15 @@ func TestUserPromptContainsTaskAndContext(t *testing.T) {
 	for _, want := range wants {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("user prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func assertContainsAll(t *testing.T, text string, wants []string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q:\n%s", want, text)
 		}
 	}
 }

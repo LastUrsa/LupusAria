@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,6 +31,15 @@ type Chatter struct {
 	UserID    string
 	UserLogin string
 	UserName  string
+}
+
+type AdSchedule struct {
+	NextAdAt        time.Time
+	LastAdAt        time.Time
+	Duration        time.Duration
+	PrerollFreeTime time.Duration
+	SnoozeCount     int
+	SnoozeRefreshAt time.Time
 }
 
 type HelixClient struct {
@@ -181,6 +191,52 @@ func (c *HelixClient) GetChatters(ctx context.Context, broadcasterID, moderatorI
 	}
 }
 
+func (c *HelixClient) GetAdSchedule(ctx context.Context, broadcasterID string) (AdSchedule, error) {
+	values := url.Values{}
+	values.Set("broadcaster_id", broadcasterID)
+
+	endpoint := "https://api.twitch.tv/helix/channels/ads?" + values.Encode()
+	var result struct {
+		Data []struct {
+			NextAdAt        string          `json:"next_ad_at"`
+			LastAdAt        string          `json:"last_ad_at"`
+			Duration        flexibleInteger `json:"duration"`
+			PrerollFreeTime flexibleInteger `json:"preroll_free_time"`
+			SnoozeCount     flexibleInteger `json:"snooze_count"`
+			SnoozeRefreshAt string          `json:"snooze_refresh_at"`
+		} `json:"data"`
+	}
+	if err := c.getJSON(ctx, endpoint, &result); err != nil {
+		return AdSchedule{}, err
+	}
+	if len(result.Data) == 0 {
+		return AdSchedule{}, nil
+	}
+
+	item := result.Data[0]
+	nextAdAt, err := parseOptionalTime(item.NextAdAt)
+	if err != nil {
+		return AdSchedule{}, fmt.Errorf("parse next_ad_at: %w", err)
+	}
+	lastAdAt, err := parseOptionalTime(item.LastAdAt)
+	if err != nil {
+		return AdSchedule{}, fmt.Errorf("parse last_ad_at: %w", err)
+	}
+	snoozeRefreshAt, err := parseOptionalTime(item.SnoozeRefreshAt)
+	if err != nil {
+		return AdSchedule{}, fmt.Errorf("parse snooze_refresh_at: %w", err)
+	}
+
+	return AdSchedule{
+		NextAdAt:        nextAdAt,
+		LastAdAt:        lastAdAt,
+		Duration:        time.Duration(item.Duration) * time.Second,
+		PrerollFreeTime: time.Duration(item.PrerollFreeTime) * time.Second,
+		SnoozeCount:     int(item.SnoozeCount),
+		SnoozeRefreshAt: snoozeRefreshAt,
+	}, nil
+}
+
 func (c *HelixClient) getJSON(ctx context.Context, endpoint string, target any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -199,6 +255,38 @@ func (c *HelixClient) getJSON(ctx context.Context, endpoint string, target any) 
 		return fmt.Errorf("helix request failed with status %s", resp.Status)
 	}
 	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+type flexibleInteger int
+
+func (i *flexibleInteger) UnmarshalJSON(data []byte) error {
+	var asInt int
+	if err := json.Unmarshal(data, &asInt); err == nil {
+		*i = flexibleInteger(asInt)
+		return nil
+	}
+
+	var asString string
+	if err := json.Unmarshal(data, &asString); err != nil {
+		return err
+	}
+	if asString == "" {
+		*i = 0
+		return nil
+	}
+	parsed, err := strconv.Atoi(asString)
+	if err != nil {
+		return err
+	}
+	*i = flexibleInteger(parsed)
+	return nil
+}
+
+func parseOptionalTime(raw string) (time.Time, error) {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, raw)
 }
 
 func trimOAuthPrefix(token string) string {

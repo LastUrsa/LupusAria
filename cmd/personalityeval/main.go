@@ -46,7 +46,7 @@ func main() {
 	defer cancel()
 
 	for i, item := range scenarios() {
-		user := personality.UserPrompt(item.Kind, item.Stream, item.RecentChat, item.Display, item.Prompt)
+		user := personality.UserPrompt(item.Kind, item.Stream, "Known facts: none selected for this request.", item.RecentChat, item.Display, item.Prompt)
 		response, err := client.Complete(ctx, []ai.Message{
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},

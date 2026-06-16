@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
+	"lupusaria/internal/adalerts"
 	"lupusaria/internal/ai"
 	"lupusaria/internal/budget"
+	"lupusaria/internal/knowledge"
 	"lupusaria/internal/personality"
 	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
@@ -22,7 +25,13 @@ type Chat interface {
 
 type Config struct {
 	Name                  string
+	Channel               string
 	Personality           string
+	EnableMentions        bool
+	EnableAsk             bool
+	EnableLurk            bool
+	EnableCommands        bool
+	EnableReset           bool
 	MaxContextMessages    int
 	StreamContextTTL      time.Duration
 	GlobalCooldown        time.Duration
@@ -33,6 +42,7 @@ type Config struct {
 	InputPricePerMillion  float64
 	OutputPricePerMillion float64
 	BudgetStatePath       string
+	Knowledge             knowledge.Base
 }
 
 type Bot struct {
@@ -42,8 +52,10 @@ type Bot struct {
 	budget *budget.Guard
 	stream *cachedStreamContext
 	recent *recentstreamers.Service
+	know   knowledge.Base
 	logger *slog.Logger
 
+	contextMu     sync.Mutex
 	context       []twitch.Message
 	lastGlobalUse time.Time
 	lastUserUse   map[string]time.Time
@@ -73,6 +85,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 		}),
 		stream:      streamContext,
 		recent:      recentStreamers,
+		know:        cfg.Knowledge,
 		logger:      logger,
 		lastUserUse: map[string]time.Time{},
 	}
@@ -102,6 +115,10 @@ func (b *Bot) Run(ctx context.Context) error {
 }
 
 func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
+	if b.isSelf(msg.Username) {
+		return
+	}
+
 	b.remember(msg)
 	if b.recent != nil {
 		b.recent.ObserveMessage(time.Now(), msg.Username, msg.DisplayName)
@@ -170,9 +187,11 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 }
 
 func (b *Bot) remember(msg twitch.Message) {
-	if strings.EqualFold(msg.Username, strings.ToLower(b.cfg.Name)) {
+	if b.isSelf(msg.Username) {
 		return
 	}
+	b.contextMu.Lock()
+	defer b.contextMu.Unlock()
 	b.context = append(b.context, msg)
 	if len(b.context) > b.cfg.MaxContextMessages {
 		b.context = b.context[len(b.context)-b.cfg.MaxContextMessages:]
@@ -187,15 +206,17 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 	}
 
 	switch {
-	case lower == "!bot" || lower == "!help" || lower == "!commands":
-		_ = b.chat.Say(msg.Channel, fmt.Sprintf("%s is awake. Use @%s <message>, !ask <question>, or !lurk [reason].", b.cfg.Name, b.cfg.Name))
+	case b.cfg.EnableCommands && lower == "!commands":
+		_ = b.chat.Say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !autoso, !autoso next, !autoso refresh, !autoso status.", b.cfg.Name))
 		return true
-	case lower == "!reset":
+	case b.cfg.EnableReset && lower == "!reset":
 		if !b.isBroadcaster(msg) {
 			_ = b.chat.Say(msg.Channel, "Only the broadcaster can reset my chat context.")
 			return true
 		}
+		b.contextMu.Lock()
 		b.context = nil
+		b.contextMu.Unlock()
 		_ = b.chat.Say(msg.Channel, "Chat context reset.")
 		b.logger.Info("chat context reset", "channel", msg.Channel, "user", msg.Username)
 		return true
@@ -209,7 +230,7 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 	lower := strings.ToLower(text)
 	botName := strings.ToLower(b.cfg.Name)
 
-	if strings.HasPrefix(lower, "!ask ") {
+	if b.cfg.EnableAsk && strings.HasPrefix(lower, "!ask ") {
 		prompt := strings.TrimSpace(text[len("!ask "):])
 		if prompt == "" {
 			return aiRequest{}, false
@@ -217,7 +238,7 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 		return aiRequest{Prompt: prompt, Kind: "ask"}, true
 	}
 
-	if strings.HasPrefix(lower, "!lurk") {
+	if b.cfg.EnableLurk && strings.HasPrefix(lower, "!lurk") {
 		reason := strings.TrimSpace(text[len("!lurk"):])
 		prompt := fmt.Sprintf(`%s is going to lurk. Write one fresh, warm Twitch-chat send-off under 22 words.`, msg.DisplayName)
 		if reason != "" {
@@ -228,7 +249,7 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 	}
 
 	mention := "@" + botName
-	if strings.Contains(lower, mention) {
+	if b.cfg.EnableMentions && strings.Contains(lower, mention) {
 		cleaned := stripMention(text, b.cfg.Name)
 		if cleaned == "" {
 			cleaned = "Say hello."
@@ -256,7 +277,7 @@ func (b *Bot) cooldown(username string) (time.Duration, bool) {
 
 func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request aiRequest) []ai.Message {
 	var recent strings.Builder
-	for _, item := range b.context {
+	for _, item := range b.recentContext() {
 		fmt.Fprintf(&recent, "%s: %s\n", item.DisplayName, item.Text)
 	}
 
@@ -270,14 +291,120 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 		}
 	}
 	streamContext := formatStreamContext(streamInfo, streamOK)
+	knowledgeContext := knowledge.Format(b.know.Relevant(request.Prompt, 3))
 
 	return []ai.Message{
 		{Role: "system", Content: personality.SystemInstruction(personality.Config{
 			Name:        b.cfg.Name,
 			Personality: b.cfg.Personality,
 		})},
-		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, recent.String(), msg.DisplayName, request.Prompt)},
+		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, knowledgeContext, recent.String(), msg.DisplayName, request.Prompt)},
 	}
+}
+
+func (b *Bot) ComposeAdAlert(ctx context.Context, event adalerts.Event) (string, error) {
+	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
+		return "", fmt.Errorf("budget guard blocked ad alert composition: %s", decision.Reason)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	var recent strings.Builder
+	for _, item := range b.recentContext() {
+		fmt.Fprintf(&recent, "%s: %s\n", item.DisplayName, item.Text)
+	}
+
+	streamContext := "Stream context: unavailable."
+	if b.stream != nil {
+		streamInfo, ok, err := b.stream.Get(ctx, b.cfg.Channel)
+		if err != nil {
+			b.logger.Warn("failed to fetch stream context for ad alert", "error", err)
+		} else {
+			streamContext = formatStreamContext(streamInfo, ok)
+		}
+	}
+
+	prompt := adAlertPrompt(event, streamContext, recent.String())
+	messages := []ai.Message{
+		{Role: "system", Content: personality.SystemInstruction(personality.Config{
+			Name:        b.cfg.Name,
+			Personality: b.cfg.Personality,
+		})},
+		{Role: "user", Content: prompt},
+	}
+	response, err := b.ai.Complete(ctx, messages)
+	if err != nil {
+		return "", err
+	}
+
+	receipt := b.budget.Record(time.Now(), messages, response)
+	b.logger.Info("ad alert ai usage recorded",
+		"event", event.Kind,
+		"input_tokens", receipt.InputTokens,
+		"output_tokens", receipt.OutputTokens,
+		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
+		"estimated", receipt.Estimated,
+	)
+
+	reply := cleanReply(response.Text)
+	if len(reply) > 300 {
+		reply = reply[:300]
+	}
+	return reply, nil
+}
+
+func (b *Bot) recentContext() []twitch.Message {
+	b.contextMu.Lock()
+	defer b.contextMu.Unlock()
+	return append([]twitch.Message(nil), b.context...)
+}
+
+func adAlertPrompt(event adalerts.Event, streamContext, recentChat string) string {
+	var detail string
+	switch event.Kind {
+	case adalerts.EventWarning:
+		detail = fmt.Sprintf("An ad break is scheduled in about %s.", formatDurationForPrompt(event.Lead))
+	case adalerts.EventStart:
+		detail = fmt.Sprintf("An ad break is starting now and should last about %s.", formatDurationForPrompt(event.Duration))
+	case adalerts.EventEnd:
+		detail = "The ad break has ended."
+	default:
+		detail = "An ad alert needs to be sent."
+	}
+	if strings.TrimSpace(recentChat) == "" {
+		recentChat = "No recent chat context."
+	}
+	return fmt.Sprintf(`Write one Twitch chat message for an ad alert.
+Stay in character as Lupus Aria: kind, friendly, lightly playful, subtle space-wolf flavor only if it fits.
+Use recent chat context only when it naturally helps. Do not call viewers a pack. Do not use uwu-style speech.
+Keep it natural for Ursa's stream, ideally under 200 characters, not overly verbose.
+No markdown, no quotes, no @mentions.
+
+Alert: %s
+%s
+%s
+
+Recent chat:
+%s`, event.Kind, detail, streamContext, recentChat)
+}
+
+func formatDurationForPrompt(d time.Duration) string {
+	if d <= 0 {
+		return "a moment"
+	}
+	if d >= time.Minute {
+		minutes := int(d.Round(time.Minute) / time.Minute)
+		if minutes == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", minutes)
+	}
+	seconds := int(d.Round(time.Second) / time.Second)
+	if seconds == 1 {
+		return "1 second"
+	}
+	return fmt.Sprintf("%d seconds", seconds)
 }
 
 func cleanReply(reply string) string {
@@ -293,6 +420,10 @@ func cleanReply(reply string) string {
 
 func (b *Bot) isBroadcaster(msg twitch.Message) bool {
 	return msg.IsBroadcaster || strings.EqualFold(msg.Username, msg.Channel)
+}
+
+func (b *Bot) isSelf(username string) bool {
+	return strings.EqualFold(username, b.cfg.Name)
 }
 
 func stripMention(text, botName string) string {

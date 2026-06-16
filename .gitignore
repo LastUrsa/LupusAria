@@ -4,6 +4,9 @@
 *.log
 .lupusaria-budget.json
 .lupusaria-twitch-token.json
+.lupusaria-twitch-ads-token.json
 /bin/
+/build/
 /dist/
 /tmp/
+frontend/node_modules/
