@@ -28,6 +28,8 @@ type TwitchConfig struct {
 	ClientSecret      string
 	RefreshToken      string
 	TokenStatePath    string
+	AdsClientID       string
+	AdsClientSecret   string
 	AdsOAuthToken     string
 	AdsRefreshToken   string
 	AdsTokenStatePath string
@@ -36,8 +38,14 @@ type TwitchConfig struct {
 type AIConfig struct {
 	Provider              string
 	APIKey                string
+	GeminiAPIKey          string
 	BaseURL               string
 	Model                 string
+	GeminiModel           string
+	Fallback              *AIConfig
+	MaxOutputTokens       int
+	GeminiThinkingLevel   string
+	MaxRetries            int
 	InputPricePerMillion  float64
 	OutputPricePerMillion float64
 }
@@ -111,11 +119,14 @@ func load(envPath string, validateRequired bool) (Config, error) {
 	baseDir := filepath.Dir(envPath)
 
 	aiProvider := strings.ToLower(get(values, "AI_PROVIDER", "mock"))
-	aiModel := get(values, "AI_MODEL", "gpt-4.1-mini")
+	geminiModel := get(values, "GEMINI_MODEL", "gemini-3.1-flash-lite")
+	geminiAPIKey := get(values, "GEMINI_API_KEY", "")
+	aiModel := get(values, "AI_MODEL", "llama3.1:8b")
 	if aiProvider == "gemini" {
-		aiModel = get(values, "GEMINI_MODEL", "gemini-3.1-flash-lite")
+		aiModel = geminiModel
 	}
 	inputPrice, outputPrice := defaultAIPrices(aiProvider, aiModel)
+	fallbackAI := fallbackAIConfig(values, aiProvider, geminiAPIKey, geminiModel)
 
 	cfg := Config{
 		Twitch: TwitchConfig{
@@ -126,15 +137,23 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			ClientSecret:      get(values, "TWITCH_CLIENT_SECRET", ""),
 			RefreshToken:      get(values, "TWITCH_REFRESH_TOKEN", ""),
 			TokenStatePath:    resolveLocalPath(baseDir, get(values, "TWITCH_TOKEN_STATE_PATH", ".lupusaria-twitch-token.json")),
+			AdsClientID:       get(values, "TWITCH_ADS_CLIENT_ID", get(values, "TWITCH_CLIENT_ID", "")),
+			AdsClientSecret:   get(values, "TWITCH_ADS_CLIENT_SECRET", get(values, "TWITCH_CLIENT_SECRET", "")),
 			AdsOAuthToken:     get(values, "TWITCH_ADS_OAUTH_TOKEN", ""),
 			AdsRefreshToken:   get(values, "TWITCH_ADS_REFRESH_TOKEN", ""),
 			AdsTokenStatePath: resolveLocalPath(baseDir, get(values, "TWITCH_ADS_TOKEN_STATE_PATH", ".lupusaria-twitch-ads-token.json")),
 		},
 		AI: AIConfig{
 			Provider:              aiProvider,
-			APIKey:                get(values, "AI_API_KEY", get(values, "GEMINI_API_KEY", "")),
-			BaseURL:               strings.TrimRight(get(values, "AI_BASE_URL", "https://api.openai.com/v1"), "/"),
+			APIKey:                get(values, "AI_API_KEY", geminiAPIKey),
+			GeminiAPIKey:          geminiAPIKey,
+			BaseURL:               strings.TrimRight(get(values, "AI_BASE_URL", "http://localhost:11434/v1"), "/"),
 			Model:                 aiModel,
+			GeminiModel:           geminiModel,
+			Fallback:              fallbackAI,
+			MaxOutputTokens:       getInt(values, "AI_MAX_OUTPUT_TOKENS", 1024),
+			GeminiThinkingLevel:   get(values, "GEMINI_THINKING_LEVEL", "high"),
+			MaxRetries:            getInt(values, "AI_MAX_RETRIES", 3),
 			InputPricePerMillion:  getFloat(values, "AI_INPUT_PRICE_PER_1M_TOKENS", inputPrice),
 			OutputPricePerMillion: getFloat(values, "AI_OUTPUT_PRICE_PER_1M_TOKENS", outputPrice),
 		},
@@ -215,11 +234,11 @@ func validate(cfg Config) error {
 		missing = append(missing, "TWITCH_ADS_OAUTH_TOKEN or TWITCH_ADS_REFRESH_TOKEN")
 	}
 	if cfg.Twitch.AdsRefreshToken != "" {
-		if cfg.Twitch.ClientID == "" {
-			missing = append(missing, "TWITCH_CLIENT_ID")
+		if cfg.Twitch.AdsClientID == "" {
+			missing = append(missing, "TWITCH_ADS_CLIENT_ID or TWITCH_CLIENT_ID")
 		}
-		if cfg.Twitch.ClientSecret == "" {
-			missing = append(missing, "TWITCH_CLIENT_SECRET")
+		if cfg.Twitch.AdsClientSecret == "" {
+			missing = append(missing, "TWITCH_ADS_CLIENT_SECRET or TWITCH_CLIENT_SECRET")
 		}
 	}
 	if cfg.AI.Provider == "openai-compatible" && cfg.AI.APIKey == "" {
@@ -227,6 +246,18 @@ func validate(cfg Config) error {
 	}
 	if cfg.AI.Provider == "gemini" && cfg.AI.APIKey == "" {
 		missing = append(missing, "GEMINI_API_KEY")
+	}
+	if cfg.AI.Fallback != nil {
+		switch cfg.AI.Fallback.Provider {
+		case "openai-compatible":
+			if cfg.AI.Fallback.APIKey == "" {
+				missing = append(missing, "AI_FALLBACK_API_KEY")
+			}
+		case "gemini":
+			if cfg.AI.Fallback.APIKey == "" {
+				missing = append(missing, "GEMINI_API_KEY")
+			}
+		}
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required configuration: %s", strings.Join(missing, ", "))
@@ -246,6 +277,12 @@ func validateRanges(cfg Config) error {
 	}
 	if cfg.Bot.MaxRequestsPerHour < 0 {
 		return errors.New("MAX_AI_REQUESTS_PER_HOUR must be zero or greater")
+	}
+	if cfg.AI.MaxOutputTokens < 1 {
+		return errors.New("AI_MAX_OUTPUT_TOKENS must be greater than zero")
+	}
+	if cfg.AI.MaxRetries < 0 {
+		return errors.New("AI_MAX_RETRIES must be zero or greater")
 	}
 	if cfg.RecentStreamers.MinWatch < 0 {
 		return errors.New("RECENT_STREAMER_MIN_WATCH_MINUTES must be zero or greater")
@@ -384,11 +421,46 @@ func defaultAIPrices(provider, model string) (float64, float64) {
 	switch {
 	case strings.Contains(normalized, "mock"):
 		return 0, 0
+	case strings.Contains(normalized, "deepseek"):
+		return 0.07, 0.27
 	case strings.Contains(normalized, "flash-lite"):
 		return 0.25, 1.50
 	case strings.Contains(normalized, "gemini") && strings.Contains(normalized, "flash"):
 		return 1.50, 9.00
 	default:
 		return 0, 0
+	}
+}
+
+func fallbackAIConfig(values map[string]string, primaryProvider, geminiAPIKey, geminiModel string) *AIConfig {
+	provider := strings.ToLower(get(values, "AI_FALLBACK_PROVIDER", ""))
+	if provider == "" && primaryProvider == "openai-compatible" && geminiAPIKey != "" {
+		provider = "gemini"
+	}
+	if provider == "" || provider == "mock" || provider == primaryProvider {
+		return nil
+	}
+
+	model := get(values, "AI_FALLBACK_MODEL", "llama3.1:8b")
+	apiKey := get(values, "AI_FALLBACK_API_KEY", "")
+	baseURL := strings.TrimRight(get(values, "AI_FALLBACK_BASE_URL", "http://localhost:11434/v1"), "/")
+	if provider == "gemini" {
+		model = get(values, "AI_FALLBACK_MODEL", geminiModel)
+		apiKey = get(values, "AI_FALLBACK_API_KEY", geminiAPIKey)
+		baseURL = ""
+	}
+	inputPrice, outputPrice := defaultAIPrices(provider, model)
+	return &AIConfig{
+		Provider:              provider,
+		APIKey:                apiKey,
+		GeminiAPIKey:          geminiAPIKey,
+		BaseURL:               baseURL,
+		Model:                 model,
+		GeminiModel:           geminiModel,
+		MaxOutputTokens:       getInt(values, "AI_FALLBACK_MAX_OUTPUT_TOKENS", getInt(values, "AI_MAX_OUTPUT_TOKENS", 1024)),
+		GeminiThinkingLevel:   get(values, "GEMINI_THINKING_LEVEL", "high"),
+		MaxRetries:            getInt(values, "AI_FALLBACK_MAX_RETRIES", getInt(values, "AI_MAX_RETRIES", 3)),
+		InputPricePerMillion:  getFloat(values, "AI_FALLBACK_INPUT_PRICE_PER_1M_TOKENS", inputPrice),
+		OutputPricePerMillion: getFloat(values, "AI_FALLBACK_OUTPUT_PRICE_PER_1M_TOKENS", outputPrice),
 	}
 }

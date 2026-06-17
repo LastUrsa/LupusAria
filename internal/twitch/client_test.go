@@ -26,3 +26,20 @@ func TestParseMessageExtractsIdentityAndBadges(t *testing.T) {
 		t.Fatalf("text = %q", msg.Text)
 	}
 }
+
+func TestParseMessageExtractsReplyContext(t *testing.T) {
+	raw := `@badges=;display-name=ragenowich;reply-parent-display-name=LupusAria;reply-parent-user-login=lupusaria;reply-parent-msg-body=@ragenowich\sAlways\shappy\sto\shighlight\sLastUrsa :ragenowich!ragenowich@ragenowich.tmi.twitch.tv PRIVMSG #lastursa :who's that?`
+	msg, ok := parseMessage(raw)
+	if !ok {
+		t.Fatal("expected message to parse")
+	}
+	if msg.ReplyParentDisplayName != "LupusAria" {
+		t.Fatalf("reply parent display name = %q", msg.ReplyParentDisplayName)
+	}
+	if msg.ReplyParentUserLogin != "lupusaria" {
+		t.Fatalf("reply parent login = %q", msg.ReplyParentUserLogin)
+	}
+	if msg.ReplyParentText != "@ragenowich Always happy to highlight LastUrsa" {
+		t.Fatalf("reply parent text = %q", msg.ReplyParentText)
+	}
+}

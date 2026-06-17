@@ -28,18 +28,22 @@ const emptySettings: Settings = {
   twitchRefreshToken: '',
   twitchClientId: '',
   twitchClientSecret: '',
+  twitchAdsClientId: '',
+  twitchAdsClientSecret: '',
   twitchAdsOAuthToken: '',
   twitchAdsRefreshToken: '',
   hasTwitchOAuthToken: false,
   hasTwitchRefreshToken: false,
   hasTwitchClientId: false,
   hasTwitchClientSecret: false,
+  hasTwitchAdsClientId: false,
+  hasTwitchAdsClientSecret: false,
   hasTwitchAdsOAuthToken: false,
   hasTwitchAdsRefreshToken: false,
   aiProvider: 'mock',
   aiApiKey: '',
   geminiApiKey: '',
-  aiModel: 'gpt-4.1-mini',
+  aiModel: 'llama3.1:8b',
   geminiModel: 'gemini-3.1-flash-lite',
   maxRequestsPerHour: 30,
   dailyBudgetUsd: 0.5,
@@ -254,6 +258,10 @@ export default function App() {
                   <SecretField label="Ads OAuth token" saved={settings.hasTwitchAdsOAuthToken} value={settings.twitchAdsOAuthToken} onChange={(value) => update('twitchAdsOAuthToken', value)} />
                   <SecretField label="Ads refresh token" saved={settings.hasTwitchAdsRefreshToken} value={settings.twitchAdsRefreshToken} onChange={(value) => update('twitchAdsRefreshToken', value)} />
                 </div>
+                <div className="split">
+                  <SecretField label="Ads client ID" saved={settings.hasTwitchAdsClientId} value={settings.twitchAdsClientId} onChange={(value) => update('twitchAdsClientId', value)} />
+                  <SecretField label="Ads client secret" saved={settings.hasTwitchAdsClientSecret} value={settings.twitchAdsClientSecret} onChange={(value) => update('twitchAdsClientSecret', value)} />
+                </div>
               </Card>
             </div>
           )}
@@ -284,7 +292,12 @@ export default function App() {
                   <option value="openai-compatible">OpenAI-compatible</option>
                 </select>
               </label>
+              <TextField label="OpenAI-compatible model" value={settings.aiModel} onChange={(value) => update('aiModel', value)} />
               <TextField label="Gemini model" value={settings.geminiModel} onChange={(value) => update('geminiModel', value)} />
+              <div className="info-callout">
+                <strong>Gemini is the recommended hosted provider.</strong>
+                <span>OpenAI-compatible is available for local Ollama experiments. Saved Gemini credentials can still act as a fallback when another primary provider fails.</span>
+              </div>
               <div className="split">
                 <SecretField label="Gemini API key" saved={settings.hasGeminiApiKey} value={settings.geminiApiKey} onChange={(value) => update('geminiApiKey', value)} />
                 <SecretField label="OpenAI-compatible API key" saved={settings.hasAiApiKey} value={settings.aiApiKey} onChange={(value) => update('aiApiKey', value)} />

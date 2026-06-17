@@ -181,8 +181,35 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 	if reply == "" {
 		return
 	}
+	if looksIncompleteReply(reply) {
+		b.logger.Warn("ai reply looked incomplete; retrying once", "reply", reply)
+		if decision := b.budget.Allow(time.Now()); !decision.Allowed {
+			b.logger.Warn("ai retry blocked by budget guard", "user", msg.Username, "reason", decision.Reason)
+			_ = b.chat.Say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+			return
+		}
+		retryResponse, retryErr := b.ai.Complete(ctx, messages)
+		if retryErr != nil {
+			b.logger.Warn("ai retry failed", "error", retryErr)
+			_ = b.chat.Say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+			return
+		}
+		retryReceipt := b.budget.Record(time.Now(), messages, retryResponse)
+		b.logger.Info("ai retry usage recorded",
+			"input_tokens", retryReceipt.InputTokens,
+			"output_tokens", retryReceipt.OutputTokens,
+			"cost_usd", fmt.Sprintf("%.6f", retryReceipt.CostUSD),
+			"estimated", retryReceipt.Estimated,
+		)
+		reply = cleanReply(retryResponse.Text)
+		if reply == "" || looksIncompleteReply(reply) {
+			b.logger.Warn("ai retry reply still looked incomplete", "reply", reply)
+			_ = b.chat.Say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+			return
+		}
+	}
 	if len(reply) > 450 {
-		reply = reply[:450]
+		reply = smartTruncate(reply, 450)
 	}
 
 	if err := b.chat.Say(msg.Channel, fmt.Sprintf("@%s %s", msg.DisplayName, reply)); err != nil {
@@ -287,6 +314,9 @@ func (b *Bot) cooldown(username string) (time.Duration, bool) {
 func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request aiRequest) []ai.Message {
 	var recent strings.Builder
 	for _, item := range b.recentContext() {
+		if sameChatMessage(item, msg) {
+			continue
+		}
 		fmt.Fprintf(&recent, "%s: %s\n", item.DisplayName, item.Text)
 	}
 
@@ -300,14 +330,19 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 		}
 	}
 	streamContext := formatStreamContext(streamInfo, streamOK)
-	knowledgeContext := knowledge.Format(b.know.Relevant(request.Prompt, 3))
+	replyContext := formatReplyContext(msg)
+	knowledgeQuery := request.Prompt
+	if msg.ReplyParentText != "" {
+		knowledgeQuery += "\n" + msg.ReplyParentText
+	}
+	knowledgeContext := knowledge.Format(b.know.Relevant(knowledgeQuery, 3))
 
 	return []ai.Message{
 		{Role: "system", Content: personality.SystemInstruction(personality.Config{
 			Name:        b.cfg.Name,
 			Personality: b.cfg.Personality,
 		})},
-		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, knowledgeContext, recent.String(), msg.DisplayName, request.Prompt)},
+		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, knowledgeContext, replyContext, recent.String(), msg.DisplayName, request.Prompt)},
 	}
 }
 
@@ -419,12 +454,146 @@ func formatDurationForPrompt(d time.Duration) string {
 func cleanReply(reply string) string {
 	reply = strings.TrimSpace(reply)
 	reply = strings.Trim(reply, `"'`)
+	reply = stripMetaThoughts(reply)
+	reply = stripSpeakerLabel(reply)
+	reply = removeMarkdownAsterisks(reply)
+	reply = removeEmoji(reply)
 	reply = strings.ReplaceAll(reply, "\n", " ")
 	reply = strings.Join(strings.Fields(reply), " ")
 	if reply == "" || strings.ContainsAny(reply[len(reply)-1:], ".!?") {
 		return reply
 	}
 	return reply + "."
+}
+
+func stripMetaThoughts(text string) string {
+	lines := strings.Split(text, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(lower, "thinking process:"),
+			strings.HasPrefix(lower, "thought process:"),
+			strings.HasPrefix(lower, "reasoning:"),
+			strings.HasPrefix(lower, "analysis:"),
+			strings.HasPrefix(lower, "system prompt:"),
+			strings.HasPrefix(lower, "prompt:"),
+			strings.HasPrefix(lower, "instructions:"),
+			strings.HasPrefix(lower, "instruction:"):
+			continue
+		default:
+			kept = append(kept, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+func stripSpeakerLabel(text string) string {
+	for _, label := range []string{"LupusAria:", "ModeratorLupusAria:", "Lupus Aria:"} {
+		if strings.HasPrefix(strings.TrimSpace(text), label) {
+			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), label))
+		}
+	}
+	return text
+}
+
+func removeMarkdownAsterisks(text string) string {
+	text = strings.ReplaceAll(text, "**", "")
+	text = strings.ReplaceAll(text, "*", "")
+	return text
+}
+
+func removeEmoji(text string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == 0x200D || r == 0xFE0F:
+			return -1
+		case r >= 0x2600 && r <= 0x27BF:
+			return -1
+		case r >= 0x1F000 && r <= 0x1FAFF:
+			return -1
+		default:
+			return r
+		}
+	}, text)
+}
+
+func smartTruncate(text string, maxLength int) string {
+	text = strings.TrimSpace(text)
+	if maxLength < 1 || len(text) <= maxLength {
+		return text
+	}
+
+	truncated := text[:maxLength]
+	best := -1
+	for _, mark := range []string{". ", "! ", "? "} {
+		if index := strings.LastIndex(truncated, mark); index > int(float64(maxLength)*0.7) {
+			best = index + 1
+		}
+	}
+	if best > 0 {
+		return strings.TrimSpace(text[:best])
+	}
+
+	for _, mark := range []string{", ", "; ", ": ", " - "} {
+		if index := strings.LastIndex(truncated, mark); index > int(float64(maxLength)*0.6) {
+			best = index
+		}
+	}
+	if best > 0 {
+		return strings.TrimSpace(text[:best]) + "."
+	}
+
+	if index := strings.LastIndex(truncated, " "); index > int(float64(maxLength)*0.8) {
+		return strings.TrimSpace(text[:index]) + "."
+	}
+	return strings.TrimSpace(text[:maxLength-1]) + "."
+}
+
+func looksIncompleteReply(reply string) bool {
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		return false
+	}
+
+	trimmed := strings.TrimRight(reply, ".!?")
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
+		return false
+	}
+
+	lowerTrimmed := strings.ToLower(trimmed)
+	if strings.HasSuffix(lowerTrimmed, "to legal") {
+		return true
+	}
+
+	last := strings.ToLower(strings.Trim(fields[len(fields)-1], `"'()[]{}:;,`))
+	switch last {
+	case "a", "an", "the", "to", "for", "from", "with", "without", "of", "in", "on", "at", "by", "as", "and", "or", "but", "because", "about", "into", "through":
+		return true
+	default:
+		return false
+	}
+}
+
+func sameChatMessage(a, b twitch.Message) bool {
+	return a.Username == b.Username && a.DisplayName == b.DisplayName && a.Text == b.Text && a.Channel == b.Channel
+}
+
+func formatReplyContext(msg twitch.Message) string {
+	text := strings.TrimSpace(msg.ReplyParentText)
+	if text == "" {
+		return ""
+	}
+	name := strings.TrimSpace(msg.ReplyParentDisplayName)
+	if name == "" {
+		name = strings.TrimSpace(msg.ReplyParentUserLogin)
+	}
+	if name == "" {
+		name = "previous message"
+	}
+	return fmt.Sprintf("Reply context: %s said: %s", name, text)
 }
 
 func (b *Bot) isBroadcaster(msg twitch.Message) bool {

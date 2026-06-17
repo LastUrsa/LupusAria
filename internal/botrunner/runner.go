@@ -57,8 +57,8 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 
 	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsRefreshToken != "" {
 		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
-			ClientID:     cfg.Twitch.ClientID,
-			ClientSecret: cfg.Twitch.ClientSecret,
+			ClientID:     cfg.Twitch.AdsClientID,
+			ClientSecret: cfg.Twitch.AdsClientSecret,
 			RefreshToken: cfg.Twitch.AdsRefreshToken,
 			StatePath:    cfg.Twitch.AdsTokenStatePath,
 		}).Refresh(ctx)
@@ -140,8 +140,8 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		Knowledge:             knowledgeBase,
 	}, chat, aiClient, streamProvider, recentService, announcementService, logger)
 
-	if cfg.AdAlerts.Enabled && cfg.Twitch.ClientID != "" {
-		adsHelix := twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.AdsOAuthToken)
+	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsClientID != "" {
+		adsHelix := twitch.NewHelixClient(cfg.Twitch.AdsClientID, cfg.Twitch.AdsOAuthToken)
 		adService = adalerts.New(adalerts.Config{
 			Channel:        cfg.Twitch.Channel,
 			BroadcasterID:  broadcasterID,

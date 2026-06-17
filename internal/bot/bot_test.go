@@ -38,6 +38,29 @@ func (fakeAI) Complete(context.Context, []ai.Message) (ai.Response, error) {
 	return ai.Response{Text: "ok"}, nil
 }
 
+type fakeAIText struct {
+	text string
+}
+
+func (f fakeAIText) Complete(context.Context, []ai.Message) (ai.Response, error) {
+	return ai.Response{Text: f.text}, nil
+}
+
+type fakeAISequence struct {
+	responses []string
+	calls     int
+}
+
+func (f *fakeAISequence) Complete(context.Context, []ai.Message) (ai.Response, error) {
+	if f.calls >= len(f.responses) {
+		f.calls++
+		return ai.Response{Text: ""}, nil
+	}
+	text := f.responses[f.calls]
+	f.calls++
+	return ai.Response{Text: text}, nil
+}
+
 type fakeStreamProvider struct {
 	info twitch.StreamInfo
 }
@@ -380,6 +403,47 @@ Tags: project
 	}
 }
 
+func TestBuildAIMessagesUsesReplyContextForKnowledge(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		EnableAsk:          true,
+		EnableLurk:         true,
+		EnableCommands:     true,
+		EnableReset:        true,
+		MaxContextMessages: 30,
+		Knowledge: knowledge.Parse(`## Identity
+Tags: lastursa, who is lastursa
+- LastUrsa is Ursa Starsong's Twitch username.
+`),
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	current := twitch.Message{
+		Channel:                "lastursa",
+		Username:               "ragenowich",
+		DisplayName:            "ragenowich",
+		Text:                   "@LupusAria who's that?",
+		ReplyParentDisplayName: "LupusAria",
+		ReplyParentUserLogin:   "lupusaria",
+		ReplyParentText:        "@ragenowich check out LastUrsa when you get a chance.",
+	}
+	b.remember(current)
+
+	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "who's that?"})
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Reply context: LupusAria said: @ragenowich check out LastUrsa") {
+		t.Fatalf("prompt missing reply context: %s", userPrompt)
+	}
+	if !strings.Contains(userPrompt, "LastUrsa is Ursa Starsong's Twitch username") {
+		t.Fatalf("prompt missing reply-selected identity knowledge: %s", userPrompt)
+	}
+	if strings.Contains(userPrompt, "Recent chat:\nragenowich: @LupusAria who's that?") {
+		t.Fatalf("prompt should not duplicate the current message in recent chat: %s", userPrompt)
+	}
+}
+
 func TestBuildAIMessagesOmitsIrrelevantKnowledge(t *testing.T) {
 	chat := &fakeChat{}
 	b := New(Config{
@@ -413,6 +477,69 @@ Tags: music, songs
 	}
 }
 
+func TestReplyDoesNotSendIncompleteModelSentence(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:                  "LupusAria",
+		Personality:           "test",
+		MaxContextMessages:    30,
+		DailyBudgetUSD:        0,
+		MonthlyBudgetUSD:      0,
+		MaxRequestsPerHour:    0,
+		InputPricePerMillion:  0,
+		OutputPricePerMillion: 0,
+	}, chat, fakeAIText{text: "I think that might be a question for the"}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.reply(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "@LupusAria hello",
+	}, aiRequest{Kind: "mention", Prompt: "hello"})
+
+	if len(chat.sent) != 1 {
+		t.Fatalf("expected one fallback message, got %#v", chat.sent)
+	}
+	if strings.Contains(chat.sent[0], "question for the") {
+		t.Fatalf("incomplete reply should not be sent: %#v", chat.sent)
+	}
+	if !strings.Contains(chat.sent[0], "Try again") {
+		t.Fatalf("expected retry fallback, got %#v", chat.sent)
+	}
+}
+
+func TestReplyRetriesIncompleteModelSentence(t *testing.T) {
+	chat := &fakeChat{}
+	aiClient := &fakeAISequence{responses: []string{
+		"I think that might be a question for the",
+		"That one is probably for Ursa, but the mystery is funny.",
+	}}
+	b := New(Config{
+		Name:                  "LupusAria",
+		Personality:           "test",
+		MaxContextMessages:    30,
+		DailyBudgetUSD:        0,
+		MonthlyBudgetUSD:      0,
+		MaxRequestsPerHour:    0,
+		InputPricePerMillion:  0,
+		OutputPricePerMillion: 0,
+	}, chat, aiClient, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.reply(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "@LupusAria hello",
+	}, aiRequest{Kind: "mention", Prompt: "hello"})
+
+	if aiClient.calls != 2 {
+		t.Fatalf("ai calls = %d, want 2", aiClient.calls)
+	}
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "mystery is funny") {
+		t.Fatalf("expected retried reply, got %#v", chat.sent)
+	}
+}
+
 func TestCleanReplyAddsTerminalPunctuation(t *testing.T) {
 	got := cleanReply(`"just a little stardust"`)
 	if got != "just a little stardust." {
@@ -422,6 +549,57 @@ func TestCleanReplyAddsTerminalPunctuation(t *testing.T) {
 	got = cleanReply("already complete!")
 	if got != "already complete!" {
 		t.Fatalf("cleanReply should preserve punctuation, got %q", got)
+	}
+}
+
+func TestCleanReplyRemovesMarkdownMetaAndSpeakerLabels(t *testing.T) {
+	got := cleanReply("LupusAria: **Ursa** *is* right here")
+	if got != "Ursa is right here." {
+		t.Fatalf("cleanReply = %q", got)
+	}
+
+	got = cleanReply("Reasoning: I should not send this\nActual answer")
+	if got != "Actual answer." {
+		t.Fatalf("cleanReply meta strip = %q", got)
+	}
+}
+
+func TestCleanReplyRemovesEmoji(t *testing.T) {
+	got := cleanReply("Pull up a star and stay awhile. 🏳️‍🌈")
+	if got != "Pull up a star and stay awhile." {
+		t.Fatalf("cleanReply emoji strip = %q", got)
+	}
+}
+
+func TestSmartTruncateAvoidsMidSentenceCuts(t *testing.T) {
+	got := smartTruncate("First sentence is good. Second sentence is going to run past the tiny limit.", 28)
+	if got != "First sentence is good." {
+		t.Fatalf("smartTruncate sentence = %q", got)
+	}
+
+	got = smartTruncate("This response has a useful clause, but then keeps going too long for chat.", 48)
+	if got != "This response has a useful clause." {
+		t.Fatalf("smartTruncate punctuation = %q", got)
+	}
+}
+
+func TestLooksIncompleteReply(t *testing.T) {
+	tests := []struct {
+		reply string
+		want  bool
+	}{
+		{reply: "I think that might be a question for the.", want: true},
+		{reply: "The Judge definitely has a unique approach to legal.", want: true},
+		{reply: "That seems legal.", want: false},
+		{reply: "That is a question for Ursa.", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.reply, func(t *testing.T) {
+			if got := looksIncompleteReply(tt.reply); got != tt.want {
+				t.Fatalf("looksIncompleteReply(%q) = %v, want %v", tt.reply, got, tt.want)
+			}
+		})
 	}
 }
 

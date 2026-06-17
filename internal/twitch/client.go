@@ -22,13 +22,16 @@ type Config struct {
 }
 
 type Message struct {
-	Channel       string
-	Username      string
-	DisplayName   string
-	Text          string
-	Raw           string
-	IsBroadcaster bool
-	IsMod         bool
+	Channel                string
+	Username               string
+	DisplayName            string
+	Text                   string
+	Raw                    string
+	ReplyParentDisplayName string
+	ReplyParentUserLogin   string
+	ReplyParentText        string
+	IsBroadcaster          bool
+	IsMod                  bool
 }
 
 type Client struct {
@@ -147,7 +150,7 @@ func parseMessage(raw string) (Message, bool) {
 		line = rest
 		for _, pair := range strings.Split(strings.TrimPrefix(rawTags, "@"), ";") {
 			key, value, _ := strings.Cut(pair, "=")
-			tags[key] = value
+			tags[key] = unescapeIRCTag(value)
 		}
 	}
 
@@ -178,13 +181,16 @@ func parseMessage(raw string) (Message, bool) {
 	isMod := isBroadcaster || hasBadge(tags["badges"], "moderator") || tags["mod"] == "1"
 
 	return Message{
-		Channel:       strings.TrimPrefix(channelPart, "#"),
-		Username:      strings.ToLower(username),
-		DisplayName:   displayName,
-		Text:          text,
-		Raw:           raw,
-		IsBroadcaster: isBroadcaster,
-		IsMod:         isMod,
+		Channel:                strings.TrimPrefix(channelPart, "#"),
+		Username:               strings.ToLower(username),
+		DisplayName:            displayName,
+		Text:                   text,
+		Raw:                    raw,
+		ReplyParentDisplayName: tags["reply-parent-display-name"],
+		ReplyParentUserLogin:   tags["reply-parent-user-login"],
+		ReplyParentText:        tags["reply-parent-msg-body"],
+		IsBroadcaster:          isBroadcaster,
+		IsMod:                  isMod,
 	}, true
 }
 
@@ -196,4 +202,40 @@ func hasBadge(raw, badge string) bool {
 		}
 	}
 	return false
+}
+
+func unescapeIRCTag(value string) string {
+	if !strings.Contains(value, `\`) {
+		return value
+	}
+
+	var out strings.Builder
+	escaped := false
+	for _, r := range value {
+		if escaped {
+			switch r {
+			case 's':
+				out.WriteByte(' ')
+			case ':':
+				out.WriteByte(';')
+			case 'r':
+				out.WriteByte('\r')
+			case 'n':
+				out.WriteByte('\n')
+			default:
+				out.WriteRune(r)
+			}
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		out.WriteRune(r)
+	}
+	if escaped {
+		out.WriteByte('\\')
+	}
+	return out.String()
 }

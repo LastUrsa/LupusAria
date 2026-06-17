@@ -22,7 +22,7 @@ Broadcaster commands are restricted to the channel owner. The bot checks Twitch 
 
 ## AI Behavior
 
-AI commands use the provider from `AI_PROVIDER`: `mock`, `gemini`, or `openai-compatible`.
+AI commands use the provider from `AI_PROVIDER`: `mock`, `gemini`, or `openai-compatible`. Gemini is the recommended hosted provider; OpenAI-compatible is mainly for local Ollama experiments.
 
 They are governed by:
 
@@ -31,6 +31,13 @@ They are governed by:
 - `MAX_AI_REQUESTS_PER_HOUR`
 - `DAILY_AI_BUDGET_USD`
 - `MONTHLY_AI_BUDGET_USD`
+- `AI_PROVIDER`
+- `AI_BASE_URL`
+- `AI_MODEL`
+- `AI_FALLBACK_PROVIDER`
+- `AI_MAX_OUTPUT_TOKENS`
+- `AI_MAX_RETRIES`
+- `GEMINI_THINKING_LEVEL`
 
 Shared voice and safety rules live in [personality.md](personality.md). Command-specific prompts may add task constraints, but should not redefine Lupus Aria's identity.
 
@@ -70,7 +77,7 @@ AD_ALERT_END_MESSAGE=Welcome back. Ads should be done now.
 
 `AD_ALERT_WARNING_MESSAGE` should include one `%s` placeholder, such as `5 minutes`.
 
-Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally.
+Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally. If the ads token was generated from a different Twitch application than the bot token, set `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET` too.
 
 ## Announcements
 

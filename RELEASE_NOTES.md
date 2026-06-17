@@ -4,6 +4,7 @@
 
 - Store installed-app settings under `%APPDATA%\Starsong Tools\LupusAria` instead of relying on a `.env` beside the executable.
 - Add desktop UI fields for Twitch credentials and AI API keys. Saved secret values remain hidden and are only replaced when a new value is entered.
+- Support separate Twitch application credentials for ad alerts with `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET`.
 
 ## v0.1.0
 

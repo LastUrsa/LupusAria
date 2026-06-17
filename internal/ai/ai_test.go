@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,30 @@ import (
 
 	"lupusaria/internal/config"
 )
+
+type staticClient struct {
+	response Response
+	err      error
+}
+
+func (c staticClient) Complete(context.Context, []Message) (Response, error) {
+	return c.response, c.err
+}
+
+func TestFallbackClientUsesFallbackWhenPrimaryFails(t *testing.T) {
+	client := fallbackClient{
+		primary:  staticClient{err: errors.New("primary down")},
+		fallback: staticClient{response: Response{Text: "backup online"}},
+	}
+
+	response, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "backup online" {
+		t.Fatalf("response = %q, want backup online", response.Text)
+	}
+}
 
 func TestOpenAICompatibleCompleteParsesResponseAndUsage(t *testing.T) {
 	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -30,8 +55,8 @@ func TestOpenAICompatibleCompleteParsesResponseAndUsage(t *testing.T) {
 		if body.Model != "test-model" {
 			t.Fatalf("model = %q, want test-model", body.Model)
 		}
-		if body.MaxTokens != maxOutputTokens {
-			t.Fatalf("max tokens = %d, want %d", body.MaxTokens, maxOutputTokens)
+		if body.MaxTokens != 99 {
+			t.Fatalf("max tokens = %d, want 99", body.MaxTokens)
 		}
 
 		return jsonResponse(http.StatusOK, `{
@@ -44,6 +69,7 @@ func TestOpenAICompatibleCompleteParsesResponseAndUsage(t *testing.T) {
 		APIKey:                "test-key",
 		BaseURL:               "https://ai.test",
 		Model:                 "test-model",
+		MaxOutputTokens:       99,
 		InputPricePerMillion:  1,
 		OutputPricePerMillion: 2,
 	})
@@ -88,6 +114,18 @@ func TestOpenAICompatibleCompleteRequiresChoice(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleCompleteRequiresText(t *testing.T) {
+	client := NewOpenAICompatibleClient(config.AIConfig{BaseURL: "https://ai.test", Model: "test-model"})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"   "}}]}`), nil
+	})}
+
+	_, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
+	if err == nil || !strings.Contains(err.Error(), "did not include text") {
+		t.Fatalf("err = %v, want missing text", err)
+	}
+}
+
 func TestGeminiCompleteUsesSystemInstructionAndParsesResponse(t *testing.T) {
 	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodPost {
@@ -107,6 +145,12 @@ func TestGeminiCompleteUsesSystemInstructionAndParsesResponse(t *testing.T) {
 		if len(body.Contents) != 1 || !strings.Contains(body.Contents[0].Parts[0].Text, "user text") {
 			t.Fatalf("contents = %#v", body.Contents)
 		}
+		if body.GenerationConfig.MaxOutputTokens != 123 {
+			t.Fatalf("max output tokens = %d, want 123", body.GenerationConfig.MaxOutputTokens)
+		}
+		if body.GenerationConfig.ThinkingConfig == nil || body.GenerationConfig.ThinkingConfig.ThinkingLevel != "high" {
+			t.Fatalf("thinking config = %#v", body.GenerationConfig.ThinkingConfig)
+		}
 
 		return jsonResponse(http.StatusOK, `{
 			"candidates": [{"content": {"parts": [{"text": " gemini says hi "} ]}}],
@@ -115,7 +159,9 @@ func TestGeminiCompleteUsesSystemInstructionAndParsesResponse(t *testing.T) {
 	})
 	client := NewGeminiClient(config.AIConfig{
 		APIKey:                "gemini-key",
-		Model:                 "gemini-test",
+		Model:                 "gemini-3.1-flash-lite",
+		MaxOutputTokens:       123,
+		GeminiThinkingLevel:   "high",
 		InputPricePerMillion:  1,
 		OutputPricePerMillion: 2,
 	})
@@ -136,6 +182,28 @@ func TestGeminiCompleteUsesSystemInstructionAndParsesResponse(t *testing.T) {
 	}
 }
 
+func TestGeminiCompleteOmitsThinkingConfigForUnsupportedModels(t *testing.T) {
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body geminiGenerateRequest
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.GenerationConfig.ThinkingConfig != nil {
+			t.Fatalf("thinking config should be omitted, got %#v", body.GenerationConfig.ThinkingConfig)
+		}
+		return jsonResponse(http.StatusOK, `{
+			"candidates": [{"content": {"parts": [{"text": "lite says hi"}]}}],
+			"usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20}
+		}`), nil
+	})
+	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-2.5-flash-lite"})
+	client.httpClient = &http.Client{Transport: transport}
+
+	if _, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGeminiCompleteReturnsAPIErrorMessage(t *testing.T) {
 	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-test"})
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -145,6 +213,71 @@ func TestGeminiCompleteReturnsAPIErrorMessage(t *testing.T) {
 	_, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
 	if err == nil || !strings.Contains(err.Error(), "bad prompt") {
 		t.Fatalf("err = %v, want bad prompt", err)
+	}
+}
+
+func TestGeminiCompleteRetriesEmptyText(t *testing.T) {
+	attempts := 0
+	client := NewGeminiClient(config.AIConfig{
+		APIKey:              "gemini-key",
+		Model:               "gemini-test",
+		MaxRetries:          1,
+		GeminiThinkingLevel: "high",
+	})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return jsonResponse(http.StatusOK, `{"candidates":[{"content":{"parts":[{"text":"   "}]} }]}`), nil
+		}
+		return jsonResponse(http.StatusOK, `{"candidates":[{"content":{"parts":[{"text":"retry worked"}]}}]}`), nil
+	})}
+
+	response, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if response.Text != "retry worked" {
+		t.Fatalf("text = %q", response.Text)
+	}
+}
+
+func TestGeminiCompleteAllowsTextWithMaxTokenFinish(t *testing.T) {
+	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-test"})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, `{
+			"candidates": [{"finishReason":"MAX_TOKENS","content": {"parts": [{"text": "partial"}]}}]
+		}`), nil
+	})}
+
+	response, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "partial" {
+		t.Fatalf("text = %q, want partial", response.Text)
+	}
+}
+
+func TestGeminiCompleteRetriesEmptyMaxTokenFinish(t *testing.T) {
+	attempts := 0
+	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-test", MaxRetries: 1})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return jsonResponse(http.StatusOK, `{"candidates": [{"finishReason":"MAX_TOKENS","content": {"parts": []}}]}`), nil
+		}
+		return jsonResponse(http.StatusOK, `{"candidates": [{"content": {"parts": [{"text":"retry after max"}]}}]}`), nil
+	})}
+
+	response, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "retry after max" {
+		t.Fatalf("text = %q", response.Text)
 	}
 }
 

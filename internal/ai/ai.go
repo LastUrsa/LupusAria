@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,13 +32,35 @@ type Response struct {
 	Usage Usage
 }
 
-const maxOutputTokens = 256
+const (
+	defaultMaxOutputTokens = 1024
+	defaultMaxRetries      = 3
+)
 
 type Client interface {
 	Complete(ctx context.Context, messages []Message) (Response, error)
 }
 
 func NewClient(cfg config.AIConfig) (Client, error) {
+	primaryCfg := cfg
+	primaryCfg.Fallback = nil
+	primary, err := newSingleClient(primaryCfg)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Fallback == nil {
+		return primary, nil
+	}
+	fallbackCfg := *cfg.Fallback
+	fallbackCfg.Fallback = nil
+	fallback, err := newSingleClient(fallbackCfg)
+	if err != nil {
+		return nil, fmt.Errorf("initialize fallback AI provider: %w", err)
+	}
+	return fallbackClient{primary: primary, fallback: fallback}, nil
+}
+
+func newSingleClient(cfg config.AIConfig) (Client, error) {
 	switch cfg.Provider {
 	case "", "mock":
 		return MockClient{}, nil
@@ -50,20 +73,43 @@ func NewClient(cfg config.AIConfig) (Client, error) {
 	}
 }
 
+type fallbackClient struct {
+	primary  Client
+	fallback Client
+}
+
+func (c fallbackClient) Complete(ctx context.Context, messages []Message) (Response, error) {
+	response, err := c.primary.Complete(ctx, messages)
+	if err == nil {
+		return response, nil
+	}
+	fallbackResponse, fallbackErr := c.fallback.Complete(ctx, messages)
+	if fallbackErr == nil {
+		return fallbackResponse, nil
+	}
+	return Response{}, fmt.Errorf("primary AI failed: %v; fallback AI failed: %w", err, fallbackErr)
+}
+
 type GeminiClient struct {
-	apiKey      string
-	model       string
-	inputPrice  float64
-	outputPrice float64
-	httpClient  *http.Client
+	apiKey        string
+	model         string
+	thinkingLevel string
+	maxTokens     int
+	maxRetries    int
+	inputPrice    float64
+	outputPrice   float64
+	httpClient    *http.Client
 }
 
 func NewGeminiClient(cfg config.AIConfig) *GeminiClient {
 	return &GeminiClient{
-		apiKey:      cfg.APIKey,
-		model:       cfg.Model,
-		inputPrice:  cfg.InputPricePerMillion,
-		outputPrice: cfg.OutputPricePerMillion,
+		apiKey:        cfg.APIKey,
+		model:         cfg.Model,
+		thinkingLevel: strings.TrimSpace(cfg.GeminiThinkingLevel),
+		maxTokens:     positiveOrDefault(cfg.MaxOutputTokens, defaultMaxOutputTokens),
+		maxRetries:    nonNegativeOrDefault(cfg.MaxRetries, defaultMaxRetries),
+		inputPrice:    cfg.InputPricePerMillion,
+		outputPrice:   cfg.OutputPricePerMillion,
 		httpClient: &http.Client{
 			Timeout: 45 * time.Second,
 		},
@@ -71,15 +117,36 @@ func NewGeminiClient(cfg config.AIConfig) *GeminiClient {
 }
 
 func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Response, error) {
+	var lastErr error
+	attempts := c.maxRetries + 1
+	for attempt := 0; attempt < attempts; attempt++ {
+		response, err := c.completeOnce(ctx, messages)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if !isRetryableError(err) || attempt == attempts-1 {
+			break
+		}
+		if err := sleepBeforeRetry(ctx, attempt); err != nil {
+			return Response{}, err
+		}
+	}
+	return Response{}, lastErr
+}
+
+func (c *GeminiClient) completeOnce(ctx context.Context, messages []Message) (Response, error) {
 	systemInstruction, prompt := splitSystemAndUserPrompt(messages)
 	payload := geminiGenerateRequest{
 		Contents: []geminiContent{
 			{Role: "user", Parts: []geminiPart{{Text: prompt}}},
 		},
 		GenerationConfig: geminiGenerationConfig{
-			MaxOutputTokens: maxOutputTokens,
-			ThinkingConfig:  geminiThinkingConfig{ThinkingLevel: "low"},
+			MaxOutputTokens: c.maxTokens,
 		},
+	}
+	if geminiSupportsThinkingLevel(c.model) && c.thinkingLevel != "" {
+		payload.GenerationConfig.ThinkingConfig = &geminiThinkingConfig{ThinkingLevel: c.thinkingLevel}
 	}
 	if systemInstruction != "" {
 		payload.SystemInstruction = &geminiSystemInstruction{
@@ -102,7 +169,7 @@ func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Respon
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Response{}, err
+		return Response{}, retryableError{err}
 	}
 	defer resp.Body.Close()
 
@@ -110,9 +177,9 @@ func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Respon
 		var apiErr geminiErrorResponse
 		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
 		if apiErr.Error.Message != "" {
-			return Response{}, errors.New(apiErr.Error.Message)
+			return Response{}, apiStatusError{status: resp.StatusCode, message: apiErr.Error.Message}
 		}
-		return Response{}, fmt.Errorf("gemini request failed with status %s", resp.Status)
+		return Response{}, apiStatusError{status: resp.StatusCode, message: fmt.Sprintf("gemini request failed with status %s", resp.Status)}
 	}
 
 	var result geminiGenerateResponse
@@ -122,7 +189,14 @@ func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Respon
 
 	text := result.Text()
 	if strings.TrimSpace(text) == "" {
-		return Response{}, errors.New("gemini response did not include text")
+		finishReason := result.FinishReason()
+		if finishReason == "MAX_TOKENS" {
+			return Response{}, retryableError{errors.New("gemini response stopped because it reached max output tokens without text")}
+		}
+		if finishReason == "SAFETY" {
+			return Response{}, errors.New("gemini response blocked by safety filters")
+		}
+		return Response{}, retryableError{errors.New("gemini response did not include text")}
 	}
 
 	usage := Usage{
@@ -149,13 +223,15 @@ func (MockClient) Complete(_ context.Context, messages []Message) (Response, err
 	if last == "" {
 		return Response{Text: "I am awake, but I need something to answer."}, nil
 	}
-	return Response{Text: "Mock reply: I heard you. Configure AI_PROVIDER=gemini when you want real model responses."}, nil
+	return Response{Text: "Mock reply: I heard you. Configure AI_PROVIDER=openai-compatible when you want real model responses."}, nil
 }
 
 type OpenAICompatibleClient struct {
 	apiKey      string
 	baseURL     string
 	model       string
+	maxTokens   int
+	maxRetries  int
 	inputPrice  float64
 	outputPrice float64
 	httpClient  *http.Client
@@ -166,6 +242,8 @@ func NewOpenAICompatibleClient(cfg config.AIConfig) *OpenAICompatibleClient {
 		apiKey:      cfg.APIKey,
 		baseURL:     strings.TrimRight(cfg.BaseURL, "/"),
 		model:       cfg.Model,
+		maxTokens:   positiveOrDefault(cfg.MaxOutputTokens, defaultMaxOutputTokens),
+		maxRetries:  nonNegativeOrDefault(cfg.MaxRetries, defaultMaxRetries),
 		inputPrice:  cfg.InputPricePerMillion,
 		outputPrice: cfg.OutputPricePerMillion,
 		httpClient: &http.Client{
@@ -175,11 +253,30 @@ func NewOpenAICompatibleClient(cfg config.AIConfig) *OpenAICompatibleClient {
 }
 
 func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Message) (Response, error) {
+	var lastErr error
+	attempts := c.maxRetries + 1
+	for attempt := 0; attempt < attempts; attempt++ {
+		response, err := c.completeOnce(ctx, messages)
+		if err == nil {
+			return response, nil
+		}
+		lastErr = err
+		if !isRetryableError(err) || attempt == attempts-1 {
+			break
+		}
+		if err := sleepBeforeRetry(ctx, attempt); err != nil {
+			return Response{}, err
+		}
+	}
+	return Response{}, lastErr
+}
+
+func (c *OpenAICompatibleClient) completeOnce(ctx context.Context, messages []Message) (Response, error) {
 	payload := chatCompletionRequest{
 		Model:       c.model,
 		Messages:    messages,
 		Temperature: 0.7,
-		MaxTokens:   maxOutputTokens,
+		MaxTokens:   c.maxTokens,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -195,7 +292,7 @@ func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Messag
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return Response{}, err
+		return Response{}, retryableError{err}
 	}
 	defer resp.Body.Close()
 
@@ -203,9 +300,9 @@ func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Messag
 		var apiErr apiErrorResponse
 		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
 		if apiErr.Error.Message != "" {
-			return Response{}, errors.New(apiErr.Error.Message)
+			return Response{}, apiStatusError{status: resp.StatusCode, message: apiErr.Error.Message}
 		}
-		return Response{}, fmt.Errorf("ai request failed with status %s", resp.Status)
+		return Response{}, apiStatusError{status: resp.StatusCode, message: fmt.Sprintf("ai request failed with status %s", resp.Status)}
 	}
 
 	var result chatCompletionResponse
@@ -222,8 +319,12 @@ func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Messag
 	if usage.InputTokens > 0 || usage.OutputTokens > 0 {
 		usage.CostUSD = estimateCostUSD(usage.InputTokens, usage.OutputTokens, c.inputPrice, c.outputPrice)
 	}
+	text := strings.TrimSpace(result.Choices[0].Message.Content)
+	if text == "" {
+		return Response{}, retryableError{errors.New("ai response did not include text")}
+	}
 	return Response{
-		Text:  strings.TrimSpace(result.Choices[0].Message.Content),
+		Text:  text,
 		Usage: usage,
 	}, nil
 }
@@ -271,8 +372,8 @@ type geminiPart struct {
 }
 
 type geminiGenerationConfig struct {
-	MaxOutputTokens int                  `json:"maxOutputTokens,omitempty"`
-	ThinkingConfig  geminiThinkingConfig `json:"thinkingConfig,omitempty"`
+	MaxOutputTokens int                   `json:"maxOutputTokens,omitempty"`
+	ThinkingConfig  *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 type geminiThinkingConfig struct {
@@ -281,7 +382,8 @@ type geminiThinkingConfig struct {
 
 type geminiGenerateResponse struct {
 	Candidates []struct {
-		Content geminiContent `json:"content"`
+		Content      geminiContent `json:"content"`
+		FinishReason string        `json:"finishReason"`
 	} `json:"candidates"`
 	UsageMetadata struct {
 		PromptTokenCount     int `json:"promptTokenCount"`
@@ -301,6 +403,13 @@ func (r geminiGenerateResponse) Text() string {
 	return builder.String()
 }
 
+func (r geminiGenerateResponse) FinishReason() string {
+	if len(r.Candidates) == 0 {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(r.Candidates[0].FinishReason))
+}
+
 type geminiErrorResponse struct {
 	Error struct {
 		Message string `json:"message"`
@@ -311,6 +420,81 @@ func estimateCostUSD(inputTokens, outputTokens int, inputPricePerMillion, output
 	inputCost := (float64(inputTokens) / 1_000_000) * inputPricePerMillion
 	outputCost := (float64(outputTokens) / 1_000_000) * outputPricePerMillion
 	return inputCost + outputCost
+}
+
+func geminiSupportsThinkingLevel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "gemini-3")
+}
+
+type retryableError struct {
+	err error
+}
+
+func (e retryableError) Error() string {
+	return e.err.Error()
+}
+
+func (e retryableError) Unwrap() error {
+	return e.err
+}
+
+type apiStatusError struct {
+	status  int
+	message string
+}
+
+func (e apiStatusError) Error() string {
+	return e.message
+}
+
+func isRetryableError(err error) bool {
+	var retryable retryableError
+	if errors.As(err, &retryable) {
+		return true
+	}
+	var statusErr apiStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.status == http.StatusTooManyRequests ||
+			statusErr.status == http.StatusInternalServerError ||
+			statusErr.status == http.StatusBadGateway ||
+			statusErr.status == http.StatusServiceUnavailable ||
+			statusErr.status == http.StatusGatewayTimeout
+	}
+	if errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "timeout") ||
+		strings.Contains(message, "timed out") ||
+		strings.Contains(message, "connection reset") ||
+		strings.Contains(message, "temporary") ||
+		strings.Contains(message, "network")
+}
+
+func sleepBeforeRetry(ctx context.Context, attempt int) error {
+	delay := time.Duration(500*(1<<attempt)) * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func positiveOrDefault(value, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func nonNegativeOrDefault(value, fallback int) int {
+	if value >= 0 {
+		return value
+	}
+	return fallback
 }
 
 func splitSystemAndUserPrompt(messages []Message) (string, string) {

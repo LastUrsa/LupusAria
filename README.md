@@ -14,7 +14,7 @@ It is built for one streamer: simple to run locally, cheap to operate, and easy 
 - Configurable command and stream-timer announcements.
 - Optional ad alerts with Twitch ad schedule support.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
-- Gemini, OpenAI-compatible, and mock AI providers.
+- Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
 - Local Wails control panel for non-secret configuration and runtime controls.
 
 ## Quick Start
@@ -28,7 +28,7 @@ It is built for one streamer: simple to run locally, cheap to operate, and easy 
 go run ./cmd/lupusaria
 ```
 
-Switch to `AI_PROVIDER=gemini` when you are ready to use real AI replies.
+Switch to `AI_PROVIDER=gemini` when you are ready to use hosted real AI replies. Use `AI_PROVIDER=openai-compatible` for local Ollama experiments.
 
 ## Desktop App
 
@@ -76,6 +76,8 @@ Ad alerts require a broadcaster token with `channel:read:ads`:
 twitch token -u --dcf -s 'channel:read:ads'
 ```
 
+The ads token must be used with the same Twitch application that generated it. If ads use a separate Twitch app, set the ads client ID and secret separately from the bot client ID and secret.
+
 ## Cost Controls
 
 AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, and AI-powered ad alert messages. Keep prompts small by using modest chat context and targeted knowledge sections.
@@ -89,6 +91,13 @@ Relevant settings:
 - `DAILY_AI_BUDGET_USD`
 - `MONTHLY_AI_BUDGET_USD`
 - `AI_BUDGET_STATE_PATH`
+- `AI_PROVIDER`
+- `AI_BASE_URL`
+- `AI_MODEL`
+- `AI_FALLBACK_PROVIDER`
+- `AI_MAX_OUTPUT_TOKENS`
+- `AI_MAX_RETRIES`
+- `GEMINI_THINKING_LEVEL`
 
 The knowledge base is tag-matched. If no section matches a viewer request, the prompt explicitly says no known facts matched so the model should avoid guessing.
 

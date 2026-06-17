@@ -111,7 +111,11 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	settings.BotUsername = "LupusAria"
 	settings.TwitchClientID = "client-id"
 	settings.TwitchClientSecret = "client-secret"
+	settings.TwitchAdsClientID = "ads-client-id"
+	settings.TwitchAdsClientSecret = "ads-client-secret"
 	settings.TwitchRefreshToken = "refresh-token"
+	settings.AIProvider = "gemini"
+	settings.AIModel = "llama3.1:8b"
 	settings.GeminiAPIKey = "gemini-key"
 
 	if err := app.SaveSettings(settings); err != nil {
@@ -128,7 +132,13 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 		"TWITCH_BOT_USERNAME=LupusAria",
 		"TWITCH_CLIENT_ID=client-id",
 		"TWITCH_CLIENT_SECRET=client-secret",
+		"TWITCH_ADS_CLIENT_ID=ads-client-id",
+		"TWITCH_ADS_CLIENT_SECRET=ads-client-secret",
 		"TWITCH_REFRESH_TOKEN=refresh-token",
+		"AI_PROVIDER=gemini",
+		"AI_BASE_URL=",
+		"AI_MODEL=llama3.1:8b",
+		"AI_FALLBACK_PROVIDER=",
 		"GEMINI_API_KEY=gemini-key",
 	} {
 		if !strings.Contains(got, want) {

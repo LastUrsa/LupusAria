@@ -42,6 +42,8 @@ type ControlSettings struct {
 	TwitchRefreshToken    string `json:"twitchRefreshToken"`
 	TwitchClientID        string `json:"twitchClientId"`
 	TwitchClientSecret    string `json:"twitchClientSecret"`
+	TwitchAdsClientID     string `json:"twitchAdsClientId"`
+	TwitchAdsClientSecret string `json:"twitchAdsClientSecret"`
 	TwitchAdsOAuthToken   string `json:"twitchAdsOAuthToken"`
 	TwitchAdsRefreshToken string `json:"twitchAdsRefreshToken"`
 
@@ -49,6 +51,8 @@ type ControlSettings struct {
 	HasTwitchRefreshToken    bool `json:"hasTwitchRefreshToken"`
 	HasTwitchClientID        bool `json:"hasTwitchClientId"`
 	HasTwitchClientSecret    bool `json:"hasTwitchClientSecret"`
+	HasTwitchAdsClientID     bool `json:"hasTwitchAdsClientId"`
+	HasTwitchAdsClientSecret bool `json:"hasTwitchAdsClientSecret"`
 	HasTwitchAdsOAuthToken   bool `json:"hasTwitchAdsOAuthToken"`
 	HasTwitchAdsRefreshToken bool `json:"hasTwitchAdsRefreshToken"`
 
@@ -130,17 +134,19 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		HasTwitchRefreshToken:    cfg.Twitch.RefreshToken != "",
 		HasTwitchClientID:        cfg.Twitch.ClientID != "",
 		HasTwitchClientSecret:    cfg.Twitch.ClientSecret != "",
+		HasTwitchAdsClientID:     cfg.Twitch.AdsClientID != "" && cfg.Twitch.AdsClientID != cfg.Twitch.ClientID,
+		HasTwitchAdsClientSecret: cfg.Twitch.AdsClientSecret != "" && cfg.Twitch.AdsClientSecret != cfg.Twitch.ClientSecret,
 		HasTwitchAdsOAuthToken:   cfg.Twitch.AdsOAuthToken != "",
 		HasTwitchAdsRefreshToken: cfg.Twitch.AdsRefreshToken != "",
 
 		AIProvider:         cfg.AI.Provider,
 		AIModel:            cfg.AI.Model,
-		GeminiModel:        cfg.AI.Model,
+		GeminiModel:        cfg.AI.GeminiModel,
 		MaxRequestsPerHour: cfg.Bot.MaxRequestsPerHour,
 		DailyBudgetUSD:     cfg.Bot.DailyBudgetUSD,
 		MonthlyBudgetUSD:   cfg.Bot.MonthlyBudgetUSD,
 		HasAIAPIKey:        cfg.AI.Provider == "openai-compatible" && cfg.AI.APIKey != "",
-		HasGeminiAPIKey:    cfg.AI.Provider == "gemini" && cfg.AI.APIKey != "",
+		HasGeminiAPIKey:    cfg.AI.GeminiAPIKey != "",
 
 		EnableMentions: cfg.Bot.EnableMentions,
 		EnableAsk:      cfg.Bot.EnableAsk,
@@ -189,8 +195,10 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"TWITCH_CHANNEL":           settings.Channel,
 		"TWITCH_BOT_USERNAME":      settings.BotUsername,
 		"AI_PROVIDER":              settings.AIProvider,
+		"AI_BASE_URL":              aiBaseURL(settings),
 		"AI_MODEL":                 settings.AIModel,
 		"GEMINI_MODEL":             settings.GeminiModel,
+		"AI_FALLBACK_PROVIDER":     aiFallbackProvider(settings),
 		"MAX_AI_REQUESTS_PER_HOUR": strconv.Itoa(settings.MaxRequestsPerHour),
 		"DAILY_AI_BUDGET_USD":      formatFloat(settings.DailyBudgetUSD),
 		"MONTHLY_AI_BUDGET_USD":    formatFloat(settings.MonthlyBudgetUSD),
@@ -225,6 +233,8 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 	addSecretUpdate(updates, "TWITCH_REFRESH_TOKEN", settings.TwitchRefreshToken)
 	addSecretUpdate(updates, "TWITCH_CLIENT_ID", settings.TwitchClientID)
 	addSecretUpdate(updates, "TWITCH_CLIENT_SECRET", settings.TwitchClientSecret)
+	addSecretUpdate(updates, "TWITCH_ADS_CLIENT_ID", settings.TwitchAdsClientID)
+	addSecretUpdate(updates, "TWITCH_ADS_CLIENT_SECRET", settings.TwitchAdsClientSecret)
 	addSecretUpdate(updates, "TWITCH_ADS_OAUTH_TOKEN", settings.TwitchAdsOAuthToken)
 	addSecretUpdate(updates, "TWITCH_ADS_REFRESH_TOKEN", settings.TwitchAdsRefreshToken)
 	addSecretUpdate(updates, "AI_API_KEY", settings.AIAPIKey)
@@ -459,6 +469,20 @@ func boolString(value bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+func aiBaseURL(settings ControlSettings) string {
+	if settings.AIProvider == "openai-compatible" {
+		return "http://localhost:11434/v1"
+	}
+	return ""
+}
+
+func aiFallbackProvider(settings ControlSettings) string {
+	if settings.AIProvider == "openai-compatible" && (settings.GeminiAPIKey != "" || settings.HasGeminiAPIKey) {
+		return "gemini"
+	}
+	return ""
 }
 
 func formatFloat(value float64) string {

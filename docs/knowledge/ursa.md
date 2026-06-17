@@ -5,11 +5,13 @@ Facts Lupus Aria may safely use about Ursa, the stream, projects, music, and rec
 Keep entries short, verified, and easy to quote. The bot only injects sections whose tags match the viewer request.
 
 ## Identity
-Tags: ursa, ursa starsong, streamer, pronouns, he him, who is ursa, about ursa
+Tags: ursa, ursa starsong, lastursa, last ursa, streamer, broadcaster, channel owner, pronouns, he him, who is ursa, who is lastursa, about ursa, bear wolf, bear-wolf, hybrid, fursona, species
 
 - Ursa Starsong is the streamer for this channel.
+- LastUrsa is Ursa Starsong's Twitch username.
 - Ursa is usually addressed as Ursa.
 - Ursa uses he/him pronouns.
+- Ursa is a bear-wolf hybrid.
 
 ## Music
 Tags: music, song, songs, album, albums, track, tracks, bandcamp, spotify, apple music, tidal, deezer, youtube music, genre, genres, lyrics, singing, vocals, covers, video game music, vgm, acapella, harp

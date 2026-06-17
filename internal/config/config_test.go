@@ -87,6 +87,9 @@ TWITCH_CHANNEL=lastursa
 AI_PROVIDER=gemini
 GEMINI_API_KEY=test-key
 GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_THINKING_LEVEL=high
+AI_MAX_OUTPUT_TOKENS=640
+AI_MAX_RETRIES=2
 `)
 
 	cfg, err := Load(envPath)
@@ -96,8 +99,85 @@ GEMINI_MODEL=gemini-3.1-flash-lite
 	if cfg.AI.Model != "gemini-3.1-flash-lite" {
 		t.Fatalf("model = %q", cfg.AI.Model)
 	}
+	if cfg.AI.GeminiThinkingLevel != "high" || cfg.AI.MaxOutputTokens != 640 || cfg.AI.MaxRetries != 2 {
+		t.Fatalf("ai controls = %#v", cfg.AI)
+	}
 	if cfg.AI.InputPricePerMillion != 0.25 || cfg.AI.OutputPricePerMillion != 1.50 {
 		t.Fatalf("prices = %f/%f", cfg.AI.InputPricePerMillion, cfg.AI.OutputPricePerMillion)
+	}
+}
+
+func TestLoadUsesLocalOllamaAsOpenAICompatibleDefault(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+AI_PROVIDER=openai-compatible
+AI_API_KEY=ollama
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AI.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("base url = %q, want local ollama", cfg.AI.BaseURL)
+	}
+	if cfg.AI.Model != "llama3.1:8b" {
+		t.Fatalf("model = %q, want llama3.1:8b", cfg.AI.Model)
+	}
+	if cfg.AI.InputPricePerMillion != 0 || cfg.AI.OutputPricePerMillion != 0 {
+		t.Fatalf("prices = %f/%f", cfg.AI.InputPricePerMillion, cfg.AI.OutputPricePerMillion)
+	}
+}
+
+func TestLoadAddsGeminiFallbackForOpenAICompatibleWhenKeyExists(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+AI_PROVIDER=openai-compatible
+AI_API_KEY=ollama
+GEMINI_API_KEY=gemini-key
+GEMINI_MODEL=gemini-3.1-flash-lite
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AI.Fallback == nil {
+		t.Fatal("expected Gemini fallback")
+	}
+	if cfg.AI.Fallback.Provider != "gemini" || cfg.AI.Fallback.APIKey != "gemini-key" || cfg.AI.Fallback.Model != "gemini-3.1-flash-lite" {
+		t.Fatalf("fallback = %#v", cfg.AI.Fallback)
+	}
+}
+
+func TestLoadUsesAIResilienceDefaults(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+AI_PROVIDER=gemini
+GEMINI_API_KEY=test-key
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AI.GeminiThinkingLevel != "high" {
+		t.Fatalf("thinking level = %q, want high", cfg.AI.GeminiThinkingLevel)
+	}
+	if cfg.AI.MaxOutputTokens != 1024 {
+		t.Fatalf("max output tokens = %d, want 1024", cfg.AI.MaxOutputTokens)
+	}
+	if cfg.AI.MaxRetries != 3 {
+		t.Fatalf("max retries = %d, want 3", cfg.AI.MaxRetries)
 	}
 }
 
@@ -121,6 +201,48 @@ func TestLoadPartialAllowsMissingRequiredConfig(t *testing.T) {
 	}
 	if cfg.Twitch.Channel != "lastursa" {
 		t.Fatalf("channel = %q, want lastursa", cfg.Twitch.Channel)
+	}
+}
+
+func TestLoadAdsCredentialsFallbackToMainTwitchApp(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+TWITCH_CLIENT_ID=main-client
+TWITCH_CLIENT_SECRET=main-secret
+TWITCH_ADS_REFRESH_TOKEN=ads-refresh
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Twitch.AdsClientID != "main-client" || cfg.Twitch.AdsClientSecret != "main-secret" {
+		t.Fatalf("ads client fallback = %q/%q", cfg.Twitch.AdsClientID, cfg.Twitch.AdsClientSecret)
+	}
+}
+
+func TestLoadAdsCredentialsCanUseSeparateTwitchApp(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+TWITCH_CLIENT_ID=main-client
+TWITCH_CLIENT_SECRET=main-secret
+TWITCH_ADS_CLIENT_ID=ads-client
+TWITCH_ADS_CLIENT_SECRET=ads-secret
+TWITCH_ADS_REFRESH_TOKEN=ads-refresh
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Twitch.AdsClientID != "ads-client" || cfg.Twitch.AdsClientSecret != "ads-secret" {
+		t.Fatalf("ads client override = %q/%q", cfg.Twitch.AdsClientID, cfg.Twitch.AdsClientSecret)
 	}
 }
 
