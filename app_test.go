@@ -96,7 +96,7 @@ func TestGetSettingsWorksBeforeEnvExists(t *testing.T) {
 	if settings.Channel != "" || settings.BotUsername != "" {
 		t.Fatalf("first-run twitch settings should be empty: %#v", settings)
 	}
-	if settings.KnowledgePath == "" || !settings.KnowledgeExists || settings.KnowledgeSections == 0 {
+	if settings.KnowledgePath == "" || !settings.KnowledgeExists {
 		t.Fatalf("first-run knowledge should be created: %#v", settings)
 	}
 }
@@ -163,7 +163,7 @@ func TestKnowledgeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !settings.Exists || settings.Sections == 0 || !strings.Contains(settings.Content, "Streamer Identity") {
+	if !settings.Exists || !strings.Contains(settings.Content, "Streamer Identity") {
 		t.Fatalf("default knowledge = %#v", settings)
 	}
 
@@ -175,7 +175,7 @@ func TestKnowledgeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(saved.Content, "The streamer is Test.") || saved.Sections != 1 {
+	if !strings.Contains(saved.Content, "The streamer is Test.") {
 		t.Fatalf("saved knowledge = %#v", saved)
 	}
 
@@ -183,7 +183,7 @@ func TestKnowledgeLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(reset.Content, "Streamer Identity") || reset.Sections == 0 {
+	if !strings.Contains(reset.Content, "Streamer Identity") {
 		t.Fatalf("reset knowledge = %#v", reset)
 	}
 }

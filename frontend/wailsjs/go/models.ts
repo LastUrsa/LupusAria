@@ -35,7 +35,6 @@ export namespace main {
 	    streamerPronouns: string;
 	    knowledgePath: string;
 	    knowledgeExists: boolean;
-	    knowledgeSections: number;
 	    twitchOAuthToken: string;
 	    twitchRefreshToken: string;
 	    twitchClientId: string;
@@ -100,7 +99,6 @@ export namespace main {
 	        this.streamerPronouns = source["streamerPronouns"];
 	        this.knowledgePath = source["knowledgePath"];
 	        this.knowledgeExists = source["knowledgeExists"];
-	        this.knowledgeSections = source["knowledgeSections"];
 	        this.twitchOAuthToken = source["twitchOAuthToken"];
 	        this.twitchRefreshToken = source["twitchRefreshToken"];
 	        this.twitchClientId = source["twitchClientId"];
@@ -153,7 +151,6 @@ export namespace main {
 	export class KnowledgeSettings {
 	    path: string;
 	    exists: boolean;
-	    sections: number;
 	    content: string;
 
 	    static createFrom(source: any = {}) {
@@ -164,7 +161,6 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.exists = source["exists"];
-	        this.sections = source["sections"];
 	        this.content = source["content"];
 	    }
 	}

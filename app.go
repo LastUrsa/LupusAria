@@ -35,14 +35,13 @@ type ControlSettings struct {
 	Status  string `json:"status"`
 	Error   string `json:"error"`
 
-	Channel           string `json:"channel"`
-	BotUsername       string `json:"botUsername"`
-	ConfigPath        string `json:"configPath"`
-	StreamerName      string `json:"streamerName"`
-	StreamerPronouns  string `json:"streamerPronouns"`
-	KnowledgePath     string `json:"knowledgePath"`
-	KnowledgeExists   bool   `json:"knowledgeExists"`
-	KnowledgeSections int    `json:"knowledgeSections"`
+	Channel          string `json:"channel"`
+	BotUsername      string `json:"botUsername"`
+	ConfigPath       string `json:"configPath"`
+	StreamerName     string `json:"streamerName"`
+	StreamerPronouns string `json:"streamerPronouns"`
+	KnowledgePath    string `json:"knowledgePath"`
+	KnowledgeExists  bool   `json:"knowledgeExists"`
 
 	TwitchOAuthToken      string `json:"twitchOAuthToken"`
 	TwitchRefreshToken    string `json:"twitchRefreshToken"`
@@ -111,10 +110,9 @@ type AnnouncementSettings struct {
 }
 
 type KnowledgeSettings struct {
-	Path     string `json:"path"`
-	Exists   bool   `json:"exists"`
-	Sections int    `json:"sections"`
-	Content  string `json:"content"`
+	Path    string `json:"path"`
+	Exists  bool   `json:"exists"`
+	Content string `json:"content"`
 }
 
 func NewApp() *App {
@@ -141,16 +139,15 @@ func (a *App) GetSettings() (ControlSettings, error) {
 	if err := knowledge.EnsureFile(cfg.Bot.KnowledgePath); err != nil {
 		return ControlSettings{}, err
 	}
-	knowledgeExists, knowledgeSections := knowledgeStatus(cfg.Bot.KnowledgePath)
+	knowledgeExists := knowledgeExists(cfg.Bot.KnowledgePath)
 	settings := ControlSettings{
-		Channel:           cfg.Twitch.Channel,
-		BotUsername:       cfg.Twitch.BotUsername,
-		ConfigPath:        envPath,
-		StreamerName:      cfg.Bot.StreamerName,
-		StreamerPronouns:  cfg.Bot.StreamerPronouns,
-		KnowledgePath:     cfg.Bot.KnowledgePath,
-		KnowledgeExists:   knowledgeExists,
-		KnowledgeSections: knowledgeSections,
+		Channel:          cfg.Twitch.Channel,
+		BotUsername:      cfg.Twitch.BotUsername,
+		ConfigPath:       envPath,
+		StreamerName:     cfg.Bot.StreamerName,
+		StreamerPronouns: cfg.Bot.StreamerPronouns,
+		KnowledgePath:    cfg.Bot.KnowledgePath,
+		KnowledgeExists:  knowledgeExists,
 
 		HasTwitchOAuthToken:      cfg.Twitch.OAuthToken != "",
 		HasTwitchRefreshToken:    cfg.Twitch.RefreshToken != "",
@@ -287,12 +284,10 @@ func (a *App) GetKnowledge() (KnowledgeSettings, error) {
 	if err != nil {
 		return KnowledgeSettings{}, err
 	}
-	base := knowledge.Parse(string(raw))
 	return KnowledgeSettings{
-		Path:     cfg.Bot.KnowledgePath,
-		Exists:   true,
-		Sections: len(base.Sections),
-		Content:  string(raw),
+		Path:    cfg.Bot.KnowledgePath,
+		Exists:  true,
+		Content: string(raw),
 	}, nil
 }
 
@@ -343,12 +338,9 @@ func (a *App) ResetKnowledgeTemplate() (KnowledgeSettings, error) {
 	return a.GetKnowledge()
 }
 
-func knowledgeStatus(path string) (bool, int) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return false, 0
-	}
-	return true, len(knowledge.Parse(string(raw)).Sections)
+func knowledgeExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {

@@ -18,6 +18,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function ResetKnowledgeTemplate() {
+  return window['go']['main']['App']['ResetKnowledgeTemplate']();
+}
+
 export function SaveAnnouncements(arg1) {
   return window['go']['main']['App']['SaveAnnouncements'](arg1);
 }
@@ -28,10 +32,6 @@ export function SaveKnowledge(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
-}
-
-export function ResetKnowledgeTemplate() {
-  return window['go']['main']['App']['ResetKnowledgeTemplate']();
 }
 
 export function StartBot() {

@@ -44,7 +44,6 @@ const emptySettings: Settings = {
   streamerPronouns: '',
   knowledgePath: '',
   knowledgeExists: false,
-  knowledgeSections: 0,
   twitchOAuthToken: '',
   twitchRefreshToken: '',
   twitchClientId: '',
@@ -97,7 +96,6 @@ const emptySettings: Settings = {
 const emptyKnowledge: Knowledge = {
   path: '',
   exists: false,
-  sections: 0,
   content: ''
 }
 
@@ -312,7 +310,6 @@ export default function App() {
               <Card title="Runtime">
                 <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
                 <StatusRow label="AI provider" value={settings.aiProvider} />
-                <StatusRow label="Knowledge sections" value={String(settings.knowledgeSections)} tone={settings.knowledgeExists ? 'good' : 'muted'} />
                 <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Announcements" value={settings.announcementsEnabled ? 'Enabled' : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
@@ -388,10 +385,7 @@ export default function App() {
                 <strong>Stable channel facts only.</strong>
                 <span>Use this file for streamer identity, recurring chat references, projects, links, and boundaries. Avoid secrets and fast-changing details.</span>
               </div>
-              <div className="split">
-                <TextField label="Knowledge path" value={knowledge.path} onChange={(value) => updateKnowledge('path', value)} />
-                <ReadOnlyField label="Loaded sections" value={String(knowledge.sections)} />
-              </div>
+              <TextField label="Knowledge path" value={knowledge.path} onChange={(value) => updateKnowledge('path', value)} />
               <TextArea label="Knowledge markdown" value={knowledge.content} onChange={(value) => updateKnowledge('content', value)} />
               <div className="announcement-actions">
                 <button className="secondary" type="button" onClick={reloadKnowledge} disabled={busy}>Reload</button>
