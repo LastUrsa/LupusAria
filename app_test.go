@@ -112,8 +112,6 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	}
 	settings.Channel = "lastursa"
 	settings.BotUsername = "LupusAria"
-	settings.BotName = "LupusAria"
-	settings.BotPersonality = "Warm, dry, and useful."
 	settings.StreamerName = "Ursa Starsong"
 	settings.StreamerPronouns = "he/him"
 	settings.TwitchClientID = "client-id"
@@ -137,8 +135,6 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	for _, want := range []string{
 		"TWITCH_CHANNEL=lastursa",
 		"TWITCH_BOT_USERNAME=LupusAria",
-		"BOT_NAME=LupusAria",
-		"BOT_PERSONALITY=\"Warm, dry, and useful.\"",
 		"STREAMER_NAME=\"Ursa Starsong\"",
 		"STREAMER_PRONOUNS=he/him",
 		"TWITCH_CLIENT_ID=client-id",

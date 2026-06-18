@@ -39,8 +39,6 @@ const emptySettings: Settings = {
   error: '',
   channel: '',
   botUsername: '',
-  botName: 'LupusAria',
-  botPersonality: '',
   configPath: '',
   streamerName: '',
   streamerPronouns: '',
@@ -306,7 +304,6 @@ export default function App() {
               <Card title="Twitch">
                 <TextField label="Channel" value={settings.channel} onChange={(value) => update('channel', value)} />
                 <TextField label="Bot username" value={settings.botUsername} onChange={(value) => update('botUsername', value)} />
-                <TextField label="Bot display name" value={settings.botName} onChange={(value) => update('botName', value)} />
                 <TextField label="Streamer name" value={settings.streamerName} onChange={(value) => update('streamerName', value)} />
                 <TextField label="Streamer pronouns" value={settings.streamerPronouns} onChange={(value) => update('streamerPronouns', value)} />
                 <ReadOnlyField label="Config path" value={settings.configPath} />
@@ -395,7 +392,6 @@ export default function App() {
                 <TextField label="Knowledge path" value={knowledge.path} onChange={(value) => updateKnowledge('path', value)} />
                 <ReadOnlyField label="Loaded sections" value={String(knowledge.sections)} />
               </div>
-              <TextArea label="Bot personality" value={settings.botPersonality} onChange={(value) => update('botPersonality', value)} />
               <TextArea label="Knowledge markdown" value={knowledge.content} onChange={(value) => updateKnowledge('content', value)} />
               <div className="announcement-actions">
                 <button className="secondary" type="button" onClick={reloadKnowledge} disabled={busy}>Reload</button>
