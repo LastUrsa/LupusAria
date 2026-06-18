@@ -1,6 +1,6 @@
 # LupusAria Release Notes
 
-## v0.2.0 - 2026-06-18
+## v0.2.0
 
 - Moves installed-app settings to `%APPDATA%\Starsong Tools\LupusAria` and keeps saved secrets hidden unless replaced.
 - Adds desktop setup for Twitch credentials, AI keys, streamer identity, local knowledge, and split ad-alert Twitch credentials.
