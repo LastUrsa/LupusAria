@@ -33,6 +33,9 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		return fmt.Errorf("initialize ai client: %w", err)
 	}
 
+	if err := knowledge.EnsureFile(cfg.Bot.KnowledgePath); err != nil {
+		logger.Warn("failed to create default knowledge file; continuing without it", "path", cfg.Bot.KnowledgePath, "error", err)
+	}
 	knowledgeBase, err := knowledge.Load(cfg.Bot.KnowledgePath)
 	if err != nil {
 		logger.Warn("failed to load knowledge base; continuing without it", "path", cfg.Bot.KnowledgePath, "error", err)
@@ -121,6 +124,8 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	runner := bot.New(bot.Config{
 		Name:                  cfg.Bot.Name,
 		Channel:               cfg.Twitch.Channel,
+		StreamerName:          cfg.Bot.StreamerName,
+		StreamerPronouns:      cfg.Bot.StreamerPronouns,
 		Personality:           cfg.Bot.Personality,
 		EnableMentions:        cfg.Bot.EnableMentions,
 		EnableAsk:             cfg.Bot.EnableAsk,

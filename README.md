@@ -9,7 +9,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Twitch chat connection over IRC/TLS.
 - AI replies for direct mentions, `!ask`, and `!lurk`.
 - Structured rolling chat context plus cached Twitch stream context.
-- Deterministic Ursa knowledge injection from `docs/knowledge/ursa.md`.
+- Optional streamer knowledge injection from a local editable Markdown file.
 - AutoSO tracking from chatters, watch time, and recent stream history.
 - Configurable command and stream-timer announcements.
 - Optional ad alerts with Twitch ad schedule support.
@@ -21,7 +21,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 
 1. Copy `.env.example` to `.env`.
 2. Fill in your Twitch bot username, OAuth token, channel, and app credentials.
-3. Start with `AI_PROVIDER=mock`.
+3. Set `STREAMER_NAME`, `STREAMER_PRONOUNS`, and start with `AI_PROVIDER=mock`.
 4. Run the bot:
 
 ```bash
@@ -30,6 +30,8 @@ go run ./cmd/lupusaria
 
 Switch to `AI_PROVIDER=gemini` when you are ready to use hosted real AI replies. Use `AI_PROVIDER=openai-compatible` for local Ollama experiments.
 When using an OpenAI-compatible provider, set `AI_MODEL` explicitly to the local model you want to call.
+
+On first run, LupusAria creates `.lupusaria-knowledge.md` from a generic streamer knowledge template if the file does not exist. Edit that file, or use the desktop app's Knowledge tab, to add stable channel facts such as streamer identity, pronouns, recurring chat references, project links, and boundaries.
 
 ## Bring Your Own Accounts
 
@@ -74,6 +76,7 @@ Installed app settings are stored in the current user's config folder, not besid
 ```
 
 The desktop app shows the active config path on the Overview tab. Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
+The Overview tab also includes streamer name and pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge file.
 Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, or command.
 
 ## Twitch Tokens
@@ -118,10 +121,12 @@ Relevant settings:
 - `GEMINI_THINKING_LEVEL`
 
 The knowledge base is tag-matched. If no section matches a viewer request, the prompt explicitly says no known facts matched so the model should avoid guessing.
+The default knowledge path is `.lupusaria-knowledge.md`, which is local and gitignored. A neutral starter template is tracked at `docs/knowledge/example.md`, and Ursa's stream-specific example lives at `examples/knowledge/ursa.md`.
 
 ## Security Notes
 
 - Keep `.env`, token state files, budget state files, and announcement config files local and gitignored.
+- Keep `.lupusaria-knowledge.md` local if it contains streamer-specific private or semi-private details.
 - Installed app secrets live under `%APPDATA%\Starsong Tools\LupusAria`.
 - The app writes local secret/state files with owner-only permissions.
 - Use least-privilege Twitch tokens.
@@ -164,4 +169,5 @@ Before tagging, add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
 
 - [Command reference](docs/commands.md)
 - [Personality guide](docs/personality.md)
-- [Ursa knowledge base](docs/knowledge/ursa.md)
+- [Streamer knowledge template](docs/knowledge/example.md)
+- [Ursa knowledge example](examples/knowledge/ursa.md)

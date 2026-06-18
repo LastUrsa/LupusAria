@@ -27,6 +27,8 @@ type Chat interface {
 type Config struct {
 	Name                  string
 	Channel               string
+	StreamerName          string
+	StreamerPronouns      string
 	Personality           string
 	EnableMentions        bool
 	EnableAsk             bool
@@ -355,8 +357,10 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 
 	return []ai.Message{
 		{Role: "system", Content: personality.SystemInstruction(personality.Config{
-			Name:        b.cfg.Name,
-			Personality: b.cfg.Personality,
+			Name:             b.cfg.Name,
+			StreamerName:     b.cfg.StreamerName,
+			StreamerPronouns: b.cfg.StreamerPronouns,
+			Personality:      b.cfg.Personality,
 		})},
 		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, knowledgeContext, replyContext, chatContext, msg.DisplayName, request.Prompt)},
 	}
@@ -388,8 +392,10 @@ func (b *Bot) ComposeAdAlert(ctx context.Context, event adalerts.Event) (string,
 	prompt := adAlertPrompt(event, streamContext, recent.String())
 	messages := []ai.Message{
 		{Role: "system", Content: personality.SystemInstruction(personality.Config{
-			Name:        b.cfg.Name,
-			Personality: b.cfg.Personality,
+			Name:             b.cfg.Name,
+			StreamerName:     b.cfg.StreamerName,
+			StreamerPronouns: b.cfg.StreamerPronouns,
+			Personality:      b.cfg.Personality,
 		})},
 		{Role: "user", Content: prompt},
 	}

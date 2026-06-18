@@ -7,8 +7,10 @@ import (
 
 func TestSystemInstructionContainsIdentityAndVoiceContract(t *testing.T) {
 	instruction := SystemInstruction(Config{
-		Name:        "LupusAria",
-		Personality: "A calm moonlit presence with a dry sense of humor.",
+		Name:             "LupusAria",
+		StreamerName:     "Ursa Starsong",
+		StreamerPronouns: "he/him",
+		Personality:      "A calm moonlit presence with a dry sense of humor.",
 	})
 
 	assertContainsAll(t, instruction, []string{
@@ -16,7 +18,7 @@ func TestSystemInstructionContainsIdentityAndVoiceContract(t *testing.T) {
 		"Lupus Aria",
 		"male anthropomorphic digital wolf AI companion",
 		"Ursa Starsong",
-		"Ursa uses he/him",
+		"Ursa Starsong uses he/him",
 		"not the center",
 		"warm, curious, dry",
 		"dry, gently playful",
@@ -35,6 +37,7 @@ func TestSystemInstructionContainsAttentionBalance(t *testing.T) {
 		`viewer named before "asks"`,
 		"Use reply context as the parent message",
 		"Treat recent chat as room state",
+		"Mention the streamer",
 		"only when relevant",
 	})
 }
@@ -45,9 +48,23 @@ func TestSystemInstructionContainsViewerAndKnowledgeBoundaries(t *testing.T) {
 	assertContainsAll(t, instruction, []string{
 		`viewer named before "asks"`,
 		"selected known facts",
+		"claims about the streamer",
 		"known aliases",
 		"same person",
 		"If unsure, say so",
+	})
+}
+
+func TestSystemInstructionUsesConfiguredStreamerIdentity(t *testing.T) {
+	instruction := SystemInstruction(Config{
+		Name:             "LupusAria",
+		StreamerName:     "Nova Example",
+		StreamerPronouns: "she/they",
+	})
+
+	assertContainsAll(t, instruction, []string{
+		"Nova Example's Twitch chat",
+		"Nova Example uses she/they",
 	})
 }
 
@@ -155,6 +172,9 @@ func TestSystemInstructionUsesDefaults(t *testing.T) {
 	}
 	if !strings.Contains(instruction, "Warm, steady, lightly playful, and useful.") {
 		t.Fatalf("expected default personality, got:\n%s", instruction)
+	}
+	if !strings.Contains(instruction, "the streamer's Twitch chat") || !strings.Contains(instruction, "the streamer uses they/them") {
+		t.Fatalf("expected default streamer identity, got:\n%s", instruction)
 	}
 }
 

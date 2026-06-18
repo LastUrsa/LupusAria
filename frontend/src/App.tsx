@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { GetAnnouncements, GetLogs, GetSettings, SaveAnnouncements, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
+import { GetAnnouncements, GetKnowledge, GetLogs, GetSettings, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
 import './App.css'
 
 type Settings = main.ControlSettings
 type Announcement = main.AnnouncementSettings
-type Section = 'overview' | 'chat' | 'ai' | 'autoso' | 'ads' | 'announcements' | 'activity'
+type Knowledge = main.KnowledgeSettings
+type Section = 'overview' | 'chat' | 'ai' | 'knowledge' | 'autoso' | 'ads' | 'announcements' | 'activity'
 type AnnouncementKind = 'command' | 'timer'
 type IndexedAnnouncement = { item: Announcement; index: number }
 type AnnouncementUpdate = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => void
@@ -14,6 +15,7 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'chat', label: 'Chat' },
   { id: 'ai', label: 'AI' },
+  { id: 'knowledge', label: 'Knowledge' },
   { id: 'autoso', label: 'AutoSO' },
   { id: 'ads', label: 'Ads' },
   { id: 'announcements', label: 'Announcements' },
@@ -38,6 +40,11 @@ const emptySettings: Settings = {
   channel: '',
   botUsername: '',
   configPath: '',
+  streamerName: '',
+  streamerPronouns: '',
+  knowledgePath: '',
+  knowledgeExists: false,
+  knowledgeSections: 0,
   twitchOAuthToken: '',
   twitchRefreshToken: '',
   twitchClientId: '',
@@ -87,8 +94,16 @@ const emptySettings: Settings = {
   announcementPollSeconds: 30
 }
 
+const emptyKnowledge: Knowledge = {
+  path: '',
+  exists: false,
+  sections: 0,
+  content: ''
+}
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(emptySettings)
+  const [knowledge, setKnowledge] = useState<Knowledge>(emptyKnowledge)
   const [logs, setLogs] = useState<string[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [notice, setNotice] = useState('')
@@ -103,6 +118,7 @@ export default function App() {
       if (replaceSettings || !dirtyRef.current) {
         setSettings(next)
         setAnnouncements((await GetAnnouncements()) ?? [])
+        setKnowledge((await GetKnowledge()) ?? emptyKnowledge)
       } else {
         setSettings((current) => ({
           ...current,
@@ -128,9 +144,35 @@ export default function App() {
     try {
       await SaveSettings(settings)
       await SaveAnnouncements(announcements)
+      await SaveKnowledge(knowledge)
       dirtyRef.current = false
       setDirty(false)
       setNotice('Settings saved. Restart the bot to apply runtime changes.')
+      await refresh(true)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function reloadKnowledge() {
+    setBusy(true)
+    try {
+      setKnowledge((await GetKnowledge()) ?? emptyKnowledge)
+      setNotice('Knowledge reloaded.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function resetKnowledge() {
+    setBusy(true)
+    try {
+      setKnowledge((await ResetKnowledgeTemplate()) ?? emptyKnowledge)
+      setNotice('Knowledge reset from template.')
       await refresh(true)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -175,6 +217,15 @@ export default function App() {
     dirtyRef.current = true
     setDirty(true)
     setAnnouncements((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)))
+  }
+
+  const updateKnowledge = <K extends keyof Knowledge>(key: K, value: Knowledge[K]) => {
+    dirtyRef.current = true
+    setDirty(true)
+    setKnowledge((current) => ({ ...current, [key]: value }))
+    if (key === 'path') {
+      setSettings((current) => ({ ...current, knowledgePath: String(value) }))
+    }
   }
 
   const addAnnouncement = (kind: 'command' | 'timer') => {
@@ -253,11 +304,15 @@ export default function App() {
               <Card title="Twitch">
                 <TextField label="Channel" value={settings.channel} onChange={(value) => update('channel', value)} />
                 <TextField label="Bot username" value={settings.botUsername} onChange={(value) => update('botUsername', value)} />
+                <TextField label="Streamer name" value={settings.streamerName} onChange={(value) => update('streamerName', value)} />
+                <TextField label="Streamer pronouns" value={settings.streamerPronouns} onChange={(value) => update('streamerPronouns', value)} />
                 <ReadOnlyField label="Config path" value={settings.configPath} />
+                <ReadOnlyField label="Knowledge path" value={settings.knowledgePath} />
               </Card>
               <Card title="Runtime">
                 <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
                 <StatusRow label="AI provider" value={settings.aiProvider} />
+                <StatusRow label="Knowledge sections" value={String(settings.knowledgeSections)} tone={settings.knowledgeExists ? 'good' : 'muted'} />
                 <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
                 <StatusRow label="Announcements" value={settings.announcementsEnabled ? 'Enabled' : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
@@ -323,6 +378,24 @@ export default function App() {
               <div className="split">
                 <NumberField label="Daily budget" value={settings.dailyBudgetUsd} onChange={(value) => update('dailyBudgetUsd', value)} />
                 <NumberField label="Monthly budget" value={settings.monthlyBudgetUsd} onChange={(value) => update('monthlyBudgetUsd', value)} />
+              </div>
+            </Card>
+          )}
+
+          {section === 'knowledge' && (
+            <Card title="Streamer knowledge" wide>
+              <div className="info-callout">
+                <strong>Stable channel facts only.</strong>
+                <span>Use this file for streamer identity, recurring chat references, projects, links, and boundaries. Avoid secrets and fast-changing details.</span>
+              </div>
+              <div className="split">
+                <TextField label="Knowledge path" value={knowledge.path} onChange={(value) => updateKnowledge('path', value)} />
+                <ReadOnlyField label="Loaded sections" value={String(knowledge.sections)} />
+              </div>
+              <TextArea label="Knowledge markdown" value={knowledge.content} onChange={(value) => updateKnowledge('content', value)} />
+              <div className="announcement-actions">
+                <button className="secondary" type="button" onClick={reloadKnowledge} disabled={busy}>Reload</button>
+                <button className="secondary" type="button" onClick={resetKnowledge} disabled={busy}>Reset to template</button>
               </div>
             </Card>
           )}

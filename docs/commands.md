@@ -44,6 +44,8 @@ Shared voice and safety rules live in [personality.md](personality.md). Command-
 
 Recent chat is sent to the model as structured room state. The current message is excluded from that history, low-signal bot commands are filtered out, and older retained chat is compacted before the freshest timeline. For `!lurk`, Lupus retries once if a generic send-off ignores available chat/game context.
 
+Streamer identity and pronouns come from `STREAMER_NAME` and `STREAMER_PRONOUNS`. Stable channel facts come from `BOT_KNOWLEDGE_PATH`, which defaults to the local `.lupusaria-knowledge.md` file created from the starter template.
+
 ## AutoSO
 
 `!autoso` does not call AI. It uses Twitch Helix APIs for user lookup, recent stream checks, and chatter snapshots.

@@ -6,6 +6,7 @@
 .lupusaria-twitch-token.json
 .lupusaria-twitch-ads-token.json
 .lupusaria-announcements.json
+.lupusaria-knowledge.md
 /bin/
 /build/
 /dist/

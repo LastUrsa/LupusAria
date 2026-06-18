@@ -15,6 +15,7 @@ import (
 	"lupusaria/internal/announcements"
 	"lupusaria/internal/botrunner"
 	"lupusaria/internal/config"
+	"lupusaria/internal/knowledge"
 )
 
 const envPathOverride = "LUPUSARIA_ENV_PATH"
@@ -34,9 +35,14 @@ type ControlSettings struct {
 	Status  string `json:"status"`
 	Error   string `json:"error"`
 
-	Channel     string `json:"channel"`
-	BotUsername string `json:"botUsername"`
-	ConfigPath  string `json:"configPath"`
+	Channel           string `json:"channel"`
+	BotUsername       string `json:"botUsername"`
+	ConfigPath        string `json:"configPath"`
+	StreamerName      string `json:"streamerName"`
+	StreamerPronouns  string `json:"streamerPronouns"`
+	KnowledgePath     string `json:"knowledgePath"`
+	KnowledgeExists   bool   `json:"knowledgeExists"`
+	KnowledgeSections int    `json:"knowledgeSections"`
 
 	TwitchOAuthToken      string `json:"twitchOAuthToken"`
 	TwitchRefreshToken    string `json:"twitchRefreshToken"`
@@ -104,6 +110,13 @@ type AnnouncementSettings struct {
 	Message       string `json:"message"`
 }
 
+type KnowledgeSettings struct {
+	Path     string `json:"path"`
+	Exists   bool   `json:"exists"`
+	Sections int    `json:"sections"`
+	Content  string `json:"content"`
+}
+
 func NewApp() *App {
 	return &App{}
 }
@@ -125,10 +138,19 @@ func (a *App) GetSettings() (ControlSettings, error) {
 	if err != nil {
 		return ControlSettings{}, err
 	}
+	if err := knowledge.EnsureFile(cfg.Bot.KnowledgePath); err != nil {
+		return ControlSettings{}, err
+	}
+	knowledgeExists, knowledgeSections := knowledgeStatus(cfg.Bot.KnowledgePath)
 	settings := ControlSettings{
-		Channel:     cfg.Twitch.Channel,
-		BotUsername: cfg.Twitch.BotUsername,
-		ConfigPath:  envPath,
+		Channel:           cfg.Twitch.Channel,
+		BotUsername:       cfg.Twitch.BotUsername,
+		ConfigPath:        envPath,
+		StreamerName:      cfg.Bot.StreamerName,
+		StreamerPronouns:  cfg.Bot.StreamerPronouns,
+		KnowledgePath:     cfg.Bot.KnowledgePath,
+		KnowledgeExists:   knowledgeExists,
+		KnowledgeSections: knowledgeSections,
 
 		HasTwitchOAuthToken:      cfg.Twitch.OAuthToken != "",
 		HasTwitchRefreshToken:    cfg.Twitch.RefreshToken != "",
@@ -194,6 +216,9 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 	updates := map[string]string{
 		"TWITCH_CHANNEL":           settings.Channel,
 		"TWITCH_BOT_USERNAME":      settings.BotUsername,
+		"STREAMER_NAME":            settings.StreamerName,
+		"STREAMER_PRONOUNS":        settings.StreamerPronouns,
+		"BOT_KNOWLEDGE_PATH":       settings.KnowledgePath,
 		"AI_PROVIDER":              settings.AIProvider,
 		"AI_BASE_URL":              aiBaseURL(settings),
 		"AI_MODEL":                 settings.AIModel,
@@ -244,6 +269,86 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 	}
 	a.appendLog("settings saved")
 	return nil
+}
+
+func (a *App) GetKnowledge() (KnowledgeSettings, error) {
+	envPath, err := appEnvPath()
+	if err != nil {
+		return KnowledgeSettings{}, err
+	}
+	cfg, err := config.LoadPartial(envPath)
+	if err != nil {
+		return KnowledgeSettings{}, err
+	}
+	if err := knowledge.EnsureFile(cfg.Bot.KnowledgePath); err != nil {
+		return KnowledgeSettings{}, err
+	}
+	raw, err := os.ReadFile(cfg.Bot.KnowledgePath)
+	if err != nil {
+		return KnowledgeSettings{}, err
+	}
+	base := knowledge.Parse(string(raw))
+	return KnowledgeSettings{
+		Path:     cfg.Bot.KnowledgePath,
+		Exists:   true,
+		Sections: len(base.Sections),
+		Content:  string(raw),
+	}, nil
+}
+
+func (a *App) SaveKnowledge(settings KnowledgeSettings) error {
+	envPath, err := appEnvPath()
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadPartial(envPath)
+	if err != nil {
+		return err
+	}
+	path := strings.TrimSpace(settings.Path)
+	if path == "" {
+		path = cfg.Bot.KnowledgePath
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(settings.Content), 0600); err != nil {
+		return err
+	}
+	if path != cfg.Bot.KnowledgePath {
+		if err := updateEnvFile(envPath, map[string]string{"BOT_KNOWLEDGE_PATH": path}); err != nil {
+			return err
+		}
+	}
+	a.appendLog("knowledge saved")
+	return nil
+}
+
+func (a *App) ResetKnowledgeTemplate() (KnowledgeSettings, error) {
+	envPath, err := appEnvPath()
+	if err != nil {
+		return KnowledgeSettings{}, err
+	}
+	cfg, err := config.LoadPartial(envPath)
+	if err != nil {
+		return KnowledgeSettings{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.Bot.KnowledgePath), 0700); err != nil {
+		return KnowledgeSettings{}, err
+	}
+	if err := os.WriteFile(cfg.Bot.KnowledgePath, []byte(knowledge.DefaultTemplate), 0600); err != nil {
+		return KnowledgeSettings{}, err
+	}
+	a.appendLog("knowledge reset from template")
+	return a.GetKnowledge()
+}
+
+func knowledgeStatus(path string) (bool, int) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false, 0
+	}
+	return true, len(knowledge.Parse(string(raw)).Sections)
 }
 
 func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {

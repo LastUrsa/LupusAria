@@ -52,6 +52,8 @@ type AIConfig struct {
 
 type BotConfig struct {
 	Name               string
+	StreamerName       string
+	StreamerPronouns   string
 	Personality        string
 	KnowledgePath      string
 	EnableMentions     bool
@@ -159,8 +161,10 @@ func load(envPath string, validateRequired bool) (Config, error) {
 		},
 		Bot: BotConfig{
 			Name:               get(values, "BOT_NAME", "LupusAria"),
+			StreamerName:       get(values, "STREAMER_NAME", "the streamer"),
+			StreamerPronouns:   get(values, "STREAMER_PRONOUNS", "they/them"),
 			Personality:        get(values, "BOT_PERSONALITY", "Warm, steady, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
-			KnowledgePath:      get(values, "BOT_KNOWLEDGE_PATH", "docs/knowledge/ursa.md"),
+			KnowledgePath:      resolveLocalPath(baseDir, get(values, "BOT_KNOWLEDGE_PATH", ".lupusaria-knowledge.md")),
 			EnableMentions:     getBool(values, "ENABLE_MENTION_RESPONSES", true),
 			EnableAsk:          getBool(values, "ENABLE_ASK_COMMAND", true),
 			EnableLurk:         getBool(values, "ENABLE_LURK_COMMAND", true),

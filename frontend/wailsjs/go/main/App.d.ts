@@ -4,13 +4,19 @@ import {main} from '../models';
 
 export function GetAnnouncements():Promise<Array<main.AnnouncementSettings>>;
 
+export function GetKnowledge():Promise<main.KnowledgeSettings>;
+
 export function GetLogs():Promise<Array<string>>;
 
 export function GetSettings():Promise<main.ControlSettings>;
 
 export function SaveAnnouncements(arg1:Array<main.AnnouncementSettings>):Promise<void>;
 
+export function SaveKnowledge(arg1:main.KnowledgeSettings):Promise<void>;
+
 export function SaveSettings(arg1:main.ControlSettings):Promise<void>;
+
+export function ResetKnowledgeTemplate():Promise<main.KnowledgeSettings>;
 
 export function StartBot():Promise<void>;
 
