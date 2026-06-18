@@ -1,15 +1,13 @@
 # LupusAria Release Notes
 
-## Unreleased
+## v0.2.0 - 2026-06-18
 
-- Store installed-app settings under `%APPDATA%\Starsong Tools\LupusAria` instead of relying on a `.env` beside the executable.
-- Add desktop UI fields for Twitch credentials and AI API keys. Saved secret values remain hidden and are only replaced when a new value is entered.
-- Support separate Twitch application credentials for ad alerts with `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET`.
-- Group announcement settings into separate expandable Timer and Command summary tables in the desktop app.
-- Leave the OpenAI-compatible model blank until explicitly configured instead of auto-populating a local model name.
-- Use app-rendered select menus in the desktop UI so dropdown colors follow the design palette consistently.
-- Improve AI chat-context prompts with structured recent chat, contextual `!lurk` send-offs, and leaner shared prompt guidance.
-- Add first-run streamer knowledge setup with a local editable knowledge file, generic template, and app-configurable streamer identity.
+- Moves installed-app settings to `%APPDATA%\Starsong Tools\LupusAria` and keeps saved secrets hidden unless replaced.
+- Adds desktop setup for Twitch credentials, AI keys, streamer identity, local knowledge, and split ad-alert Twitch credentials.
+- Improves announcement management with separate expandable Timer and Command tables.
+- Tightens AI chat behavior with structured recent chat, stream-aware `!lurk` replies, fixed Lupus identity, and leaner shared prompts.
+- Adds first-run streamer knowledge setup using a local editable file created from a generic public template.
+- Leaves OpenAI-compatible models blank until explicitly configured and keeps dropdown styling consistent in the desktop UI.
 
 ## v0.1.0
 
