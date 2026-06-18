@@ -9,7 +9,7 @@
 - Leave the OpenAI-compatible model blank until explicitly configured instead of auto-populating a local model name.
 - Use app-rendered select menus in the desktop UI so dropdown colors follow the design palette consistently.
 - Improve AI chat-context prompts with structured recent chat, contextual `!lurk` send-offs, and leaner shared prompt guidance.
-- Add first-run streamer knowledge setup with a local editable knowledge file, generic template, and configurable streamer name/pronouns.
+- Add first-run streamer knowledge setup with a local editable knowledge file, generic template, and app-configurable bot/streamer identity.
 
 ## v0.1.0
 

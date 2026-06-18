@@ -76,7 +76,7 @@ Installed app settings are stored in the current user's config folder, not besid
 ```
 
 The desktop app shows the active config path on the Overview tab. Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
-The Overview tab also includes streamer name and pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge file.
+The Overview tab also includes bot display name, streamer name, and streamer pronouns. The Knowledge tab configures Lupus Aria's personality text and creates, edits, reloads, and resets the local streamer knowledge file.
 Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, or command.
 
 ## Twitch Tokens
@@ -89,7 +89,7 @@ twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters'
 
 The bot account should be a moderator in the channel. This is required for Twitch chatter snapshots and helps AutoSO commands work reliably.
 
-Set the bot username, channel, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Overview tab.
+Set the bot username, bot display name, channel, streamer identity, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Overview tab.
 
 Ad alerts require a broadcaster token with `channel:read:ads`:
 

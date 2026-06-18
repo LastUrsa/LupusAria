@@ -30,6 +30,8 @@ export namespace main {
 	    error: string;
 	    channel: string;
 	    botUsername: string;
+	    botName: string;
+	    botPersonality: string;
 	    configPath: string;
 	    streamerName: string;
 	    streamerPronouns: string;
@@ -95,6 +97,8 @@ export namespace main {
 	        this.error = source["error"];
 	        this.channel = source["channel"];
 	        this.botUsername = source["botUsername"];
+	        this.botName = source["botName"];
+	        this.botPersonality = source["botPersonality"];
 	        this.configPath = source["configPath"];
 	        this.streamerName = source["streamerName"];
 	        this.streamerPronouns = source["streamerPronouns"];

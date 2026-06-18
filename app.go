@@ -37,6 +37,8 @@ type ControlSettings struct {
 
 	Channel           string `json:"channel"`
 	BotUsername       string `json:"botUsername"`
+	BotName           string `json:"botName"`
+	BotPersonality    string `json:"botPersonality"`
 	ConfigPath        string `json:"configPath"`
 	StreamerName      string `json:"streamerName"`
 	StreamerPronouns  string `json:"streamerPronouns"`
@@ -145,6 +147,8 @@ func (a *App) GetSettings() (ControlSettings, error) {
 	settings := ControlSettings{
 		Channel:           cfg.Twitch.Channel,
 		BotUsername:       cfg.Twitch.BotUsername,
+		BotName:           cfg.Bot.Name,
+		BotPersonality:    cfg.Bot.Personality,
 		ConfigPath:        envPath,
 		StreamerName:      cfg.Bot.StreamerName,
 		StreamerPronouns:  cfg.Bot.StreamerPronouns,
@@ -216,6 +220,8 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 	updates := map[string]string{
 		"TWITCH_CHANNEL":           settings.Channel,
 		"TWITCH_BOT_USERNAME":      settings.BotUsername,
+		"BOT_NAME":                 settings.BotName,
+		"BOT_PERSONALITY":          settings.BotPersonality,
 		"STREAMER_NAME":            settings.StreamerName,
 		"STREAMER_PRONOUNS":        settings.StreamerPronouns,
 		"BOT_KNOWLEDGE_PATH":       settings.KnowledgePath,
