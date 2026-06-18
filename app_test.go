@@ -96,6 +96,9 @@ func TestGetSettingsWorksBeforeEnvExists(t *testing.T) {
 	if settings.Channel != "" || settings.BotUsername != "" {
 		t.Fatalf("first-run twitch settings should be empty: %#v", settings)
 	}
+	if settings.KnowledgePath == "" || !settings.KnowledgeExists {
+		t.Fatalf("first-run knowledge should be created: %#v", settings)
+	}
 }
 
 func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
@@ -109,6 +112,8 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	}
 	settings.Channel = "lastursa"
 	settings.BotUsername = "LupusAria"
+	settings.StreamerName = "Ursa Starsong"
+	settings.StreamerPronouns = "he/him"
 	settings.TwitchClientID = "client-id"
 	settings.TwitchClientSecret = "client-secret"
 	settings.TwitchAdsClientID = "ads-client-id"
@@ -130,6 +135,8 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	for _, want := range []string{
 		"TWITCH_CHANNEL=lastursa",
 		"TWITCH_BOT_USERNAME=LupusAria",
+		"STREAMER_NAME=\"Ursa Starsong\"",
+		"STREAMER_PRONOUNS=he/him",
 		"TWITCH_CLIENT_ID=client-id",
 		"TWITCH_CLIENT_SECRET=client-secret",
 		"TWITCH_ADS_CLIENT_ID=ads-client-id",
@@ -144,6 +151,40 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("saved env missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestKnowledgeLifecycle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	t.Setenv(envPathOverride, path)
+
+	app := NewApp()
+	settings, err := app.GetKnowledge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !settings.Exists || !strings.Contains(settings.Content, "Streamer Identity") {
+		t.Fatalf("default knowledge = %#v", settings)
+	}
+
+	settings.Content = "# Custom\n\n## Identity\nTags: streamer\n\n- The streamer is Test.\n"
+	if err := app.SaveKnowledge(settings); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := app.GetKnowledge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(saved.Content, "The streamer is Test.") {
+		t.Fatalf("saved knowledge = %#v", saved)
+	}
+
+	reset, err := app.ResetKnowledgeTemplate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reset.Content, "Streamer Identity") {
+		t.Fatalf("reset knowledge = %#v", reset)
 	}
 }
 

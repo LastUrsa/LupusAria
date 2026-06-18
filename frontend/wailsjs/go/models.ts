@@ -31,6 +31,10 @@ export namespace main {
 	    channel: string;
 	    botUsername: string;
 	    configPath: string;
+	    streamerName: string;
+	    streamerPronouns: string;
+	    knowledgePath: string;
+	    knowledgeExists: boolean;
 	    twitchOAuthToken: string;
 	    twitchRefreshToken: string;
 	    twitchClientId: string;
@@ -91,6 +95,10 @@ export namespace main {
 	        this.channel = source["channel"];
 	        this.botUsername = source["botUsername"];
 	        this.configPath = source["configPath"];
+	        this.streamerName = source["streamerName"];
+	        this.streamerPronouns = source["streamerPronouns"];
+	        this.knowledgePath = source["knowledgePath"];
+	        this.knowledgeExists = source["knowledgeExists"];
 	        this.twitchOAuthToken = source["twitchOAuthToken"];
 	        this.twitchRefreshToken = source["twitchRefreshToken"];
 	        this.twitchClientId = source["twitchClientId"];
@@ -138,6 +146,22 @@ export namespace main {
 	        this.adEndMessage = source["adEndMessage"];
 	        this.announcementsEnabled = source["announcementsEnabled"];
 	        this.announcementPollSeconds = source["announcementPollSeconds"];
+	    }
+	}
+	export class KnowledgeSettings {
+	    path: string;
+	    exists: boolean;
+	    content: string;
+
+	    static createFrom(source: any = {}) {
+	        return new KnowledgeSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.exists = source["exists"];
+	        this.content = source["content"];
 	    }
 	}
 

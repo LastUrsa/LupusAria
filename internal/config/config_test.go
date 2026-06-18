@@ -263,6 +263,33 @@ TWITCH_CHANNEL=lastursa
 	if cfg.Twitch.TokenStatePath != want {
 		t.Fatalf("token state path = %q, want %q", cfg.Twitch.TokenStatePath, want)
 	}
+	wantKnowledge := filepath.Join(dir, ".lupusaria-knowledge.md")
+	if cfg.Bot.KnowledgePath != wantKnowledge {
+		t.Fatalf("knowledge path = %q, want %q", cfg.Bot.KnowledgePath, wantKnowledge)
+	}
+}
+
+func TestLoadParsesStreamerIdentity(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+STREAMER_NAME=Ursa Starsong
+STREAMER_PRONOUNS=he/him
+BOT_KNOWLEDGE_PATH=custom-knowledge.md
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Bot.StreamerName != "Ursa Starsong" || cfg.Bot.StreamerPronouns != "he/him" {
+		t.Fatalf("streamer identity = %q/%q", cfg.Bot.StreamerName, cfg.Bot.StreamerPronouns)
+	}
+	if want := filepath.Join(filepath.Dir(envPath), "custom-knowledge.md"); cfg.Bot.KnowledgePath != want {
+		t.Fatalf("knowledge path = %q, want %q", cfg.Bot.KnowledgePath, want)
+	}
 }
 
 func writeTestEnv(t *testing.T, path, contents string) {

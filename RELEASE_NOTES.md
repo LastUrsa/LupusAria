@@ -8,6 +8,8 @@
 - Group announcement settings into separate expandable Timer and Command summary tables in the desktop app.
 - Leave the OpenAI-compatible model blank until explicitly configured instead of auto-populating a local model name.
 - Use app-rendered select menus in the desktop UI so dropdown colors follow the design palette consistently.
+- Improve AI chat-context prompts with structured recent chat, contextual `!lurk` send-offs, and leaner shared prompt guidance.
+- Add first-run streamer knowledge setup with a local editable knowledge file, generic template, and app-configurable streamer identity.
 
 ## v0.1.0
 
@@ -22,7 +24,7 @@ Highlights:
 - AI-powered ad alerts with configured fallback messages.
 - Static command announcements and stream-timer announcements.
 - Local cost, cooldown, and request guardrails.
-- Ursa knowledge base and Lupus Aria personality guidance.
+- Streamer knowledge base and Lupus Aria personality guidance.
 
 Install notes:
 
