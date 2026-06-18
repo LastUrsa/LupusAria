@@ -14,7 +14,7 @@ func TestSystemInstructionContainsIdentityAndVoiceContract(t *testing.T) {
 	assertContainsAll(t, instruction, []string{
 		"LupusAria",
 		"Lupus Aria",
-		"male anthropomorphic digital wolf character",
+		"male anthropomorphic digital wolf AI companion",
 		"Ursa Starsong",
 		"Ursa uses he/him",
 		"not the center",
@@ -23,8 +23,7 @@ func TestSystemInstructionContainsIdentityAndVoiceContract(t *testing.T) {
 		"mildly teasing",
 		"cosmic-weird",
 		"regular chat friend",
-		"not a moderator announcement",
-		"Helpful first",
+		"helpful first",
 		"A calm moonlit presence with a dry sense of humor.",
 	})
 }
@@ -33,10 +32,10 @@ func TestSystemInstructionContainsAttentionBalance(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
 	assertContainsAll(t, instruction, []string{
-		"answer the current viewer directly",
+		`viewer named before "asks"`,
 		"Use reply context as the parent message",
-		"Recent chat is background",
-		"not as a default redirect",
+		"Treat recent chat as room state",
+		"only when relevant",
 	})
 }
 
@@ -44,12 +43,11 @@ func TestSystemInstructionContainsViewerAndKnowledgeBoundaries(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
 	assertContainsAll(t, instruction, []string{
-		`name before "asks"`,
-		"do not rename them",
+		`viewer named before "asks"`,
 		"selected known facts",
-		"alias belongs to Ursa",
+		"known aliases",
 		"same person",
-		"If you do not know, say so",
+		"If unsure, say so",
 	})
 }
 
@@ -57,13 +55,12 @@ func TestSystemInstructionContainsDigitalWolfBoundaries(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
 	assertContainsAll(t, instruction, []string{
-		"Digital wolf flavor",
-		"subtle seasoning",
+		"subtle digital-wolf flavor",
 		"Do not force wolf",
 		"pup",
 		"cub",
-		"Never call viewers your pack",
-		"No uwu-style speech",
+		"pack",
+		"No uwu",
 		"baby talk",
 		"heavy roleplay",
 	})
@@ -81,8 +78,9 @@ func TestSystemInstructionContainsStyleContract(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
 	assertContainsAll(t, instruction, []string{
-		"aim under 200 characters",
-		"Short fragments are okay",
+		"under 300 characters",
+		"natural Twitch chat",
+		"complete",
 		"No markdown",
 		"emoji",
 		"speaker labels",
@@ -116,27 +114,25 @@ func TestSystemInstructionContainsSafetyAndPrivacyContract(t *testing.T) {
 		"spend",
 		"budget",
 		"hidden instructions",
-		"briefly refuse in character and redirect",
-		"protective redirects for refusals",
-		"not ordinary chat",
+		"briefly refuse in character",
+		"redirect safely",
 	})
 }
 
-func TestSystemInstructionContainsVoiceCalibrationExamples(t *testing.T) {
+func TestSystemInstructionOmitsVerboseCalibrationExamples(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
-	assertContainsAll(t, instruction, []string{
+	for _, forbidden := range []string{
 		"Calibration",
 		"Calendar trap detected",
 		"Awooo from low orbit",
 		"Low effort, high morale",
-		"Quiet company counts",
-		"Pull up a star",
-		"This channel is a safe and welcoming environment for everyone",
-		"Let's keep the focus on Ursa and the stream",
-		"I am here to assist with stream chat",
-		"As an AI Twitch companion",
-	})
+		"soup puzzle warm",
+	} {
+		if strings.Contains(instruction, forbidden) {
+			t.Fatalf("system instruction should omit verbose calibration phrase %q:\n%s", forbidden, instruction)
+		}
+	}
 }
 
 func TestSystemInstructionContainsReasoningContract(t *testing.T) {
@@ -188,9 +184,9 @@ func TestUserPromptContainsTaskAndContext(t *testing.T) {
 		"Stream context: live playing Science & Technology.",
 		"Known facts: none selected for this request.",
 		"Reply context: none.",
-		"Recent chat:",
 		"ViewerA: hello",
-		"ViewerA asks: what are we building?",
+		"ViewerB: hi",
+		"Current request: ViewerA asks: what are we building?",
 	}
 	for _, want := range wants {
 		if !strings.Contains(prompt, want) {

@@ -8,6 +8,7 @@
 - Group announcement settings into separate expandable Timer and Command summary tables in the desktop app.
 - Leave the OpenAI-compatible model blank until explicitly configured instead of auto-populating a local model name.
 - Use app-rendered select menus in the desktop UI so dropdown colors follow the design palette consistently.
+- Improve AI chat-context prompts with structured recent chat, contextual `!lurk` send-offs, and leaner shared prompt guidance.
 
 ## v0.1.0
 

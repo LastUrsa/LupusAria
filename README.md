@@ -8,7 +8,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 
 - Twitch chat connection over IRC/TLS.
 - AI replies for direct mentions, `!ask`, and `!lurk`.
-- Short rolling chat context plus cached Twitch stream context.
+- Structured rolling chat context plus cached Twitch stream context.
 - Deterministic Ursa knowledge injection from `docs/knowledge/ursa.md`.
 - AutoSO tracking from chatters, watch time, and recent stream history.
 - Configurable command and stream-timer announcements.
@@ -98,7 +98,7 @@ The ads token must be used with the same Twitch application that generated it. I
 
 ## Cost Controls
 
-AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, and AI-powered ad alert messages. Keep prompts small by using modest chat context and targeted knowledge sections.
+AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context.
 
 Relevant settings:
 
