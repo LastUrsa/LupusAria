@@ -121,7 +121,7 @@ Relevant settings:
 - `GEMINI_THINKING_LEVEL`
 
 The knowledge base is tag-matched. If no section matches a viewer request, the prompt explicitly says no known facts matched so the model should avoid guessing.
-The default knowledge path is `.lupusaria-knowledge.md`, which is local and gitignored. A neutral starter template is tracked at `docs/knowledge/example.md`, and Ursa's stream-specific example lives at `examples/knowledge/ursa.md`.
+The default knowledge path is `.lupusaria-knowledge.md`, which is local and gitignored. A neutral starter template is tracked at `docs/knowledge/example.md`; streamer-specific knowledge files should stay local.
 
 ## Security Notes
 
@@ -170,4 +170,3 @@ Before tagging, add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
 - [Command reference](docs/commands.md)
 - [Personality guide](docs/personality.md)
 - [Streamer knowledge template](docs/knowledge/example.md)
-- [Ursa knowledge example](examples/knowledge/ursa.md)
