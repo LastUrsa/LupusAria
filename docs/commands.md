@@ -23,6 +23,7 @@ Broadcaster commands are restricted to the channel owner. The bot checks Twitch 
 ## AI Behavior
 
 AI commands use the provider from `AI_PROVIDER`: `mock`, `gemini`, or `openai-compatible`. Gemini is the recommended hosted provider; OpenAI-compatible is mainly for local Ollama experiments.
+`AI_MODEL` is not auto-populated for OpenAI-compatible providers; set it explicitly to the local model name you want to use.
 
 They are governed by:
 
@@ -81,7 +82,7 @@ Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_R
 
 ## Announcements
 
-Announcements are static messages managed in the desktop app. They do not call AI.
+Announcements are static messages managed in the desktop app. They do not call AI. The app shows Timer Announcements and Command Announcements as separate expandable summary tables.
 
 Types:
 

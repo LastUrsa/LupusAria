@@ -121,7 +121,7 @@ func load(envPath string, validateRequired bool) (Config, error) {
 	aiProvider := strings.ToLower(get(values, "AI_PROVIDER", "mock"))
 	geminiModel := get(values, "GEMINI_MODEL", "gemini-3.1-flash-lite")
 	geminiAPIKey := get(values, "GEMINI_API_KEY", "")
-	aiModel := get(values, "AI_MODEL", "llama3.1:8b")
+	aiModel := get(values, "AI_MODEL", "")
 	if aiProvider == "gemini" {
 		aiModel = geminiModel
 	}

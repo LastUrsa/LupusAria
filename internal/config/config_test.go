@@ -107,7 +107,7 @@ AI_MAX_RETRIES=2
 	}
 }
 
-func TestLoadUsesLocalOllamaAsOpenAICompatibleDefault(t *testing.T) {
+func TestLoadUsesLocalOllamaBaseURLWithoutModelDefault(t *testing.T) {
 	envPath := filepath.Join(t.TempDir(), ".env")
 	writeTestEnv(t, envPath, `
 TWITCH_BOT_USERNAME=LupusAria
@@ -124,8 +124,8 @@ AI_API_KEY=ollama
 	if cfg.AI.BaseURL != "http://localhost:11434/v1" {
 		t.Fatalf("base url = %q, want local ollama", cfg.AI.BaseURL)
 	}
-	if cfg.AI.Model != "llama3.1:8b" {
-		t.Fatalf("model = %q, want llama3.1:8b", cfg.AI.Model)
+	if cfg.AI.Model != "" {
+		t.Fatalf("model = %q, want empty", cfg.AI.Model)
 	}
 	if cfg.AI.InputPricePerMillion != 0 || cfg.AI.OutputPricePerMillion != 0 {
 		t.Fatalf("prices = %f/%f", cfg.AI.InputPricePerMillion, cfg.AI.OutputPricePerMillion)

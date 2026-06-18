@@ -6,6 +6,9 @@ import './App.css'
 type Settings = main.ControlSettings
 type Announcement = main.AnnouncementSettings
 type Section = 'overview' | 'chat' | 'ai' | 'autoso' | 'ads' | 'announcements' | 'activity'
+type AnnouncementKind = 'command' | 'timer'
+type IndexedAnnouncement = { item: Announcement; index: number }
+type AnnouncementUpdate = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => void
 
 const sections: Array<{ id: Section; label: string }> = [
   { id: 'overview', label: 'Overview' },
@@ -15,6 +18,17 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'ads', label: 'Ads' },
   { id: 'announcements', label: 'Announcements' },
   { id: 'activity', label: 'Activity' }
+]
+
+const aiProviderOptions = [
+  { value: 'mock', label: 'Mock' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'openai-compatible', label: 'OpenAI-compatible' }
+]
+
+const announcementKindOptions = [
+  { value: 'command', label: 'Command' },
+  { value: 'timer', label: 'Timer' }
 ]
 
 const emptySettings: Settings = {
@@ -43,7 +57,7 @@ const emptySettings: Settings = {
   aiProvider: 'mock',
   aiApiKey: '',
   geminiApiKey: '',
-  aiModel: 'llama3.1:8b',
+  aiModel: '',
   geminiModel: 'gemini-3.1-flash-lite',
   maxRequestsPerHour: 30,
   dailyBudgetUsd: 0.5,
@@ -187,6 +201,13 @@ export default function App() {
     setAnnouncements((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
+  const commandAnnouncements = announcements
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.kind === 'command')
+  const timerAnnouncements = announcements
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.kind === 'timer')
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -284,14 +305,7 @@ export default function App() {
 
           {section === 'ai' && (
             <Card title="AI and cost rails">
-              <label className="field">
-                <span>Provider</span>
-                <select value={settings.aiProvider} onChange={(event) => update('aiProvider', event.target.value)}>
-                  <option value="mock">Mock</option>
-                  <option value="gemini">Gemini</option>
-                  <option value="openai-compatible">OpenAI-compatible</option>
-                </select>
-              </label>
+              <SelectField label="Provider" value={settings.aiProvider} options={aiProviderOptions} onChange={(value) => update('aiProvider', value)} />
               <TextField label="OpenAI-compatible model" value={settings.aiModel} onChange={(value) => update('aiModel', value)} />
               <TextField label="Gemini model" value={settings.geminiModel} onChange={(value) => update('geminiModel', value)} />
               <div className="info-callout">
@@ -358,37 +372,26 @@ export default function App() {
                 <button type="button" onClick={() => addAnnouncement('command')}>Add command</button>
                 <button className="secondary" type="button" onClick={() => addAnnouncement('timer')}>Add timer</button>
               </div>
-              <div className="announcement-list">
-                {announcements.length === 0 ? (
-                  <p className="muted">No announcements configured.</p>
-                ) : announcements.map((item, index) => (
-                  <div className="announcement-row" key={`${item.id}-${index}`}>
-                    <div className="announcement-row-header">
-                      <Toggle label="Enabled" checked={item.enabled} onChange={(value) => updateAnnouncement(index, 'enabled', value)} />
-                      <label className="field compact-field">
-                        <span>Type</span>
-                        <select value={item.kind} onChange={(event) => updateAnnouncement(index, 'kind', event.target.value)}>
-                          <option value="command">Command</option>
-                          <option value="timer">Timer</option>
-                        </select>
-                      </label>
-                      <button className="danger" type="button" onClick={() => removeAnnouncement(index)}>Remove</button>
-                    </div>
-                    <div className="split">
-                      <TextField label="ID" value={item.id} onChange={(value) => updateAnnouncement(index, 'id', value)} />
-                      {item.kind === 'timer' ? (
-                        <>
-                          <NumberField label="First send minute" value={item.afterMinutes} onChange={(value) => updateAnnouncement(index, 'afterMinutes', value)} />
-                          <NumberField label="Repeat interval minutes" value={item.repeatMinutes} onChange={(value) => updateAnnouncement(index, 'repeatMinutes', value)} />
-                        </>
-                      ) : (
-                        <TextField label="Command" value={item.command} onChange={(value) => updateAnnouncement(index, 'command', value)} />
-                      )}
-                    </div>
-                    <TextArea label="Message" value={item.message} onChange={(value) => updateAnnouncement(index, 'message', value)} />
-                  </div>
-                ))}
-              </div>
+              {announcements.length === 0 ? (
+                <p className="muted">No announcements configured.</p>
+              ) : (
+                <div className="announcement-sections">
+                  <AnnouncementSummarySection
+                    title="Timer Announcements"
+                    kind="timer"
+                    announcements={timerAnnouncements}
+                    updateAnnouncement={updateAnnouncement}
+                    removeAnnouncement={removeAnnouncement}
+                  />
+                  <AnnouncementSummarySection
+                    title="Command Announcements"
+                    kind="command"
+                    announcements={commandAnnouncements}
+                    updateAnnouncement={updateAnnouncement}
+                    removeAnnouncement={removeAnnouncement}
+                  />
+                </div>
+              )}
             </Card>
           )}
 
@@ -407,6 +410,84 @@ export default function App() {
         </footer>
       </div>
     </main>
+  )
+}
+
+function AnnouncementSummarySection({
+  title,
+  kind,
+  announcements,
+  updateAnnouncement,
+  removeAnnouncement
+}: {
+  title: string
+  kind: AnnouncementKind
+  announcements: IndexedAnnouncement[]
+  updateAnnouncement: AnnouncementUpdate
+  removeAnnouncement: (index: number) => void
+}) {
+  const columns = kind === 'timer'
+    ? ['ID', 'Type', 'First Send Minute', 'Repeat Interval']
+    : ['ID', 'Type', 'Command']
+
+  return (
+    <section className="announcement-section">
+      <h3>{title}</h3>
+      {announcements.length === 0 ? (
+        <p className="muted">No {kind} announcements configured.</p>
+      ) : (
+        <div className="announcement-table" role="table" aria-label={title}>
+          <div className={`announcement-table-row announcement-table-head ${kind}`} role="row">
+            {columns.map((column) => (
+              <span role="columnheader" key={column}>{column}</span>
+            ))}
+          </div>
+          <div className="announcement-table-body">
+            {announcements.map(({ item, index }) => (
+              <details className="announcement-row" key={`${item.id}-${index}`}>
+                <summary className={`announcement-summary ${kind}`}>
+                  <span>{item.id || 'Untitled'}</span>
+                  <span>{item.kind === 'timer' ? 'Timer' : 'Command'}</span>
+                  {kind === 'timer' ? (
+                    <>
+                      <span>{item.afterMinutes}</span>
+                      <span>{item.repeatMinutes}</span>
+                    </>
+                  ) : (
+                    <span>{item.command || '-'}</span>
+                  )}
+                </summary>
+                <div className="announcement-edit">
+                  <div className="announcement-row-header">
+                    <Toggle label="Enabled" checked={item.enabled} onChange={(value) => updateAnnouncement(index, 'enabled', value)} />
+                    <SelectField
+                      label="Type"
+                      value={item.kind}
+                      options={announcementKindOptions}
+                      onChange={(value) => updateAnnouncement(index, 'kind', value)}
+                      compact
+                    />
+                    <button className="danger" type="button" onClick={() => removeAnnouncement(index)}>Remove</button>
+                  </div>
+                  <div className="split">
+                    <TextField label="ID" value={item.id} onChange={(value) => updateAnnouncement(index, 'id', value)} />
+                    {kind === 'timer' ? (
+                      <>
+                        <NumberField label="First send minute" value={item.afterMinutes} onChange={(value) => updateAnnouncement(index, 'afterMinutes', value)} />
+                        <NumberField label="Repeat interval minutes" value={item.repeatMinutes} onChange={(value) => updateAnnouncement(index, 'repeatMinutes', value)} />
+                      </>
+                    ) : (
+                      <TextField label="Command" value={item.command} onChange={(value) => updateAnnouncement(index, 'command', value)} />
+                    )}
+                  </div>
+                  <TextArea label="Message" value={item.message} onChange={(value) => updateAnnouncement(index, 'message', value)} />
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -461,6 +542,51 @@ function NumberField({ label, value, onChange }: { label: string; value: number;
       <span>{label}</span>
       <input type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />
     </label>
+  )
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+  compact = false
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+  compact?: boolean
+}) {
+  const selected = options.find((option) => option.value === value) ?? options[0]
+
+  return (
+    <div className={`field select-field ${compact ? 'compact-field' : ''}`}>
+      <span>{label}</span>
+      <details className="select-menu">
+        <summary className="select-trigger">
+          <span>{selected?.label ?? value}</span>
+        </summary>
+        <div className="select-options">
+          {options.map((option) => (
+            <button
+              className={option.value === value ? 'active' : ''}
+              key={option.value}
+              onClick={(event) => {
+                onChange(option.value)
+                const menu = event.currentTarget.closest('details')
+                if (menu) {
+                  menu.open = false
+                }
+              }}
+              type="button"
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </details>
+    </div>
   )
 }
 
