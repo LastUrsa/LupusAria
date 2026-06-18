@@ -85,6 +85,21 @@ textarea {
   padding: 9px 10px;
 }
 
+select {
+  color-scheme: dark;
+}
+
+select option {
+  color: var(--color-neutral-100);
+  background: var(--color-brand-anchor);
+}
+
+select option:checked,
+select option:hover {
+  color: var(--color-neutral-100);
+  background: var(--color-brand-accent);
+}
+
 textarea {
   min-height: 68px;
   resize: vertical;

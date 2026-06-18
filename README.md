@@ -2,7 +2,7 @@
 
 LupusAria is a local-first AI-powered Twitch chat bot written in Go, with a Wails desktop control panel for day-to-day setup and control.
 
-It is built for one streamer: simple to run locally, cheap to operate, and easy to inspect.
+It is intended to be usable from this public repo by streamers who want a local bot they can inspect and run themselves. You provide your own Twitch application credentials, Twitch tokens, and AI source; LupusAria does not include hosted AI access, shared Twitch credentials, or managed infrastructure.
 
 ## Features
 
@@ -20,7 +20,7 @@ It is built for one streamer: simple to run locally, cheap to operate, and easy 
 ## Quick Start
 
 1. Copy `.env.example` to `.env`.
-2. Fill in Twitch bot username, OAuth token, and channel.
+2. Fill in your Twitch bot username, OAuth token, channel, and app credentials.
 3. Start with `AI_PROVIDER=mock`.
 4. Run the bot:
 
@@ -29,6 +29,18 @@ go run ./cmd/lupusaria
 ```
 
 Switch to `AI_PROVIDER=gemini` when you are ready to use hosted real AI replies. Use `AI_PROVIDER=openai-compatible` for local Ollama experiments.
+When using an OpenAI-compatible provider, set `AI_MODEL` explicitly to the local model you want to call.
+
+## Bring Your Own Accounts
+
+This repo contains the bot code and desktop control panel only. To run it for your own channel, you need:
+
+- Your own Twitch bot account or broadcaster account.
+- Your own Twitch application client ID and client secret.
+- Twitch access or refresh tokens with the scopes required by the features you enable.
+- Your own AI provider key, such as Gemini, or a local OpenAI-compatible endpoint such as Ollama.
+
+The default `AI_PROVIDER=mock` mode is useful for setup and testing because it does not call an external AI provider.
 
 ## Desktop App
 
@@ -47,6 +59,11 @@ Build the executable:
 The app can start and stop the bot, edit non-secret settings, toggle chat abilities, configure AutoSO, configure announcements, configure ad alerts, and show recent activity.
 
 On Linux, Wails requires WebKitGTK development packages. If Wails reports `Package 'webkit2gtk-4.0' not found`, install the Wails Linux dependencies for your distro and rerun the build.
+If your distro provides `webkit2gtk-4.1` instead, build with:
+
+```bash
+/home/don/go/bin/wails build -tags webkit2_41
+```
 
 Windows releases are built through GitHub Actions. The installer follows the Starsong Installer Standard: publisher `Starsong Tools`, default install root `%ProgramFiles%\Starsong Tools`, and app path `%ProgramFiles%\Starsong Tools\LupusAria`.
 
@@ -57,6 +74,7 @@ Installed app settings are stored in the current user's config folder, not besid
 ```
 
 The desktop app shows the active config path on the Overview tab. Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
+Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, or command.
 
 ## Twitch Tokens
 
