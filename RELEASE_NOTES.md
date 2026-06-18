@@ -24,7 +24,7 @@ Highlights:
 - AI-powered ad alerts with configured fallback messages.
 - Static command announcements and stream-timer announcements.
 - Local cost, cooldown, and request guardrails.
-- Ursa knowledge base and Lupus Aria personality guidance.
+- Streamer knowledge base and Lupus Aria personality guidance.
 
 Install notes:
 
