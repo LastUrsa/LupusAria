@@ -9,7 +9,12 @@
 .lupusaria-knowledge.md
 examples/knowledge/ursa.md
 /bin/
-/build/
+/build/*
+!/build/appicon.png
+!/build/windows/
+/build/windows/*
+!/build/windows/icon.ico
+!/build/windows/wails.exe.manifest
 /dist/
 /tmp/
 frontend/node_modules/

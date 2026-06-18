@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { GetAnnouncements, GetKnowledge, GetLogs, GetSettings, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
+import lupusAriaIcon from './assets/images/LupusAriaIcon.png'
 import './App.css'
 
 type Settings = main.ControlSettings
@@ -261,8 +262,11 @@ export default function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <span className="suite-eyebrow">Starsong Tools</span>
-          <h1>LupusAria</h1>
+          <img className="app-logo" src={lupusAriaIcon} alt="" aria-hidden="true" />
+          <div>
+            <h1>LupusAria</h1>
+            <span className="suite-eyebrow">Starsong Tools</span>
+          </div>
         </div>
         <nav className="section-nav" aria-label="Settings sections">
           {sections.map((item) => (
