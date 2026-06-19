@@ -31,6 +31,24 @@ func (f *fakeComposer) ComposeAdAlert(_ context.Context, event Event) (string, e
 	return f.text, nil
 }
 
+type fakeScheduleProvider struct {
+	schedules []Schedule
+	errs      []error
+	calls     int
+}
+
+func (f *fakeScheduleProvider) GetAdSchedule(context.Context, string) (Schedule, error) {
+	call := f.calls
+	f.calls++
+	if call < len(f.errs) && f.errs[call] != nil {
+		return Schedule{}, f.errs[call]
+	}
+	if call < len(f.schedules) {
+		return f.schedules[call], nil
+	}
+	return Schedule{}, nil
+}
+
 func TestHandleScheduleWarnsStartsAndEndsOnce(t *testing.T) {
 	chat := &fakeChat{}
 	service := New(Config{
@@ -60,6 +78,36 @@ func TestHandleScheduleWarnsStartsAndEndsOnce(t *testing.T) {
 	}
 	if !slices.Equal(chat.sent, want) {
 		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
+func TestPollRetriesAfterTemporaryScheduleError(t *testing.T) {
+	chat := &fakeChat{}
+	start := time.Date(2026, 6, 16, 12, 10, 0, 0, time.UTC)
+	provider := &fakeScheduleProvider{
+		schedules: []Schedule{
+			{},
+			{NextAdAt: start, Duration: 90 * time.Second},
+		},
+		errs: []error{errors.New("temporary helix error")},
+	}
+	service := New(Config{
+		Channel:       "lastursa",
+		BroadcasterID: "broadcaster-id",
+		Enabled:       true,
+		WarningLead:   5 * time.Minute,
+	}, chat, provider, nil)
+	service.now = func() time.Time { return start.Add(-4 * time.Minute) }
+
+	service.poll(context.Background())
+	service.poll(context.Background())
+
+	want := []string{"Heads up: ads are scheduled in about 4 minutes."}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", provider.calls)
 	}
 }
 

@@ -58,6 +58,10 @@ func NewHelixClient(clientID, accessToken string) *HelixClient {
 	}
 }
 
+func (c *HelixClient) SetAccessToken(accessToken string) {
+	c.accessToken = trimOAuthPrefix(accessToken)
+}
+
 func (c *HelixClient) GetStreamInfo(ctx context.Context, channel string) (StreamInfo, error) {
 	endpoint := "https://api.twitch.tv/helix/streams?user_login=" + url.QueryEscape(channel)
 	var result struct {

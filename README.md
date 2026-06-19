@@ -101,6 +101,8 @@ twitch token -u --dcf -s 'channel:read:ads'
 
 The ads token must be used with the same Twitch application that generated it. If ads use a separate Twitch app, set the ads client ID and secret separately from the bot client ID and secret.
 
+Use an ads refresh token when possible. LupusAria refreshes the ads access token during long runs and retries temporary Twitch ad schedule polling failures instead of disabling ad alerts for the rest of the session.
+
 ## Cost Controls
 
 AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context.

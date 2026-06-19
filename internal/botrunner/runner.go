@@ -2,9 +2,11 @@ package botrunner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -69,6 +71,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 			logger.Warn("failed to refresh twitch ads token; using configured ads access token if available", "error", err)
 		} else {
 			cfg.Twitch.AdsOAuthToken = "oauth:" + tokenSet.AccessToken
+			cfg.Twitch.AdsRefreshToken = tokenSet.RefreshToken
 			logger.Info("refreshed twitch ads access token", "expires_at", tokenSet.ExpiresAt.Format(time.RFC3339))
 		}
 	}
@@ -153,8 +156,17 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		Knowledge: knowledgeBase,
 	}, chat, aiClient, streamProvider, recentService, announcementService, logger)
 
-	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsClientID != "" {
+	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsClientID != "" && cfg.Twitch.AdsOAuthToken != "" && broadcasterID != "" {
 		adsHelix := twitch.NewHelixClient(cfg.Twitch.AdsClientID, cfg.Twitch.AdsOAuthToken)
+		var adsAuth adTokenRefresher
+		if cfg.Twitch.AdsRefreshToken != "" {
+			adsAuth = twitch.NewAuthManager(twitch.AuthConfig{
+				ClientID:     cfg.Twitch.AdsClientID,
+				ClientSecret: cfg.Twitch.AdsClientSecret,
+				RefreshToken: cfg.Twitch.AdsRefreshToken,
+				StatePath:    cfg.Twitch.AdsTokenStatePath,
+			})
+		}
 		adService = adalerts.New(adalerts.Config{
 			Channel:        cfg.Twitch.Channel,
 			BroadcasterID:  broadcasterID,
@@ -165,7 +177,13 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 			StartMessage:   cfg.AdAlerts.StartMessage,
 			EndMessage:     cfg.AdAlerts.EndMessage,
 			Composer:       runner,
-		}, chat, twitchAdScheduleProvider{helix: adsHelix}, logger)
+		}, chat, &twitchAdScheduleProvider{helix: adsHelix, auth: adsAuth, tokenExpiresAt: adsTokenExpiresAt(cfg.Twitch.AdsTokenStatePath), logger: logger}, logger)
+	} else if cfg.AdAlerts.Enabled {
+		logger.Warn("ad alerts enabled but not started",
+			"has_ads_client_id", cfg.Twitch.AdsClientID != "",
+			"has_ads_token", cfg.Twitch.AdsOAuthToken != "",
+			"has_broadcaster_id", broadcasterID != "",
+		)
 	}
 
 	if adService != nil {
@@ -179,16 +197,78 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	return err
 }
 
-type twitchAdScheduleProvider struct {
-	helix *twitch.HelixClient
+type adScheduleHelix interface {
+	GetAdSchedule(ctx context.Context, broadcasterID string) (twitch.AdSchedule, error)
+	SetAccessToken(accessToken string)
 }
 
-func (p twitchAdScheduleProvider) GetAdSchedule(ctx context.Context, broadcasterID string) (adalerts.Schedule, error) {
+type adTokenRefresher interface {
+	Refresh(ctx context.Context) (twitch.TokenSet, error)
+}
+
+type twitchAdScheduleProvider struct {
+	helix          adScheduleHelix
+	auth           adTokenRefresher
+	tokenExpiresAt time.Time
+	logger         *slog.Logger
+}
+
+func (p *twitchAdScheduleProvider) GetAdSchedule(ctx context.Context, broadcasterID string) (adalerts.Schedule, error) {
+	if err := p.refreshIfNeeded(ctx, false); err != nil {
+		return adalerts.Schedule{}, err
+	}
 	schedule, err := p.helix.GetAdSchedule(ctx, broadcasterID)
 	if err != nil {
+		if isUnauthorized(err) {
+			if refreshErr := p.refreshIfNeeded(ctx, true); refreshErr != nil {
+				return adalerts.Schedule{}, refreshErr
+			}
+			schedule, err = p.helix.GetAdSchedule(ctx, broadcasterID)
+			if err == nil {
+				return convertAdSchedule(schedule), nil
+			}
+		}
 		return adalerts.Schedule{}, err
 	}
 	return convertAdSchedule(schedule), nil
+}
+
+func (p *twitchAdScheduleProvider) refreshIfNeeded(ctx context.Context, force bool) error {
+	if p.auth == nil {
+		return nil
+	}
+	if !force && (p.tokenExpiresAt.IsZero() || time.Now().Before(p.tokenExpiresAt.Add(-2*time.Minute))) {
+		return nil
+	}
+	tokenSet, err := p.auth.Refresh(ctx)
+	if err != nil {
+		return fmt.Errorf("refresh twitch ads token: %w", err)
+	}
+	p.helix.SetAccessToken(tokenSet.AccessToken)
+	p.tokenExpiresAt = tokenSet.ExpiresAt
+	if p.logger != nil {
+		p.logger.Info("refreshed twitch ads access token for ad polling", "expires_at", tokenSet.ExpiresAt.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func isUnauthorized(err error) bool {
+	return strings.Contains(err.Error(), "401 Unauthorized")
+}
+
+func adsTokenExpiresAt(path string) time.Time {
+	if strings.TrimSpace(path) == "" {
+		return time.Time{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}
+	}
+	var tokenSet twitch.TokenSet
+	if err := json.Unmarshal(data, &tokenSet); err != nil {
+		return time.Time{}
+	}
+	return tokenSet.ExpiresAt
 }
 
 func convertAdSchedule(schedule twitch.AdSchedule) adalerts.Schedule {

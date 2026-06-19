@@ -71,7 +71,6 @@ type Service struct {
 	endedAdKey   string
 	activeAdKey  string
 	activeEndAt  time.Time
-	disabled     bool
 }
 
 func New(cfg Config, chat Chat, helix ScheduleProvider, logger *slog.Logger) *Service {
@@ -114,6 +113,7 @@ func (s *Service) Start(ctx context.Context) {
 
 	go func() {
 		s.ctx = ctx
+		s.logger.Info("ad alerts started", "broadcaster_id", s.cfg.BroadcasterID, "warning_lead", s.cfg.WarningLead, "poll_interval", s.cfg.PollInterval)
 		s.poll(ctx)
 		ticker := time.NewTicker(s.cfg.PollInterval)
 		defer ticker.Stop()
@@ -129,14 +129,9 @@ func (s *Service) Start(ctx context.Context) {
 }
 
 func (s *Service) poll(ctx context.Context) {
-	if s.disabled {
-		return
-	}
-
 	schedule, err := s.helix.GetAdSchedule(ctx, s.cfg.BroadcasterID)
 	if err != nil {
-		s.logger.Warn("ad alert polling failed; disabling ad alerts", "error", err)
-		s.disabled = true
+		s.logger.Warn("ad alert polling failed; will retry", "error", err)
 		return
 	}
 	s.HandleSchedule(schedule)
@@ -203,7 +198,9 @@ func (s *Service) say(ctx context.Context, event Event, fallback string) {
 			text = composed
 		}
 	}
-	_ = s.chat.Say(s.cfg.Channel, text)
+	if err := s.chat.Say(s.cfg.Channel, text); err != nil {
+		s.logger.Warn("failed to send ad alert", "event", event.Kind, "error", err)
+	}
 }
 
 func formatLead(d time.Duration) string {
