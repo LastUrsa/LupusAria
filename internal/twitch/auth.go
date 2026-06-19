@@ -96,6 +96,7 @@ func (m *AuthManager) Refresh(ctx context.Context) (TokenSet, error) {
 	if result.RefreshToken == "" {
 		result.RefreshToken = refreshToken
 	}
+	m.cfg.RefreshToken = result.RefreshToken
 
 	tokenSet := TokenSet{
 		AccessToken:  result.AccessToken,

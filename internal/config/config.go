@@ -255,6 +255,9 @@ func validate(cfg Config) error {
 	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsOAuthToken == "" && cfg.Twitch.AdsRefreshToken == "" && cfg.Twitch.RefreshToken == "" {
 		missing = append(missing, "TWITCH_ADS_OAUTH_TOKEN or TWITCH_ADS_REFRESH_TOKEN")
 	}
+	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsClientID == "" {
+		missing = append(missing, "TWITCH_ADS_CLIENT_ID or TWITCH_CLIENT_ID")
+	}
 	if cfg.Twitch.AdsRefreshToken != "" {
 		if cfg.Twitch.AdsClientID == "" {
 			missing = append(missing, "TWITCH_ADS_CLIENT_ID or TWITCH_CLIENT_ID")

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -243,6 +244,25 @@ TWITCH_ADS_REFRESH_TOKEN=ads-refresh
 	}
 	if cfg.Twitch.AdsClientID != "ads-client" || cfg.Twitch.AdsClientSecret != "ads-secret" {
 		t.Fatalf("ads client override = %q/%q", cfg.Twitch.AdsClientID, cfg.Twitch.AdsClientSecret)
+	}
+}
+
+func TestLoadRequiresClientIDWhenAdAlertsEnabled(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+AD_ALERTS_ENABLED=true
+TWITCH_ADS_OAUTH_TOKEN=oauth:ads-token
+`)
+
+	_, err := Load(envPath)
+	if err == nil {
+		t.Fatal("expected missing client ID error")
+	}
+	if got := err.Error(); !strings.Contains(got, "TWITCH_ADS_CLIENT_ID or TWITCH_CLIENT_ID") {
+		t.Fatalf("error = %q", got)
 	}
 }
 
