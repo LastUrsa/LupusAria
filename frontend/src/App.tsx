@@ -7,19 +7,17 @@ import './App.css'
 type Settings = main.ControlSettings
 type Announcement = main.AnnouncementSettings
 type Knowledge = main.KnowledgeSettings
-type Section = 'overview' | 'chat' | 'ai' | 'knowledge' | 'autoso' | 'ads' | 'announcements' | 'activity'
+type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'knowledge' | 'activity'
 type AnnouncementKind = 'command' | 'timer'
 type IndexedAnnouncement = { item: Announcement; index: number }
 type AnnouncementUpdate = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => void
 
 const sections: Array<{ id: Section; label: string }> = [
   { id: 'overview', label: 'Overview' },
-  { id: 'chat', label: 'Chat' },
-  { id: 'ai', label: 'AI' },
+  { id: 'setup', label: 'Setup' },
+  { id: 'aiBudget', label: 'AI & Budget' },
+  { id: 'features', label: 'Features' },
   { id: 'knowledge', label: 'Knowledge' },
-  { id: 'autoso', label: 'AutoSO' },
-  { id: 'ads', label: 'Ads' },
-  { id: 'announcements', label: 'Announcements' },
   { id: 'activity', label: 'Activity' }
 ]
 
@@ -254,6 +252,26 @@ export default function App() {
   const timerAnnouncements = announcements
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.kind === 'timer')
+  const currentSection = sections.find((item) => item.id === section) ?? sections[0]
+  const setupMissing = [
+    settings.channel,
+    settings.botUsername,
+    settings.streamerName,
+    settings.streamerPronouns
+  ].filter((value) => !value.trim()).length
+  const twitchCredentialReady = settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken || settings.twitchOAuthToken.trim() !== '' || settings.twitchRefreshToken.trim() !== ''
+  const twitchAppReady = settings.hasTwitchClientId || settings.twitchClientId.trim() !== ''
+  const setupState = setupMissing === 0 && twitchCredentialReady && twitchAppReady ? 'Ready' : 'Needs setup'
+  const recentLogs = logs.slice(-8)
+  const canSaveSection = section !== 'overview' && section !== 'activity'
+  const topbarCopy: Record<Section, string> = {
+    overview: 'Status, launch controls, and recent activity.',
+    setup: 'Twitch account, streamer identity, and credentials.',
+    aiBudget: 'Provider, models, keys, context, and cost rails.',
+    features: 'Chat behavior, AutoSO, ad alerts, and announcements.',
+    knowledge: 'Stable channel facts for AI replies.',
+    activity: 'Recent runtime messages.'
+  }
 
   return (
     <main className="app-shell">
@@ -282,8 +300,8 @@ export default function App() {
       <div className="workspace">
         <header className="topbar">
           <div>
-            <h2>{sections.find((item) => item.id === section)?.label}</h2>
-            <p>Local Twitch bot controls for chat replies, AutoSO, announcements, and ad alerts.</p>
+            <h2>{currentSection.label}</h2>
+            <p>{topbarCopy[section]}</p>
           </div>
           <div className="runtime-panel">
             <span className={`status-pill ${settings.running ? 'running' : 'stopped'}`}>{settings.status}</span>
@@ -300,18 +318,44 @@ export default function App() {
         <section className="panel">
           {section === 'overview' && (
             <div className="grid">
-              <Card title="Twitch">
+              <Card title="Runtime">
+                <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
+                <StatusRow label="Setup" value={setupState} tone={setupState === 'Ready' ? 'good' : 'muted'} />
+                <StatusRow label="AI provider" value={settings.aiProvider} />
+                <StatusRow label="Knowledge" value={settings.knowledgeExists ? 'Ready' : 'Missing'} tone={settings.knowledgeExists ? 'good' : 'muted'} />
+              </Card>
+              <Card title="Channel">
+                <StatusRow label="Channel" value={settings.channel || 'Not set'} tone={settings.channel ? 'normal' : 'muted'} />
+                <StatusRow label="Bot account" value={settings.botUsername || 'Not set'} tone={settings.botUsername ? 'normal' : 'muted'} />
+                <StatusRow label="Streamer" value={settings.streamerName || 'Not set'} tone={settings.streamerName ? 'normal' : 'muted'} />
+                <StatusRow label="Pronouns" value={settings.streamerPronouns || 'Not set'} tone={settings.streamerPronouns ? 'normal' : 'muted'} />
+              </Card>
+              <Card title="Features">
+                <StatusRow label="Chat replies" value={settings.enableMentions || settings.enableAsk || settings.enableLurk ? 'Enabled' : 'Disabled'} tone={settings.enableMentions || settings.enableAsk || settings.enableLurk ? 'good' : 'muted'} />
+                <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
+                <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
+                <StatusRow label="Announcements" value={settings.announcementsEnabled ? `${announcements.length} configured` : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
+              </Card>
+              <Card title="Recent activity">
+                <div className="compact-log-view">
+                  {recentLogs.length === 0 ? <p className="muted">No activity yet.</p> : recentLogs.map((line) => <div key={line}>{line}</div>)}
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {section === 'setup' && (
+            <div className="grid">
+              <Card title="Channel identity">
                 <TextField label="Channel" value={settings.channel} onChange={(value) => update('channel', value)} />
                 <TextField label="Bot username" value={settings.botUsername} onChange={(value) => update('botUsername', value)} />
                 <TextField label="Streamer name" value={settings.streamerName} onChange={(value) => update('streamerName', value)} />
                 <TextField label="Streamer pronouns" value={settings.streamerPronouns} onChange={(value) => update('streamerPronouns', value)} />
               </Card>
-              <Card title="Runtime">
-                <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
-                <StatusRow label="AI provider" value={settings.aiProvider} />
-                <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
-                <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
-                <StatusRow label="Announcements" value={settings.announcementsEnabled ? 'Enabled' : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
+              <Card title="Saved credentials">
+                <StatusRow label="Twitch app" value={settings.hasTwitchClientId ? 'Saved' : 'Missing'} tone={settings.hasTwitchClientId ? 'good' : 'muted'} />
+                <StatusRow label="Bot token" value={settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken ? 'Saved' : 'Missing'} tone={settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken ? 'good' : 'muted'} />
+                <StatusRow label="Ads token" value={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'Saved' : 'Optional'} tone={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'good' : 'muted'} />
               </Card>
               <Card title="Twitch credentials" wide>
                 <div className="info-callout">
@@ -338,44 +382,26 @@ export default function App() {
             </div>
           )}
 
-          {section === 'chat' && (
-            <Card title="Chat abilities">
-              <div className="toggle-grid">
-                <Toggle label="Respond to mentions" checked={settings.enableMentions} onChange={(value) => update('enableMentions', value)} />
-                <Toggle label="Enable !ask" checked={settings.enableAsk} onChange={(value) => update('enableAsk', value)} />
-                <Toggle label="Enable !lurk" checked={settings.enableLurk} onChange={(value) => update('enableLurk', value)} />
-                <Toggle label="Enable !commands" checked={settings.enableCommands} onChange={(value) => update('enableCommands', value)} />
-                <Toggle label="Enable !reset" checked={settings.enableReset} onChange={(value) => update('enableReset', value)} />
-              </div>
-              <div className="split">
-                <NumberField label="Global cooldown seconds" value={settings.globalCooldownSeconds} onChange={(value) => update('globalCooldownSeconds', value)} />
-                <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
-              </div>
-            </Card>
-          )}
-
-          {section === 'ai' && (
-            <Card title="AI and cost rails">
-              <SelectField label="Provider" value={settings.aiProvider} options={aiProviderOptions} onChange={(value) => update('aiProvider', value)} />
-              <TextField label="OpenAI-compatible model" value={settings.aiModel} onChange={(value) => update('aiModel', value)} />
-              <TextField label="Gemini model" value={settings.geminiModel} onChange={(value) => update('geminiModel', value)} />
-              <div className="info-callout">
-                <strong>Gemini is the recommended hosted provider.</strong>
-                <span>OpenAI-compatible is available for local Ollama experiments. Saved Gemini credentials can still act as a fallback when another primary provider fails.</span>
-              </div>
-              <div className="split">
-                <SecretField label="Gemini API key" saved={settings.hasGeminiApiKey} value={settings.geminiApiKey} onChange={(value) => update('geminiApiKey', value)} />
-                <SecretField label="OpenAI-compatible API key" saved={settings.hasAiApiKey} value={settings.aiApiKey} onChange={(value) => update('aiApiKey', value)} />
-              </div>
-              <div className="split">
+          {section === 'aiBudget' && (
+            <div className="grid">
+              <Card title="AI provider">
+                <SelectField label="Provider" value={settings.aiProvider} options={aiProviderOptions} onChange={(value) => update('aiProvider', value)} />
+                <TextField label="OpenAI-compatible model" value={settings.aiModel} onChange={(value) => update('aiModel', value)} />
+                <TextField label="Gemini model" value={settings.geminiModel} onChange={(value) => update('geminiModel', value)} />
+                <div className="split">
+                  <SecretField label="Gemini API key" saved={settings.hasGeminiApiKey} value={settings.geminiApiKey} onChange={(value) => update('geminiApiKey', value)} />
+                  <SecretField label="OpenAI-compatible API key" saved={settings.hasAiApiKey} value={settings.aiApiKey} onChange={(value) => update('aiApiKey', value)} />
+                </div>
+              </Card>
+              <Card title="Budget and context">
                 <NumberField label="Requests per hour" value={settings.maxRequestsPerHour} onChange={(value) => update('maxRequestsPerHour', value)} />
                 <NumberField label="Max context messages" value={settings.maxContextMessages} onChange={(value) => update('maxContextMessages', value)} />
-              </div>
-              <div className="split">
-                <NumberField label="Daily budget" value={settings.dailyBudgetUsd} onChange={(value) => update('dailyBudgetUsd', value)} />
-                <NumberField label="Monthly budget" value={settings.monthlyBudgetUsd} onChange={(value) => update('monthlyBudgetUsd', value)} />
-              </div>
-            </Card>
+                <div className="split">
+                  <NumberField label="Daily budget" value={settings.dailyBudgetUsd} onChange={(value) => update('dailyBudgetUsd', value)} />
+                  <NumberField label="Monthly budget" value={settings.monthlyBudgetUsd} onChange={(value) => update('monthlyBudgetUsd', value)} />
+                </div>
+              </Card>
+            </div>
           )}
 
           {section === 'knowledge' && (
@@ -392,72 +418,73 @@ export default function App() {
             </Card>
           )}
 
-          {section === 'autoso' && (
-            <Card title="AutoSO">
-              <Toggle label="Enable AutoSO" checked={settings.autosoEnabled} onChange={(value) => update('autosoEnabled', value)} />
-              <div className="split">
-                <NumberField label="Minimum watch minutes" value={settings.recentStreamerMinWatch} onChange={(value) => update('recentStreamerMinWatch', value)} />
-                <NumberField label="Recent stream days" value={settings.recentStreamerDays} onChange={(value) => update('recentStreamerDays', value)} />
-              </div>
-              <div className="split">
-                <NumberField label="Page size" value={settings.recentStreamerPageSize} onChange={(value) => update('recentStreamerPageSize', value)} />
-                <NumberField label="Shoutout delay seconds" value={settings.recentStreamerDelay} onChange={(value) => update('recentStreamerDelay', value)} />
-              </div>
-            </Card>
-          )}
-
-          {section === 'ads' && (
-            <Card title="Ad alerts">
-              <div className="info-callout">
-                <strong>AI-powered alerts are the default.</strong>
-                <span>These messages are fallbacks used when the AI provider is unavailable or the bot's AI limits are active.</span>
-              </div>
-              <Toggle label="Enable ad alerts" checked={settings.adAlertsEnabled} onChange={(value) => update('adAlertsEnabled', value)} />
-              <div className="split">
-                <NumberField label="Warning lead minutes" value={settings.adWarningMinutes} onChange={(value) => update('adWarningMinutes', value)} />
-                <NumberField label="Poll seconds" value={settings.adPollSeconds} onChange={(value) => update('adPollSeconds', value)} />
-              </div>
-              <TextArea label="Warning fallback message" value={settings.adWarningMessage} onChange={(value) => update('adWarningMessage', value)} />
-              <TextArea label="Start fallback message" value={settings.adStartMessage} onChange={(value) => update('adStartMessage', value)} />
-              <TextArea label="End fallback message" value={settings.adEndMessage} onChange={(value) => update('adEndMessage', value)} />
-            </Card>
-          )}
-
-          {section === 'announcements' && (
-            <Card title="Announcements" wide>
-              <div className="info-callout">
-                <strong>Static messages, no AI cost.</strong>
-                <span>Command announcements are broadcaster-only. Timer announcements use Twitch stream start time and repeat until stream end when an interval is set.</span>
-              </div>
-              <div className="split">
-                <Toggle label="Enable announcements" checked={settings.announcementsEnabled} onChange={(value) => update('announcementsEnabled', value)} />
-                <NumberField label="Timer poll seconds" value={settings.announcementPollSeconds} onChange={(value) => update('announcementPollSeconds', value)} />
-              </div>
-              <div className="announcement-actions">
-                <button type="button" onClick={() => addAnnouncement('command')}>Add command</button>
-                <button className="secondary" type="button" onClick={() => addAnnouncement('timer')}>Add timer</button>
-              </div>
-              {announcements.length === 0 ? (
-                <p className="muted">No announcements configured.</p>
-              ) : (
-                <div className="announcement-sections">
-                  <AnnouncementSummarySection
-                    title="Timer Announcements"
-                    kind="timer"
-                    announcements={timerAnnouncements}
-                    updateAnnouncement={updateAnnouncement}
-                    removeAnnouncement={removeAnnouncement}
-                  />
-                  <AnnouncementSummarySection
-                    title="Command Announcements"
-                    kind="command"
-                    announcements={commandAnnouncements}
-                    updateAnnouncement={updateAnnouncement}
-                    removeAnnouncement={removeAnnouncement}
-                  />
+          {section === 'features' && (
+            <div className="feature-stack">
+              <FeaturePanel title="Chat" summary="Mentions, public commands, and cooldowns." defaultOpen>
+                <div className="toggle-grid">
+                  <Toggle label="Respond to mentions" checked={settings.enableMentions} onChange={(value) => update('enableMentions', value)} />
+                  <Toggle label="Enable !ask" checked={settings.enableAsk} onChange={(value) => update('enableAsk', value)} />
+                  <Toggle label="Enable !lurk" checked={settings.enableLurk} onChange={(value) => update('enableLurk', value)} />
+                  <Toggle label="Enable !commands" checked={settings.enableCommands} onChange={(value) => update('enableCommands', value)} />
+                  <Toggle label="Enable !reset" checked={settings.enableReset} onChange={(value) => update('enableReset', value)} />
                 </div>
-              )}
-            </Card>
+                <div className="split">
+                  <NumberField label="Global cooldown seconds" value={settings.globalCooldownSeconds} onChange={(value) => update('globalCooldownSeconds', value)} />
+                  <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
+                </div>
+              </FeaturePanel>
+              <FeaturePanel title="AutoSO" summary="Recent streamer shoutout queue and timing." defaultOpen>
+                <Toggle label="Enable AutoSO" checked={settings.autosoEnabled} onChange={(value) => update('autosoEnabled', value)} />
+                <div className="split">
+                  <NumberField label="Minimum watch minutes" value={settings.recentStreamerMinWatch} onChange={(value) => update('recentStreamerMinWatch', value)} />
+                  <NumberField label="Recent stream days" value={settings.recentStreamerDays} onChange={(value) => update('recentStreamerDays', value)} />
+                </div>
+                <div className="split">
+                  <NumberField label="Page size" value={settings.recentStreamerPageSize} onChange={(value) => update('recentStreamerPageSize', value)} />
+                  <NumberField label="Shoutout delay seconds" value={settings.recentStreamerDelay} onChange={(value) => update('recentStreamerDelay', value)} />
+                </div>
+              </FeaturePanel>
+              <FeaturePanel title="Ad alerts" summary="Scheduled ad warnings and fallback messages.">
+                <Toggle label="Enable ad alerts" checked={settings.adAlertsEnabled} onChange={(value) => update('adAlertsEnabled', value)} />
+                <div className="split">
+                  <NumberField label="Warning lead minutes" value={settings.adWarningMinutes} onChange={(value) => update('adWarningMinutes', value)} />
+                  <NumberField label="Poll seconds" value={settings.adPollSeconds} onChange={(value) => update('adPollSeconds', value)} />
+                </div>
+                <TextArea label="Warning fallback message" value={settings.adWarningMessage} onChange={(value) => update('adWarningMessage', value)} />
+                <TextArea label="Start fallback message" value={settings.adStartMessage} onChange={(value) => update('adStartMessage', value)} />
+                <TextArea label="End fallback message" value={settings.adEndMessage} onChange={(value) => update('adEndMessage', value)} />
+              </FeaturePanel>
+              <FeaturePanel title="Announcements" summary={`${announcements.length} configured command or timer messages.`}>
+                <div className="split">
+                  <Toggle label="Enable announcements" checked={settings.announcementsEnabled} onChange={(value) => update('announcementsEnabled', value)} />
+                  <NumberField label="Timer poll seconds" value={settings.announcementPollSeconds} onChange={(value) => update('announcementPollSeconds', value)} />
+                </div>
+                <div className="announcement-actions">
+                  <button type="button" onClick={() => addAnnouncement('command')}>Add command</button>
+                  <button className="secondary" type="button" onClick={() => addAnnouncement('timer')}>Add timer</button>
+                </div>
+                {announcements.length === 0 ? (
+                  <p className="muted">No announcements configured.</p>
+                ) : (
+                  <div className="announcement-sections">
+                    <AnnouncementSummarySection
+                      title="Timer Announcements"
+                      kind="timer"
+                      announcements={timerAnnouncements}
+                      updateAnnouncement={updateAnnouncement}
+                      removeAnnouncement={removeAnnouncement}
+                    />
+                    <AnnouncementSummarySection
+                      title="Command Announcements"
+                      kind="command"
+                      announcements={commandAnnouncements}
+                      updateAnnouncement={updateAnnouncement}
+                      removeAnnouncement={removeAnnouncement}
+                    />
+                  </div>
+                )}
+              </FeaturePanel>
+            </div>
           )}
 
           {section === 'activity' && (
@@ -469,10 +496,12 @@ export default function App() {
           )}
         </section>
 
-        <footer className="actions">
-          <button onClick={save} disabled={busy}>Save settings</button>
-          <button className="secondary" onClick={() => refresh(!dirty)} disabled={busy}>Refresh</button>
-        </footer>
+        {canSaveSection && (
+          <footer className="actions">
+            <button onClick={save} disabled={busy}>Save changes</button>
+            <button className="secondary" onClick={() => refresh(!dirty)} disabled={busy}>Refresh</button>
+          </footer>
+        )}
       </div>
     </main>
   )
@@ -562,6 +591,28 @@ function Card({ title, children, wide = false }: { title: string; children: Reac
       <h2>{title}</h2>
       <div className="card-body">{children}</div>
     </section>
+  )
+}
+
+function FeaturePanel({
+  title,
+  summary,
+  children,
+  defaultOpen = false
+}: {
+  title: string
+  summary: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+}) {
+  return (
+    <details className="feature-panel" open={defaultOpen}>
+      <summary className="feature-panel-summary">
+        <span>{title}</span>
+        <small>{summary}</small>
+      </summary>
+      <div className="feature-panel-body">{children}</div>
+    </details>
   )
 }
 

@@ -58,7 +58,7 @@ Build the executable:
 /home/don/go/bin/wails build
 ```
 
-The app can start and stop the bot, edit non-secret settings, toggle chat abilities, configure AutoSO, configure announcements, configure ad alerts, and show recent activity.
+The app can start and stop the bot from Overview, manage account setup, edit AI and budget settings, toggle feature behavior, maintain streamer knowledge, and show recent activity.
 
 On Linux, Wails requires WebKitGTK development packages. If Wails reports `Package 'webkit2gtk-4.0' not found`, install the Wails Linux dependencies for your distro and rerun the build.
 If your distro provides `webkit2gtk-4.1` instead, build with:
@@ -76,7 +76,7 @@ Installed app settings are stored in the current user's config folder, not besid
 ```
 
 Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
-The Overview tab also includes streamer name and streamer pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
+The Setup tab includes streamer name and streamer pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
 Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, or command.
 
 ## Twitch Tokens
@@ -89,7 +89,7 @@ twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters'
 
 The bot account should be a moderator in the channel. This is required for Twitch chatter snapshots and helps AutoSO commands work reliably.
 
-Set the bot username, channel, streamer identity, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Overview tab.
+Set the bot username, channel, streamer identity, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Setup tab.
 
 Ad alerts require a broadcaster token with `channel:read:ads`:
 
