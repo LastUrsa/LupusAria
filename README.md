@@ -75,8 +75,8 @@ Installed app settings are stored in the current user's config folder, not besid
 %APPDATA%\Starsong Tools\LupusAria\.env
 ```
 
-The desktop app shows the active config path on the Overview tab. Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
-The Overview tab also includes streamer name and streamer pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge file.
+Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
+The Overview tab also includes streamer name and streamer pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
 Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, or command.
 
 ## Twitch Tokens

@@ -215,7 +215,6 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"TWITCH_BOT_USERNAME":      settings.BotUsername,
 		"STREAMER_NAME":            settings.StreamerName,
 		"STREAMER_PRONOUNS":        settings.StreamerPronouns,
-		"BOT_KNOWLEDGE_PATH":       settings.KnowledgePath,
 		"AI_PROVIDER":              settings.AIProvider,
 		"AI_BASE_URL":              aiBaseURL(settings),
 		"AI_MODEL":                 settings.AIModel,
@@ -300,20 +299,12 @@ func (a *App) SaveKnowledge(settings KnowledgeSettings) error {
 	if err != nil {
 		return err
 	}
-	path := strings.TrimSpace(settings.Path)
-	if path == "" {
-		path = cfg.Bot.KnowledgePath
-	}
+	path := cfg.Bot.KnowledgePath
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	if err := os.WriteFile(path, []byte(settings.Content), 0600); err != nil {
 		return err
-	}
-	if path != cfg.Bot.KnowledgePath {
-		if err := updateEnvFile(envPath, map[string]string{"BOT_KNOWLEDGE_PATH": path}); err != nil {
-			return err
-		}
 	}
 	a.appendLog("knowledge saved")
 	return nil

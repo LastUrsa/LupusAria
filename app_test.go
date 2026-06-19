@@ -188,6 +188,42 @@ func TestKnowledgeLifecycle(t *testing.T) {
 	}
 }
 
+func TestSaveKnowledgeIgnoresFrontendPath(t *testing.T) {
+	dir := t.TempDir()
+	envPath := filepath.Join(dir, ".env")
+	t.Setenv(envPathOverride, envPath)
+
+	app := NewApp()
+	settings, err := app.GetKnowledge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultPath := settings.Path
+	otherPath := filepath.Join(dir, "other.md")
+	settings.Path = otherPath
+	settings.Content = "# Custom\n\n## Identity\nTags: streamer\n\n- The streamer is Test.\n"
+	if err := app.SaveKnowledge(settings); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(otherPath); !os.IsNotExist(err) {
+		t.Fatalf("SaveKnowledge wrote frontend-provided path, stat err = %v", err)
+	}
+	raw, err := os.ReadFile(defaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "The streamer is Test.") {
+		t.Fatalf("default knowledge path was not updated:\n%s", string(raw))
+	}
+	envRaw, err := os.ReadFile(envPath)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(envRaw), "BOT_KNOWLEDGE_PATH") {
+		t.Fatalf("SaveKnowledge should not persist knowledge path override:\n%s", string(envRaw))
+	}
+}
+
 func TestGetLogsReturnsEmptyAndDefensiveCopy(t *testing.T) {
 	app := NewApp()
 	if logs := app.GetLogs(); logs == nil || len(logs) != 0 {

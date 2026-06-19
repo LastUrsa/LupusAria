@@ -222,9 +222,6 @@ export default function App() {
     dirtyRef.current = true
     setDirty(true)
     setKnowledge((current) => ({ ...current, [key]: value }))
-    if (key === 'path') {
-      setSettings((current) => ({ ...current, knowledgePath: String(value) }))
-    }
   }
 
   const addAnnouncement = (kind: 'command' | 'timer') => {
@@ -308,8 +305,6 @@ export default function App() {
                 <TextField label="Bot username" value={settings.botUsername} onChange={(value) => update('botUsername', value)} />
                 <TextField label="Streamer name" value={settings.streamerName} onChange={(value) => update('streamerName', value)} />
                 <TextField label="Streamer pronouns" value={settings.streamerPronouns} onChange={(value) => update('streamerPronouns', value)} />
-                <ReadOnlyField label="Config path" value={settings.configPath} />
-                <ReadOnlyField label="Knowledge path" value={settings.knowledgePath} />
               </Card>
               <Card title="Runtime">
                 <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
@@ -387,9 +382,8 @@ export default function App() {
             <Card title="Streamer knowledge" wide>
               <div className="info-callout">
                 <strong>Stable channel facts only.</strong>
-                <span>Use this file for streamer identity, recurring chat references, projects, links, and boundaries. Avoid secrets and fast-changing details.</span>
+                <span>Use this space for streamer identity, recurring chat references, projects, links, and boundaries. Avoid secrets and fast-changing details.</span>
               </div>
-              <TextField label="Knowledge path" value={knowledge.path} onChange={(value) => updateKnowledge('path', value)} />
               <TextArea label="Knowledge markdown" value={knowledge.content} onChange={(value) => updateKnowledge('content', value)} />
               <div className="announcement-actions">
                 <button className="secondary" type="button" onClick={reloadKnowledge} disabled={busy}>Reload</button>
@@ -576,15 +570,6 @@ function TextField({ label, value, onChange }: { label: string; value: string; o
     <label className="field">
       <span>{label}</span>
       <input value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
-  )
-}
-
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input value={value} readOnly />
     </label>
   )
 }
