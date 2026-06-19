@@ -99,6 +99,9 @@ func TestGetSettingsWorksBeforeEnvExists(t *testing.T) {
 	if settings.KnowledgePath == "" || !settings.KnowledgeExists {
 		t.Fatalf("first-run knowledge should be created: %#v", settings)
 	}
+	if !settings.GameSnapshotCropEnabled || settings.GameSnapshotCropX != 0.255 || settings.GameSnapshotCropY != 0.085 || settings.GameSnapshotCropWidth != 0.73 || settings.GameSnapshotCropHeight != 0.73 {
+		t.Fatalf("first-run snapshot crop defaults = %#v", settings)
+	}
 }
 
 func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
@@ -122,6 +125,11 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	settings.AIProvider = "gemini"
 	settings.AIModel = "llama3.1:8b"
 	settings.GeminiAPIKey = "gemini-key"
+	settings.GameSnapshotCropEnabled = false
+	settings.GameSnapshotCropX = 0.25
+	settings.GameSnapshotCropY = 0.1
+	settings.GameSnapshotCropWidth = 0.7
+	settings.GameSnapshotCropHeight = 0.75
 
 	if err := app.SaveSettings(settings); err != nil {
 		t.Fatal(err)
@@ -147,6 +155,11 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 		"AI_MODEL=llama3.1:8b",
 		"AI_FALLBACK_PROVIDER=",
 		"GEMINI_API_KEY=gemini-key",
+		"GAME_SNAPSHOT_CROP_ENABLED=false",
+		"GAME_SNAPSHOT_CROP_X=0.25",
+		"GAME_SNAPSHOT_CROP_Y=0.1",
+		"GAME_SNAPSHOT_CROP_WIDTH=0.7",
+		"GAME_SNAPSHOT_CROP_HEIGHT=0.75",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("saved env missing %q:\n%s", want, got)

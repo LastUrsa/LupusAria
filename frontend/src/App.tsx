@@ -7,7 +7,7 @@ import './App.css'
 type Settings = main.ControlSettings
 type Announcement = main.AnnouncementSettings
 type Knowledge = main.KnowledgeSettings
-type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'knowledge' | 'activity'
+type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'knowledge'
 type AnnouncementKind = 'command' | 'timer'
 type IndexedAnnouncement = { item: Announcement; index: number }
 type AnnouncementUpdate = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => void
@@ -17,8 +17,7 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'setup', label: 'Setup' },
   { id: 'aiBudget', label: 'AI & Budget' },
   { id: 'features', label: 'Features' },
-  { id: 'knowledge', label: 'Knowledge' },
-  { id: 'activity', label: 'Activity' }
+  { id: 'knowledge', label: 'Knowledge' }
 ]
 
 const aiProviderOptions = [
@@ -77,6 +76,11 @@ const emptySettings: Settings = {
   globalCooldownSeconds: 6,
   userCooldownSeconds: 20,
   maxContextMessages: 30,
+  gameSnapshotCropEnabled: true,
+  gameSnapshotCropX: 0.255,
+  gameSnapshotCropY: 0.085,
+  gameSnapshotCropWidth: 0.73,
+  gameSnapshotCropHeight: 0.73,
   autosoEnabled: true,
   recentStreamerMinWatch: 15,
   recentStreamerDays: 14,
@@ -262,15 +266,15 @@ export default function App() {
   const twitchCredentialReady = settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken || settings.twitchOAuthToken.trim() !== '' || settings.twitchRefreshToken.trim() !== ''
   const twitchAppReady = settings.hasTwitchClientId || settings.twitchClientId.trim() !== ''
   const setupState = setupMissing === 0 && twitchCredentialReady && twitchAppReady ? 'Ready' : 'Needs setup'
-  const recentLogs = logs.slice(-8)
-  const canSaveSection = section !== 'overview' && section !== 'activity'
+  const aiReady = settings.aiProvider === 'mock' || settings.hasGeminiApiKey || settings.hasAiApiKey || settings.geminiApiKey.trim() !== '' || settings.aiApiKey.trim() !== ''
+  const chatRepliesEnabled = settings.enableMentions || settings.enableAsk || settings.enableLurk
+  const canSaveSection = section !== 'overview'
   const topbarCopy: Record<Section, string> = {
     overview: 'Status, launch controls, and recent activity.',
     setup: 'Twitch account, streamer identity, and credentials.',
     aiBudget: 'Provider, models, keys, context, and cost rails.',
     features: 'Chat behavior, AutoSO, ad alerts, and announcements.',
-    knowledge: 'Stable channel facts for AI replies.',
-    activity: 'Recent runtime messages.'
+    knowledge: 'Stable channel facts for AI replies.'
   }
 
   return (
@@ -304,7 +308,10 @@ export default function App() {
             <p>{topbarCopy[section]}</p>
           </div>
           <div className="runtime-panel">
-            <span className={`status-pill ${settings.running ? 'running' : 'stopped'}`}>{settings.status}</span>
+            <span className={`runtime-state ${settings.running ? 'running' : 'stopped'}`}>
+              <span aria-hidden="true" />
+              {settings.status}
+            </span>
             <div className="runtime-actions">
               <button onClick={start} disabled={busy || settings.running}>Start</button>
               <button className="secondary" onClick={stop} disabled={busy || !settings.running}>Stop</button>
@@ -317,28 +324,20 @@ export default function App() {
 
         <section className="panel">
           {section === 'overview' && (
-            <div className="grid">
-              <Card title="Runtime">
-                <StatusRow label="Bot" value={settings.status} tone={settings.running ? 'good' : 'muted'} />
-                <StatusRow label="Setup" value={setupState} tone={setupState === 'Ready' ? 'good' : 'muted'} />
-                <StatusRow label="AI provider" value={settings.aiProvider} />
-                <StatusRow label="Knowledge" value={settings.knowledgeExists ? 'Ready' : 'Missing'} tone={settings.knowledgeExists ? 'good' : 'muted'} />
-              </Card>
-              <Card title="Channel">
-                <StatusRow label="Channel" value={settings.channel || 'Not set'} tone={settings.channel ? 'normal' : 'muted'} />
-                <StatusRow label="Bot account" value={settings.botUsername || 'Not set'} tone={settings.botUsername ? 'normal' : 'muted'} />
-                <StatusRow label="Streamer" value={settings.streamerName || 'Not set'} tone={settings.streamerName ? 'normal' : 'muted'} />
-                <StatusRow label="Pronouns" value={settings.streamerPronouns || 'Not set'} tone={settings.streamerPronouns ? 'normal' : 'muted'} />
-              </Card>
-              <Card title="Features">
-                <StatusRow label="Chat replies" value={settings.enableMentions || settings.enableAsk || settings.enableLurk ? 'Enabled' : 'Disabled'} tone={settings.enableMentions || settings.enableAsk || settings.enableLurk ? 'good' : 'muted'} />
-                <StatusRow label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
-                <StatusRow label="Ad alerts" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
-                <StatusRow label="Announcements" value={settings.announcementsEnabled ? `${announcements.length} configured` : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
-              </Card>
-              <Card title="Recent activity">
-                <div className="compact-log-view">
-                  {recentLogs.length === 0 ? <p className="muted">No activity yet.</p> : recentLogs.map((line) => <div key={line}>{line}</div>)}
+            <div className="overview-stack">
+              <section className="status-strip" aria-label="Runtime summary">
+                <StatusChip label="Setup" value={setupState} tone={setupState === 'Ready' ? 'good' : 'warning'} />
+                <StatusChip label="Channel" value={settings.channel || 'Not set'} tone={settings.channel ? 'normal' : 'warning'} />
+                <StatusChip label="AI" value={aiReady ? settings.aiProvider : 'Needs key'} tone={aiReady ? 'good' : 'warning'} />
+                <StatusChip label="Knowledge" value={settings.knowledgeExists ? 'Ready' : 'Missing'} tone={settings.knowledgeExists ? 'good' : 'warning'} />
+                <StatusChip label="Chat" value={chatRepliesEnabled ? 'Enabled' : 'Disabled'} tone={chatRepliesEnabled ? 'good' : 'muted'} />
+                <StatusChip label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
+                <StatusChip label="Ads" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
+                <StatusChip label="Announcements" value={settings.announcementsEnabled ? `${announcements.length} set` : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
+              </section>
+              <Card title="Activity" wide>
+                <div className="log-view full">
+                  {logs.length === 0 ? <p className="muted">No activity yet.</p> : logs.slice(-28).map((line) => <div key={line}>{line}</div>)}
                 </div>
               </Card>
             </div>
@@ -433,6 +432,21 @@ export default function App() {
                   <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
                 </div>
               </FeaturePanel>
+              <FeaturePanel title="!game snapshots" summary="Crop the Twitch preview before visual analysis.">
+                <div className="info-callout">
+                  <strong>Crop keeps Lupus focused on the game.</strong>
+                  <span>These ratios trim chat, avatar, overlays, and player controls from the stream thumbnail before `!game analyze` uses Gemini vision.</span>
+                </div>
+                <Toggle label="Crop game snapshots" checked={settings.gameSnapshotCropEnabled} onChange={(value) => update('gameSnapshotCropEnabled', value)} />
+                <div className="split">
+                  <NumberField label="Crop X ratio" value={settings.gameSnapshotCropX} step={0.001} min={0} max={1} onChange={(value) => update('gameSnapshotCropX', value)} />
+                  <NumberField label="Crop Y ratio" value={settings.gameSnapshotCropY} step={0.001} min={0} max={1} onChange={(value) => update('gameSnapshotCropY', value)} />
+                </div>
+                <div className="split">
+                  <NumberField label="Crop width ratio" value={settings.gameSnapshotCropWidth} step={0.001} min={0.001} max={1} onChange={(value) => update('gameSnapshotCropWidth', value)} />
+                  <NumberField label="Crop height ratio" value={settings.gameSnapshotCropHeight} step={0.001} min={0.001} max={1} onChange={(value) => update('gameSnapshotCropHeight', value)} />
+                </div>
+              </FeaturePanel>
               <FeaturePanel title="AutoSO" summary="Recent streamer shoutout queue and timing." defaultOpen>
                 <Toggle label="Enable AutoSO" checked={settings.autosoEnabled} onChange={(value) => update('autosoEnabled', value)} />
                 <div className="split">
@@ -445,6 +459,10 @@ export default function App() {
                 </div>
               </FeaturePanel>
               <FeaturePanel title="Ad alerts" summary="Scheduled ad warnings and fallback messages.">
+                <div className="info-callout">
+                  <strong>AI-powered alerts are the default.</strong>
+                  <span>These messages are fallbacks used when the AI provider is unavailable or the bot's AI limits are active.</span>
+                </div>
                 <Toggle label="Enable ad alerts" checked={settings.adAlertsEnabled} onChange={(value) => update('adAlertsEnabled', value)} />
                 <div className="split">
                   <NumberField label="Warning lead minutes" value={settings.adWarningMinutes} onChange={(value) => update('adWarningMinutes', value)} />
@@ -485,14 +503,6 @@ export default function App() {
                 )}
               </FeaturePanel>
             </div>
-          )}
-
-          {section === 'activity' && (
-            <Card title="Activity">
-              <div className="log-view">
-                {logs.length === 0 ? <p className="muted">No activity yet.</p> : logs.slice(-18).map((line) => <div key={line}>{line}</div>)}
-              </div>
-            </Card>
           )}
         </section>
 
@@ -643,11 +653,25 @@ function TextArea({ label, value, onChange }: { label: string; value: string; on
   )
 }
 
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+function NumberField({
+  label,
+  value,
+  onChange,
+  step,
+  min,
+  max
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  step?: number
+  min?: number
+  max?: number
+}) {
   return (
     <label className="field">
       <span>{label}</span>
-      <input type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      <input type="number" value={value} step={step} min={min} max={max} onChange={(event) => onChange(Number(event.target.value))} />
     </label>
   )
 }
@@ -711,6 +735,24 @@ function StatusRow({ label, value, tone = 'normal' }: { label: string; value: st
     <div className="status-row">
       <span>{label}</span>
       <strong className={tone}>{value}</strong>
+    </div>
+  )
+}
+
+function StatusChip({
+  label,
+  value,
+  tone = 'normal'
+}: {
+  label: string
+  value: string
+  tone?: 'normal' | 'good' | 'warning' | 'muted'
+}) {
+  return (
+    <div className={`status-chip ${tone}`}>
+      <span className="status-dot" aria-hidden="true" />
+      <span className="status-chip-label">{label}</span>
+      <strong>{value}</strong>
     </div>
   )
 }

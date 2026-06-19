@@ -3,6 +3,7 @@ package ai
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,14 @@ const (
 
 type Client interface {
 	Complete(ctx context.Context, messages []Message) (Response, error)
+}
+
+type Searcher interface {
+	Search(ctx context.Context, messages []Message) (Response, error)
+}
+
+type ImageAnalyzer interface {
+	AnalyzeImage(ctx context.Context, prompt string, image []byte, mimeType string) (Response, error)
 }
 
 func NewClient(cfg config.AIConfig) (Client, error) {
@@ -90,6 +99,52 @@ func (c fallbackClient) Complete(ctx context.Context, messages []Message) (Respo
 	return Response{}, fmt.Errorf("primary AI failed: %v; fallback AI failed: %w", err, fallbackErr)
 }
 
+func (c fallbackClient) Search(ctx context.Context, messages []Message) (Response, error) {
+	primary, primaryOK := c.primary.(Searcher)
+	fallback, fallbackOK := c.fallback.(Searcher)
+	if !primaryOK && !fallbackOK {
+		return Response{}, errors.New("search-grounded AI is not available")
+	}
+	if primaryOK {
+		response, err := primary.Search(ctx, messages)
+		if err == nil {
+			return response, nil
+		}
+		if !fallbackOK {
+			return Response{}, err
+		}
+		fallbackResponse, fallbackErr := fallback.Search(ctx, messages)
+		if fallbackErr == nil {
+			return fallbackResponse, nil
+		}
+		return Response{}, fmt.Errorf("primary AI search failed: %v; fallback AI search failed: %w", err, fallbackErr)
+	}
+	return fallback.Search(ctx, messages)
+}
+
+func (c fallbackClient) AnalyzeImage(ctx context.Context, prompt string, image []byte, mimeType string) (Response, error) {
+	primary, primaryOK := c.primary.(ImageAnalyzer)
+	fallback, fallbackOK := c.fallback.(ImageAnalyzer)
+	if !primaryOK && !fallbackOK {
+		return Response{}, errors.New("image-capable AI is not available")
+	}
+	if primaryOK {
+		response, err := primary.AnalyzeImage(ctx, prompt, image, mimeType)
+		if err == nil {
+			return response, nil
+		}
+		if !fallbackOK {
+			return Response{}, err
+		}
+		fallbackResponse, fallbackErr := fallback.AnalyzeImage(ctx, prompt, image, mimeType)
+		if fallbackErr == nil {
+			return fallbackResponse, nil
+		}
+		return Response{}, fmt.Errorf("primary AI image analysis failed: %v; fallback AI image analysis failed: %w", err, fallbackErr)
+	}
+	return fallback.AnalyzeImage(ctx, prompt, image, mimeType)
+}
+
 type GeminiClient struct {
 	apiKey        string
 	model         string
@@ -117,10 +172,49 @@ func NewGeminiClient(cfg config.AIConfig) *GeminiClient {
 }
 
 func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Response, error) {
+	return c.generate(ctx, geminiGenerateOptions{Messages: messages})
+}
+
+func (c *GeminiClient) Search(ctx context.Context, messages []Message) (Response, error) {
+	return c.generate(ctx, geminiGenerateOptions{
+		Messages: messages,
+		Tools:    []geminiTool{{GoogleSearch: &geminiGoogleSearchTool{}}},
+		SystemSuffix: "\n\nFor factual/current/game-help requests, use Google Search grounding before answering. " +
+			"Answer from current results, not memory. Keep the response concise and omit citations/markdown.",
+	})
+}
+
+func (c *GeminiClient) AnalyzeImage(ctx context.Context, prompt string, image []byte, mimeType string) (Response, error) {
+	if len(image) == 0 {
+		return Response{}, errors.New("image analysis requires image data")
+	}
+	if strings.TrimSpace(mimeType) == "" {
+		mimeType = "image/jpeg"
+	}
+	return c.generate(ctx, geminiGenerateOptions{
+		Prompt: prompt,
+		Parts: []geminiPart{
+			{Text: prompt},
+			{InlineData: &geminiInlineData{MIMEType: mimeType, Data: base64Encode(image)}},
+		},
+		MaxOutputTokens: 320,
+	})
+}
+
+type geminiGenerateOptions struct {
+	Messages        []Message
+	Prompt          string
+	Parts           []geminiPart
+	Tools           []geminiTool
+	SystemSuffix    string
+	MaxOutputTokens int
+}
+
+func (c *GeminiClient) generate(ctx context.Context, options geminiGenerateOptions) (Response, error) {
 	var lastErr error
 	attempts := c.maxRetries + 1
 	for attempt := 0; attempt < attempts; attempt++ {
-		response, err := c.completeOnce(ctx, messages)
+		response, err := c.generateOnce(ctx, options)
 		if err == nil {
 			return response, nil
 		}
@@ -135,15 +229,30 @@ func (c *GeminiClient) Complete(ctx context.Context, messages []Message) (Respon
 	return Response{}, lastErr
 }
 
-func (c *GeminiClient) completeOnce(ctx context.Context, messages []Message) (Response, error) {
-	systemInstruction, prompt := splitSystemAndUserPrompt(messages)
+func (c *GeminiClient) generateOnce(ctx context.Context, options geminiGenerateOptions) (Response, error) {
+	systemInstruction, prompt := splitSystemAndUserPrompt(options.Messages)
+	if options.Prompt != "" {
+		prompt = strings.TrimSpace(options.Prompt)
+	}
+	systemInstruction = strings.TrimSpace(systemInstruction + options.SystemSuffix)
+	parts := options.Parts
+	if len(parts) == 0 {
+		parts = []geminiPart{{Text: prompt}}
+	}
+	maxTokens := c.maxTokens
+	if options.MaxOutputTokens > 0 {
+		maxTokens = options.MaxOutputTokens
+	}
 	payload := geminiGenerateRequest{
 		Contents: []geminiContent{
-			{Role: "user", Parts: []geminiPart{{Text: prompt}}},
+			{Role: "user", Parts: parts},
 		},
 		GenerationConfig: geminiGenerationConfig{
-			MaxOutputTokens: c.maxTokens,
+			MaxOutputTokens: maxTokens,
 		},
+	}
+	if len(options.Tools) > 0 {
+		payload.Tools = options.Tools
 	}
 	if geminiSupportsThinkingLevel(c.model) && c.thinkingLevel != "" {
 		payload.GenerationConfig.ThinkingConfig = &geminiThinkingConfig{ThinkingLevel: c.thinkingLevel}
@@ -356,6 +465,7 @@ type geminiGenerateRequest struct {
 	SystemInstruction *geminiSystemInstruction `json:"system_instruction,omitempty"`
 	Contents          []geminiContent          `json:"contents"`
 	GenerationConfig  geminiGenerationConfig   `json:"generationConfig,omitempty"`
+	Tools             []geminiTool             `json:"tools,omitempty"`
 }
 
 type geminiSystemInstruction struct {
@@ -368,8 +478,20 @@ type geminiContent struct {
 }
 
 type geminiPart struct {
-	Text string `json:"text"`
+	Text       string            `json:"text,omitempty"`
+	InlineData *geminiInlineData `json:"inlineData,omitempty"`
 }
+
+type geminiInlineData struct {
+	MIMEType string `json:"mimeType"`
+	Data     string `json:"data"`
+}
+
+type geminiTool struct {
+	GoogleSearch *geminiGoogleSearchTool `json:"googleSearch,omitempty"`
+}
+
+type geminiGoogleSearchTool struct{}
 
 type geminiGenerationConfig struct {
 	MaxOutputTokens int                   `json:"maxOutputTokens,omitempty"`
@@ -512,4 +634,8 @@ func splitSystemAndUserPrompt(messages []Message) (string, string) {
 		user.WriteByte('\n')
 	}
 	return strings.TrimSpace(system.String()), strings.TrimSpace(user.String())
+}
+
+func base64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
 }

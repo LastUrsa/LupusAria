@@ -82,6 +82,12 @@ type ControlSettings struct {
 	UserCooldownSeconds   int `json:"userCooldownSeconds"`
 	MaxContextMessages    int `json:"maxContextMessages"`
 
+	GameSnapshotCropEnabled bool    `json:"gameSnapshotCropEnabled"`
+	GameSnapshotCropX       float64 `json:"gameSnapshotCropX"`
+	GameSnapshotCropY       float64 `json:"gameSnapshotCropY"`
+	GameSnapshotCropWidth   float64 `json:"gameSnapshotCropWidth"`
+	GameSnapshotCropHeight  float64 `json:"gameSnapshotCropHeight"`
+
 	AutosoEnabled          bool `json:"autosoEnabled"`
 	RecentStreamerMinWatch int  `json:"recentStreamerMinWatch"`
 	RecentStreamerDays     int  `json:"recentStreamerDays"`
@@ -177,6 +183,12 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		UserCooldownSeconds:   int(cfg.Bot.UserCooldown / time.Second),
 		MaxContextMessages:    cfg.Bot.MaxContextMessages,
 
+		GameSnapshotCropEnabled: cfg.Bot.SnapshotCrop.Enabled,
+		GameSnapshotCropX:       cfg.Bot.SnapshotCrop.X,
+		GameSnapshotCropY:       cfg.Bot.SnapshotCrop.Y,
+		GameSnapshotCropWidth:   cfg.Bot.SnapshotCrop.Width,
+		GameSnapshotCropHeight:  cfg.Bot.SnapshotCrop.Height,
+
 		AutosoEnabled:          cfg.RecentStreamers.Enabled,
 		RecentStreamerMinWatch: int(cfg.RecentStreamers.MinWatch / time.Minute),
 		RecentStreamerDays:     int(cfg.RecentStreamers.RecentWindow / (24 * time.Hour)),
@@ -233,6 +245,12 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"GLOBAL_COOLDOWN_SECONDS": strconv.Itoa(settings.GlobalCooldownSeconds),
 		"USER_COOLDOWN_SECONDS":   strconv.Itoa(settings.UserCooldownSeconds),
 		"MAX_CONTEXT_MESSAGES":    strconv.Itoa(settings.MaxContextMessages),
+
+		"GAME_SNAPSHOT_CROP_ENABLED": boolString(settings.GameSnapshotCropEnabled),
+		"GAME_SNAPSHOT_CROP_X":       formatFloat(settings.GameSnapshotCropX),
+		"GAME_SNAPSHOT_CROP_Y":       formatFloat(settings.GameSnapshotCropY),
+		"GAME_SNAPSHOT_CROP_WIDTH":   formatFloat(settings.GameSnapshotCropWidth),
+		"GAME_SNAPSHOT_CROP_HEIGHT":  formatFloat(settings.GameSnapshotCropHeight),
 
 		"AUTOSO_ENABLED":                         boolString(settings.AutosoEnabled),
 		"RECENT_STREAMER_MIN_WATCH_MINUTES":      strconv.Itoa(settings.RecentStreamerMinWatch),

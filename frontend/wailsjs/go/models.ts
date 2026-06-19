@@ -69,6 +69,11 @@ export namespace main {
 	    globalCooldownSeconds: number;
 	    userCooldownSeconds: number;
 	    maxContextMessages: number;
+	    gameSnapshotCropEnabled: boolean;
+	    gameSnapshotCropX: number;
+	    gameSnapshotCropY: number;
+	    gameSnapshotCropWidth: number;
+	    gameSnapshotCropHeight: number;
 	    autosoEnabled: boolean;
 	    recentStreamerMinWatch: number;
 	    recentStreamerDays: number;
@@ -133,6 +138,11 @@ export namespace main {
 	        this.globalCooldownSeconds = source["globalCooldownSeconds"];
 	        this.userCooldownSeconds = source["userCooldownSeconds"];
 	        this.maxContextMessages = source["maxContextMessages"];
+	        this.gameSnapshotCropEnabled = source["gameSnapshotCropEnabled"];
+	        this.gameSnapshotCropX = source["gameSnapshotCropX"];
+	        this.gameSnapshotCropY = source["gameSnapshotCropY"];
+	        this.gameSnapshotCropWidth = source["gameSnapshotCropWidth"];
+	        this.gameSnapshotCropHeight = source["gameSnapshotCropHeight"];
 	        this.autosoEnabled = source["autosoEnabled"];
 	        this.recentStreamerMinWatch = source["recentStreamerMinWatch"];
 	        this.recentStreamerDays = source["recentStreamerDays"];

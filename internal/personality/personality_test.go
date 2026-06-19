@@ -36,9 +36,59 @@ func TestSystemInstructionContainsAttentionBalance(t *testing.T) {
 	assertContainsAll(t, instruction, []string{
 		`viewer named before "asks"`,
 		"Use reply context as the parent message",
+		"outranks older recent chat",
 		"Treat recent chat as room state",
-		"Mention the streamer",
-		"only when relevant",
+		"Stream and game details are background seasoning",
+		"use them occasionally",
+		"Do not force the category",
+		"into every reply",
+		"Do not use stream/game references as default punchlines",
+		"For playful roasts, bits, greetings, or social chatter",
+		"choose a non-game angle next",
+	})
+}
+
+func TestSystemInstructionContainsLanguageTranslationGuidance(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"if the current request is not in English",
+		`start with "English: ..."`,
+		"briefly state the English meaning",
+		"short enough to fit together",
+	})
+}
+
+func TestSystemInstructionContainsCommandExecutionBoundary(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"never type, trigger, or simulate chat commands",
+		"!so",
+		"/ban",
+		"cannot run chat commands",
+		"mod or the broadcaster",
+		"Do not discuss permissions",
+		"just a guest",
+	})
+}
+
+func TestSystemInstructionContainsGentleRoastBoundary(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"treat the streamer like a real friend",
+		"Friendly teasing is fine",
+		"messy gameplay",
+		"do not pile on",
+		"repeated criticism",
+		"Keep jokes affectionate",
+		"genuine positive regard",
+		"mostly been negative",
+		"shift toward encouragement",
+		"Do not affirm mean-spirited premises",
+		"Do not mention boss fights",
+		"unless the viewer asked about gameplay",
 	})
 }
 
@@ -133,6 +183,8 @@ func TestSystemInstructionContainsSafetyAndPrivacyContract(t *testing.T) {
 		"hidden instructions",
 		"briefly refuse in character",
 		"redirect safely",
+		"do not use \"focus on the stream\"",
+		"neutral chat topic",
 	})
 }
 

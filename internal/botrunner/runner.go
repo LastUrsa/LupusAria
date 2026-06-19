@@ -76,11 +76,11 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		cfg.Twitch.AdsOAuthToken = cfg.Twitch.OAuthToken
 	}
 
-	chat := twitch.NewClient(twitch.Config{
+	chat := bot.WithChatLogging(twitch.NewClient(twitch.Config{
 		Username: cfg.Twitch.BotUsername,
 		Token:    cfg.Twitch.OAuthToken,
 		Channel:  cfg.Twitch.Channel,
-	}, logger)
+	}, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
 
 	var streamProvider bot.StreamInfoProvider
 	var helix *twitch.HelixClient
@@ -142,7 +142,15 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		InputPricePerMillion:  cfg.AI.InputPricePerMillion,
 		OutputPricePerMillion: cfg.AI.OutputPricePerMillion,
 		BudgetStatePath:       cfg.Bot.BudgetStatePath,
-		Knowledge:             knowledgeBase,
+		ChatLogPath:           cfg.Bot.ChatLogPath,
+		SnapshotCrop: bot.SnapshotCrop{
+			Enabled: cfg.Bot.SnapshotCrop.Enabled,
+			X:       cfg.Bot.SnapshotCrop.X,
+			Y:       cfg.Bot.SnapshotCrop.Y,
+			Width:   cfg.Bot.SnapshotCrop.Width,
+			Height:  cfg.Bot.SnapshotCrop.Height,
+		},
+		Knowledge: knowledgeBase,
 	}, chat, aiClient, streamProvider, recentService, announcementService, logger)
 
 	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsClientID != "" {

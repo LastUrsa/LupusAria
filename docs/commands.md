@@ -9,6 +9,10 @@ This file tracks public chat behavior, command scope, and AI usage.
 | `@LupusAria <message>` | Everyone | Yes | Direct mention. Uses recent chat, stream context, and matching knowledge. |
 | `!ask <question>` | Everyone | Yes | Explicit question prompt. Uses the same context as direct mentions. |
 | `!lurk [reason]` | Everyone | Yes | Generates a natural lurk send-off. Uses recent chat/game context when available. |
+| `!game` | Everyone | Yes | Uses Twitch's current category/title and Gemini Google Search grounding for a short game overview/fact. |
+| `!game <question>` | Everyone | Yes | Uses Google Search grounding to answer a current-game question. |
+| `!game analyze` | Everyone | Yes | Fetches the public Twitch stream thumbnail and uses Gemini image analysis for a short scene description. |
+| `!game analyze <question>` | Everyone | Yes | Combines thumbnail analysis with Google Search grounding for visual gameplay help. |
 | `!commands` | Everyone | No | Shows public commands only. Does not expose private config or costs. |
 | `!reset` | Broadcaster | No | Clears in-memory chat context. |
 | `!autoso` | Broadcaster | No | Builds an eligible streamer queue and sends the first page. |
@@ -19,6 +23,9 @@ This file tracks public chat behavior, command scope, and AI usage.
 | Ad alerts | Automatic | Yes | Uses AI by default; configured messages are fallbacks. |
 
 Broadcaster commands are restricted to the channel owner. The bot checks Twitch IRC tags when available and falls back to matching the username against the channel name.
+AI requests cannot make LupusAria run chat commands. If a viewer asks Lupus to type or trigger a command such as `!so`, `/ban`, or `/timeout`, the bot refuses and points them to a mod or the broadcaster.
+
+`!game` search and snapshot features require Gemini. Search uses Gemini's built-in Google Search grounding tool. Snapshot analysis uses Twitch's public preview thumbnail, so it can lag behind the live stream and should be treated as approximate. By default, snapshots are cropped to the game capture area before analysis with `GAME_SNAPSHOT_CROP_X=0.255`, `GAME_SNAPSHOT_CROP_Y=0.085`, `GAME_SNAPSHOT_CROP_WIDTH=0.73`, and `GAME_SNAPSHOT_CROP_HEIGHT=0.73`.
 
 ## AI Behavior
 
@@ -45,6 +52,7 @@ Shared voice and safety rules live in [personality.md](personality.md). Command-
 Recent chat is sent to the model as structured room state. The current message is excluded from that history, low-signal bot commands are filtered out, and older retained chat is compacted before the freshest timeline. For `!lurk`, Lupus retries once if a generic send-off ignores available chat/game context.
 
 Streamer identity and pronouns come from `STREAMER_NAME` and `STREAMER_PRONOUNS`. Stable channel facts come from the local knowledge file, which LupusAria creates from the starter template when needed.
+Chat transcripts are appended locally to `CHAT_LOG_PATH`, which defaults to `.lupusaria-chat.jsonl`.
 
 ## AutoSO
 

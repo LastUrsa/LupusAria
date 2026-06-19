@@ -267,6 +267,16 @@ TWITCH_CHANNEL=lastursa
 	if cfg.Bot.KnowledgePath != wantKnowledge {
 		t.Fatalf("knowledge path = %q, want %q", cfg.Bot.KnowledgePath, wantKnowledge)
 	}
+	wantChatLog := filepath.Join(dir, ".lupusaria-chat.jsonl")
+	if cfg.Bot.ChatLogPath != wantChatLog {
+		t.Fatalf("chat log path = %q, want %q", cfg.Bot.ChatLogPath, wantChatLog)
+	}
+	if !cfg.Bot.SnapshotCrop.Enabled {
+		t.Fatal("snapshot crop should default enabled")
+	}
+	if cfg.Bot.SnapshotCrop.X != 0.255 || cfg.Bot.SnapshotCrop.Y != 0.085 || cfg.Bot.SnapshotCrop.Width != 0.73 || cfg.Bot.SnapshotCrop.Height != 0.73 {
+		t.Fatalf("snapshot crop defaults = %#v", cfg.Bot.SnapshotCrop)
+	}
 }
 
 func TestLoadParsesStreamerIdentity(t *testing.T) {

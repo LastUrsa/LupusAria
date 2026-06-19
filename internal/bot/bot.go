@@ -2,8 +2,12 @@ package bot
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -45,7 +49,21 @@ type Config struct {
 	InputPricePerMillion  float64
 	OutputPricePerMillion float64
 	BudgetStatePath       string
+	ChatLogPath           string
+	SnapshotCrop          SnapshotCrop
 	Knowledge             knowledge.Base
+}
+
+type SnapshotCrop struct {
+	Enabled bool
+	X       float64
+	Y       float64
+	Width   float64
+	Height  float64
+}
+
+type StreamThumbnailFetcher interface {
+	FetchStreamThumbnail(ctx context.Context, channel string) ([]byte, string, error)
 }
 
 type Bot struct {
@@ -54,6 +72,7 @@ type Bot struct {
 	ai     ai.Client
 	budget *budget.Guard
 	stream *cachedStreamContext
+	thumb  StreamThumbnailFetcher
 	recent *recentstreamers.Service
 	ann    *announcements.Service
 	know   knowledge.Base
@@ -75,11 +94,14 @@ type aiRequest struct {
 	Kind   string
 }
 
+const maxTwitchReplyLength = 300
+
 func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, recentStreamers *recentstreamers.Service, announcementService *announcements.Service, logger *slog.Logger) *Bot {
 	var streamContext *cachedStreamContext
 	if streamProvider != nil {
 		streamContext = newCachedStreamContext(streamProvider, cfg.StreamContextTTL)
 	}
+	chat = WithChatLogging(chat, cfg.ChatLogPath, logger, cfg.Name)
 	return &Bot{
 		cfg:  cfg,
 		chat: chat,
@@ -93,6 +115,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 			StatePath:             cfg.BudgetStatePath,
 		}),
 		stream:      streamContext,
+		thumb:       twitch.NewThumbnailFetcher(),
 		recent:      recentStreamers,
 		ann:         announcementService,
 		know:        cfg.Knowledge,
@@ -145,6 +168,11 @@ func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
 	if !ok {
 		return
 	}
+	if command, ok := requestedChatCommand(request.Prompt); ok {
+		b.logger.Warn("ai command injection refused", "user", msg.Username, "command", command)
+		b.say(msg.Channel, fmt.Sprintf("@%s I cannot run chat commands from prompts. Ask a mod or the broadcaster.", msg.DisplayName))
+		return
+	}
 
 	if remaining, allowed := b.cooldown(msg.Username); !allowed {
 		b.logger.Info("ai request skipped by cooldown", "user", msg.Username, "remaining", remaining.Round(time.Second))
@@ -153,7 +181,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
 
 	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
 		b.logger.Warn("ai request blocked by budget guard", "user", msg.Username, "reason", decision.Reason)
-		_ = b.chat.Say(msg.Channel, "AI budget guard is active, so I am pausing replies for now.")
+		b.say(msg.Channel, "AI budget guard is active, so I am pausing replies for now.")
 		return
 	}
 
@@ -169,7 +197,7 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 	response, err := b.ai.Complete(ctx, messages)
 	if err != nil {
 		b.logger.Warn("ai request failed", "error", err)
-		_ = b.chat.Say(msg.Channel, "Sorry, my thoughts tripped over a cable. Try again in a moment.")
+		b.say(msg.Channel, "Sorry, my thoughts tripped over a cable. Try again in a moment.")
 		return
 	}
 
@@ -185,6 +213,7 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 
 	reply := response.Text
 	reply = cleanReply(reply)
+	reply = cleanAddressedReply(reply, msg.DisplayName)
 	if reply == "" {
 		return
 	}
@@ -207,15 +236,20 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 		reply = retryReply
 		if reply == "" || looksIncompleteReply(reply) {
 			b.logger.Warn("ai retry reply still looked incomplete", "reply", reply)
-			_ = b.chat.Say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+			b.say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
 			return
 		}
 	}
-	if len(reply) > 450 {
-		reply = smartTruncate(reply, 450)
+	if len(reply) > maxTwitchReplyLength {
+		reply = smartTruncate(reply, maxTwitchReplyLength)
+		if looksIncompleteReply(reply) {
+			b.logger.Warn("truncated ai reply looked incomplete", "reply", reply)
+			b.say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+			return
+		}
 	}
 
-	if err := b.chat.Say(msg.Channel, fmt.Sprintf("@%s %s", msg.DisplayName, reply)); err != nil {
+	if err := b.say(msg.Channel, fmt.Sprintf("@%s %s", msg.DisplayName, reply)); err != nil {
 		b.logger.Warn("failed to send twitch message", "error", err)
 		return
 	}
@@ -237,13 +271,13 @@ func (b *Bot) remember(msg twitch.Message) {
 func (b *Bot) retryAIReply(ctx context.Context, msg twitch.Message, messages []ai.Message) (string, bool) {
 	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
 		b.logger.Warn("ai retry blocked by budget guard", "user", msg.Username, "reason", decision.Reason)
-		_ = b.chat.Say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+		b.say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
 		return "", false
 	}
 	retryResponse, retryErr := b.ai.Complete(ctx, messages)
 	if retryErr != nil {
 		b.logger.Warn("ai retry failed", "error", retryErr)
-		_ = b.chat.Say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
+		b.say(msg.Channel, fmt.Sprintf("@%s Sorry, my thoughts tripped over a cable. Try again in a moment.", msg.DisplayName))
 		return "", false
 	}
 	retryReceipt := b.budget.Record(time.Now(), messages, retryResponse)
@@ -253,7 +287,7 @@ func (b *Bot) retryAIReply(ctx context.Context, msg twitch.Message, messages []a
 		"cost_usd", fmt.Sprintf("%.6f", retryReceipt.CostUSD),
 		"estimated", retryReceipt.Estimated,
 	)
-	return cleanReply(retryResponse.Text), true
+	return cleanAddressedReply(cleanReply(retryResponse.Text), msg.DisplayName), true
 }
 
 func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool {
@@ -267,18 +301,21 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 	}
 
 	switch {
+	case b.cfg.EnableCommands && (lower == "!game" || strings.HasPrefix(lower, "!game ")):
+		go b.handleGameCommand(ctx, msg, strings.TrimSpace(text[len("!game"):]))
+		return true
 	case b.cfg.EnableCommands && lower == "!commands":
-		_ = b.chat.Say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !autoso, !autoso next, !autoso refresh, !autoso status.", b.cfg.Name))
+		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !autoso, !autoso next, !autoso refresh, !autoso status.", b.cfg.Name))
 		return true
 	case b.cfg.EnableReset && lower == "!reset":
 		if !b.isBroadcaster(msg) {
-			_ = b.chat.Say(msg.Channel, "Only the broadcaster can reset my chat context.")
+			b.say(msg.Channel, "Only the broadcaster can reset my chat context.")
 			return true
 		}
 		b.contextMu.Lock()
 		b.context = nil
 		b.contextMu.Unlock()
-		_ = b.chat.Say(msg.Channel, "Chat context reset.")
+		b.say(msg.Channel, "Chat context reset.")
 		b.logger.Info("chat context reset", "channel", msg.Channel, "user", msg.Username)
 		return true
 	}
@@ -318,6 +355,155 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 	}
 
 	return aiRequest{}, false
+}
+
+func (b *Bot) handleGameCommand(ctx context.Context, msg twitch.Message, rawArgs string) {
+	ctx, cancel := context.WithTimeout(ctx, 75*time.Second)
+	defer cancel()
+
+	rawArgs = strings.TrimSpace(rawArgs)
+	analysisRequested := false
+	question := rawArgs
+	fields := strings.Fields(rawArgs)
+	if len(fields) > 0 && strings.EqualFold(fields[0], "analyze") {
+		analysisRequested = true
+		question = strings.TrimSpace(strings.TrimPrefix(rawArgs, fields[0]))
+	}
+
+	gameName, streamInfo, ok := b.currentGameContext(ctx, msg.Channel)
+	if !ok {
+		b.say(msg.Channel, "I cannot determine the current game right now.")
+		return
+	}
+
+	var imageContext string
+	if analysisRequested {
+		var err error
+		imageContext, err = b.analyzeGameSnapshot(ctx, msg.Channel, gameName)
+		if err != nil {
+			b.logger.Warn("game snapshot analysis failed", "error", err)
+			b.say(msg.Channel, "I could not analyze the stream snapshot right now.")
+			return
+		}
+		if question == "" {
+			b.say(msg.Channel, cleanCommandReply(imageContext, maxTwitchReplyLength))
+			return
+		}
+	}
+
+	var prompt string
+	switch {
+	case question != "" && imageContext != "":
+		prompt = fmt.Sprintf("Current Twitch category/title context: %q. Stream snapshot: %q. Use web search to answer this gameplay question for %q: %q. Give a direct factual tip in 320 chars or less. Plain text, no markdown, no citations.", streamInfo.Title, imageContext, gameName, question)
+	case question != "":
+		prompt = fmt.Sprintf("Use web search to answer this gameplay question for %q: %q. Give a direct factual tip in 320 chars or less. Plain text, no markdown, no citations.", gameName, question)
+	default:
+		prompt = fmt.Sprintf("Use web search to give one interesting, useful, current-friendly overview or fact about the game %q. Keep it under 320 chars. Plain text, no markdown, no citations.", gameName)
+	}
+
+	response, err := b.searchGameAnswer(ctx, msg, prompt)
+	if err != nil {
+		b.logger.Warn("game search failed", "error", err)
+		if question == "" {
+			b.say(msg.Channel, fmt.Sprintf("Currently playing %s.", gameName))
+		} else {
+			b.say(msg.Channel, fmt.Sprintf("Sorry, I could not find a solid answer for that in %s right now.", gameName))
+		}
+		return
+	}
+	b.say(msg.Channel, cleanCommandReply(response.Text, maxTwitchReplyLength))
+}
+
+func (b *Bot) currentGameContext(ctx context.Context, channel string) (string, twitch.StreamInfo, bool) {
+	if b.stream == nil {
+		return "", twitch.StreamInfo{}, false
+	}
+	info, ok, err := b.stream.Get(ctx, channel)
+	if err != nil {
+		b.logger.Warn("failed to fetch stream context for game command", "error", err)
+		return "", twitch.StreamInfo{}, false
+	}
+	if !ok || !info.Live {
+		return "", info, false
+	}
+	gameName := strings.TrimSpace(info.GameName)
+	if gameName == "" || strings.EqualFold(gameName, "unknown") || strings.EqualFold(gameName, "n/a") {
+		gameName = strings.TrimSpace(info.Title)
+	}
+	if gameName == "" {
+		return "", info, false
+	}
+	return gameName, info, true
+}
+
+func (b *Bot) analyzeGameSnapshot(ctx context.Context, channel, gameName string) (string, error) {
+	analyzer, ok := b.ai.(ai.ImageAnalyzer)
+	if !ok {
+		return "", errors.New("configured AI provider does not support image analysis")
+	}
+	if b.thumb == nil {
+		return "", errors.New("thumbnail fetcher is not configured")
+	}
+	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
+		return "", fmt.Errorf("budget guard blocked image analysis: %s", decision.Reason)
+	}
+	image, mimeType, err := b.thumb.FetchStreamThumbnail(ctx, channel)
+	if err != nil {
+		return "", err
+	}
+	if b.cfg.SnapshotCrop.Enabled {
+		cropped, croppedMimeType, err := cropSnapshot(image, b.cfg.SnapshotCrop)
+		if err != nil {
+			b.logger.Warn("failed to crop game snapshot; using full thumbnail", "error", err)
+		} else {
+			image = cropped
+			mimeType = croppedMimeType
+		}
+	}
+	prompt := fmt.Sprintf("Describe the current in-game scene from %q in 1-2 short sentences, 220 chars or less. Focus on gameplay/world/UI elements that matter for game help. Ignore overlays, webcam, chat, and alerts. Plain text.", gameName)
+	response, err := analyzer.AnalyzeImage(ctx, prompt, image, mimeType)
+	if err != nil {
+		return "", err
+	}
+	receipt := b.budget.Record(time.Now(), []ai.Message{{Role: "user", Content: prompt}}, response)
+	b.logger.Info("game snapshot ai usage recorded",
+		"input_tokens", receipt.InputTokens,
+		"output_tokens", receipt.OutputTokens,
+		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
+		"estimated", receipt.Estimated,
+	)
+	description := cleanCommandReply(response.Text, 220)
+	if description == "" {
+		return "", errors.New("image analysis returned empty text")
+	}
+	return description, nil
+}
+
+func (b *Bot) searchGameAnswer(ctx context.Context, msg twitch.Message, prompt string) (ai.Response, error) {
+	searcher, ok := b.ai.(ai.Searcher)
+	if !ok {
+		return ai.Response{}, errors.New("configured AI provider does not support search grounding")
+	}
+	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
+		return ai.Response{}, fmt.Errorf("budget guard blocked game command: %s", decision.Reason)
+	}
+	system := "You answer Twitch !game commands. Be accurate, concise, and useful. Use search grounding for the answer. Do not include citations, markdown, or source lists."
+	response, err := searcher.Search(ctx, []ai.Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		return ai.Response{}, err
+	}
+	receipt := b.budget.Record(time.Now(), []ai.Message{{Role: "system", Content: system}, {Role: "user", Content: prompt}}, response)
+	b.logger.Info("game command ai usage recorded",
+		"user", msg.Username,
+		"input_tokens", receipt.InputTokens,
+		"output_tokens", receipt.OutputTokens,
+		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
+		"estimated", receipt.Estimated,
+	)
+	return response, nil
 }
 
 func (b *Bot) cooldown(username string) (time.Duration, bool) {
@@ -420,6 +606,141 @@ func (b *Bot) ComposeAdAlert(ctx context.Context, event adalerts.Event) (string,
 	return reply, nil
 }
 
+func (b *Bot) say(channel, text string) error {
+	return b.chat.Say(channel, text)
+}
+
+type chatLogger struct {
+	path   string
+	logger *slog.Logger
+	mu     sync.Mutex
+}
+
+type chatLogEntry struct {
+	At                     string `json:"at"`
+	Direction              string `json:"direction"`
+	Channel                string `json:"channel"`
+	Username               string `json:"username"`
+	DisplayName            string `json:"displayName"`
+	Text                   string `json:"text"`
+	IsBroadcaster          bool   `json:"isBroadcaster,omitempty"`
+	IsMod                  bool   `json:"isMod,omitempty"`
+	ReplyParentDisplayName string `json:"replyParentDisplayName,omitempty"`
+	ReplyParentUserLogin   string `json:"replyParentUserLogin,omitempty"`
+	ReplyParentText        string `json:"replyParentText,omitempty"`
+}
+
+type loggingChat struct {
+	inner   Chat
+	log     *chatLogger
+	botName string
+}
+
+func WithChatLogging(inner Chat, path string, logger *slog.Logger, botName string) Chat {
+	if inner == nil {
+		return nil
+	}
+	if _, ok := inner.(*loggingChat); ok {
+		return inner
+	}
+	log := newChatLogger(path, logger)
+	if log == nil {
+		return inner
+	}
+	return &loggingChat{inner: inner, log: log, botName: botName}
+}
+
+func (c *loggingChat) Connect(ctx context.Context) (<-chan twitch.Message, error) {
+	messages, err := c.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	logged := make(chan twitch.Message)
+	go func() {
+		defer close(logged)
+		for msg := range messages {
+			c.write("in", msg)
+			logged <- msg
+		}
+	}()
+	return logged, nil
+}
+
+func (c *loggingChat) Say(channel, text string) error {
+	if err := c.inner.Say(channel, text); err != nil {
+		return err
+	}
+	c.write("out", twitch.Message{
+		Channel:     strings.TrimPrefix(channel, "#"),
+		Username:    strings.ToLower(c.botName),
+		DisplayName: c.botName,
+		Text:        text,
+	})
+	return nil
+}
+
+func (c *loggingChat) Close() error {
+	return c.inner.Close()
+}
+
+func (c *loggingChat) write(direction string, msg twitch.Message) {
+	if c == nil || c.log == nil {
+		return
+	}
+	c.log.Write(chatLogEntry{
+		At:                     time.Now().UTC().Format(time.RFC3339Nano),
+		Direction:              direction,
+		Channel:                msg.Channel,
+		Username:               msg.Username,
+		DisplayName:            msg.DisplayName,
+		Text:                   msg.Text,
+		IsBroadcaster:          msg.IsBroadcaster,
+		IsMod:                  msg.IsMod,
+		ReplyParentDisplayName: msg.ReplyParentDisplayName,
+		ReplyParentUserLogin:   msg.ReplyParentUserLogin,
+		ReplyParentText:        msg.ReplyParentText,
+	})
+}
+
+func newChatLogger(path string, logger *slog.Logger) *chatLogger {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	return &chatLogger{path: path, logger: logger}
+}
+
+func (l *chatLogger) Write(entry chatLogEntry) {
+	if l == nil {
+		return
+	}
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := os.MkdirAll(filepath.Dir(l.path), 0o700); err != nil {
+		l.warn("failed to create chat log directory", err)
+		return
+	}
+	file, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		l.warn("failed to open chat log", err)
+		return
+	}
+	defer file.Close()
+	if _, err := file.Write(append(raw, '\n')); err != nil {
+		l.warn("failed to write chat log", err)
+	}
+}
+
+func (l *chatLogger) warn(message string, err error) {
+	if l.logger != nil {
+		l.logger.Warn(message, "path", l.path, "error", err)
+	}
+}
+
 func (b *Bot) recentContext() []chatContextEntry {
 	b.contextMu.Lock()
 	defer b.contextMu.Unlock()
@@ -516,11 +837,168 @@ func cleanReply(reply string) string {
 	reply = removeEmoji(reply)
 	reply = strings.ReplaceAll(reply, "\n", " ")
 	reply = strings.Join(strings.Fields(reply), " ")
+	reply = removeMalformedURLs(reply)
+	reply = normalizeTerminalPunctuation(reply)
 	reply = strings.TrimRight(reply, " ,;:")
-	if reply == "" || strings.ContainsAny(reply[len(reply)-1:], ".!?") {
+	if reply == "" || endsWithTerminalPunctuation(reply) {
 		return reply
 	}
 	return reply + "."
+}
+
+func cleanCommandReply(reply string, maxLength int) string {
+	reply = cleanReply(reply)
+	reply = strings.TrimSpace(reply)
+	reply = strings.TrimPrefix(reply, "Based on the search results:")
+	reply = strings.TrimPrefix(reply, "Based on search results:")
+	reply = strings.TrimPrefix(reply, "According to search results:")
+	if index := strings.Index(strings.ToLower(reply), "sources:"); index >= 0 {
+		reply = strings.TrimSpace(reply[:index])
+	}
+	words := strings.Fields(reply)
+	kept := words[:0]
+	for _, word := range words {
+		cleaned := strings.Trim(word, " .,;:()")
+		if strings.HasPrefix(cleaned, "[") && strings.HasSuffix(cleaned, "]") {
+			continue
+		}
+		kept = append(kept, word)
+	}
+	reply = strings.Join(kept, " ")
+	if maxLength > 0 && len(reply) > maxLength {
+		reply = smartTruncate(reply, maxLength)
+	}
+	return strings.TrimSpace(reply)
+}
+
+func endsWithTerminalPunctuation(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	runes := []rune(text)
+	return strings.ContainsRune(".!?。！？", runes[len(runes)-1])
+}
+
+func normalizeTerminalPunctuation(text string) string {
+	replacements := []struct {
+		old string
+		new string
+	}{
+		{",.", "."},
+		{";.", "."},
+		{":.", "."},
+		{",?", "?"},
+		{",!", "!"},
+		{"。.", "。"},
+		{"？.", "？"},
+		{"！.", "！"},
+	}
+	for _, item := range replacements {
+		text = strings.ReplaceAll(text, item.old, item.new)
+	}
+	return text
+}
+
+func removeMalformedURLs(text string) string {
+	fields := strings.Fields(text)
+	kept := fields[:0]
+	for _, field := range fields {
+		if isMalformedURLToken(field) {
+			continue
+		}
+		kept = append(kept, field)
+	}
+	return strings.Join(kept, " ")
+}
+
+func isMalformedURLToken(token string) bool {
+	trimmed := strings.Trim(token, `"'()[]{}<>.,;:!?`)
+	lower := strings.ToLower(trimmed)
+	var rest string
+	switch {
+	case strings.HasPrefix(lower, "https://"):
+		rest = trimmed[len("https://"):]
+	case strings.HasPrefix(lower, "http://"):
+		rest = trimmed[len("http://"):]
+	default:
+		return false
+	}
+	if rest == "" {
+		return true
+	}
+	for _, r := range rest {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func cleanAddressedReply(reply, displayName string) string {
+	reply = strings.TrimSpace(reply)
+	name := strings.TrimSpace(displayName)
+	if reply == "" || name == "" {
+		return reply
+	}
+
+	for {
+		trimmed := strings.TrimSpace(reply)
+		if !strings.HasPrefix(trimmed, "@") {
+			return trimmed
+		}
+		first, rest, hasRest := strings.Cut(trimmed, " ")
+		if !sameMention(first, name) {
+			return trimmed
+		}
+		if !hasRest {
+			return ""
+		}
+		reply = strings.TrimSpace(rest)
+	}
+}
+
+func sameMention(mention, displayName string) bool {
+	mention = strings.Trim(strings.TrimSpace(mention), " ,:;")
+	mention = strings.TrimPrefix(mention, "@")
+	displayName = strings.TrimPrefix(strings.TrimSpace(displayName), "@")
+	return strings.EqualFold(mention, displayName)
+}
+
+func requestedChatCommand(prompt string) (string, bool) {
+	trimmed := strings.TrimSpace(prompt)
+	lower := strings.ToLower(trimmed)
+	commandPrefixes := []string{"!so", "/ban", "/timeout", "/mod", "/vip", "/commercial", "/raid", "/shoutout"}
+	for _, command := range commandPrefixes {
+		if lower == command || strings.HasPrefix(lower, command+" ") {
+			return command, true
+		}
+	}
+	for _, phrase := range []string{
+		"could you type",
+		"can you type",
+		"please type",
+		"run the command",
+		"send the command",
+		"trigger the command",
+	} {
+		if !strings.Contains(lower, phrase) {
+			continue
+		}
+		if index := strings.Index(lower, "!"); index >= 0 {
+			fields := strings.Fields(lower[index:])
+			if len(fields) > 0 {
+				return strings.Trim(fields[0], `"'.,;:?!`), true
+			}
+		}
+		if index := strings.Index(lower, "/"); index >= 0 {
+			fields := strings.Fields(lower[index:])
+			if len(fields) > 0 {
+				return strings.Trim(fields[0], `"'.,;:?!`), true
+			}
+		}
+	}
+	return "", false
 }
 
 func needsLurkContextRetry(reply, prompt string) bool {
@@ -714,8 +1192,10 @@ func looksIncompleteReply(reply string) bool {
 	}
 
 	lowerTrimmed := strings.ToLower(trimmed)
-	if strings.HasSuffix(lowerTrimmed, "to legal") {
-		return true
+	for _, suffix := range incompletePhraseSuffixes {
+		if strings.HasSuffix(lowerTrimmed, suffix) {
+			return true
+		}
 	}
 
 	last := strings.ToLower(strings.Trim(fields[len(fields)-1], `"'()[]{}:;,`))
@@ -725,6 +1205,18 @@ func looksIncompleteReply(reply string) bool {
 	default:
 		return false
 	}
+}
+
+var incompletePhraseSuffixes = []string{
+	"to legal",
+	"or ask",
+	"or ask him",
+	"and ask",
+	"while",
+	"let's see if he can make",
+	"if it is some cryptic code",
+	"it is a unique combination, even",
+	"most players burn their mp too",
 }
 
 func sameChatMessage(a, b twitch.Message) bool {

@@ -107,7 +107,7 @@ h3 {
   justify-content: space-between;
   gap: 20px;
   margin-bottom: 16px;
-  padding: 18px 20px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: linear-gradient(180deg, color-mix(in srgb, var(--color-brand-anchor) 88%, white 10%), var(--color-neutral-800));
@@ -120,33 +120,55 @@ h3 {
 }
 
 .runtime-panel {
-  display: grid;
-  justify-items: end;
+  display: flex;
+  align-items: center;
   gap: 10px;
+  min-width: max-content;
 }
 
 .runtime-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
-.status-pill {
-  min-height: 26px;
-  padding: 5px 11px;
+.runtime-actions button {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.runtime-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 4px 9px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
+  color: var(--color-neutral-300);
   font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
+  background: rgba(21, 23, 27, 0.28);
 }
 
-.status-pill.running {
-  color: var(--color-neutral-950);
+.runtime-state span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-neutral-400);
+}
+
+.runtime-state.running {
+  color: var(--color-neutral-100);
+}
+
+.runtime-state.running span {
   background: var(--color-semantic-success);
+  box-shadow: 0 0 0 3px rgba(137, 200, 157, 0.16);
 }
 
-.status-pill.stopped {
-  color: var(--color-neutral-300);
-  background: rgba(146, 148, 152, 0.16);
+.runtime-state.stopped span {
+  background: var(--color-neutral-400);
 }
 
 .notice {
@@ -172,6 +194,72 @@ h3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.overview-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.status-chip {
+  display: grid;
+  grid-template-columns: auto minmax(72px, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--color-neutral-300);
+  background: rgba(21, 23, 27, 0.28);
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-brand-accent-hover);
+}
+
+.status-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.status-chip strong {
+  overflow: hidden;
+  color: var(--color-neutral-100);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-chip.good .status-dot {
+  background: var(--color-semantic-success);
+  box-shadow: 0 0 0 3px rgba(137, 200, 157, 0.12);
+}
+
+.status-chip.warning .status-dot {
+  background: var(--color-semantic-warning);
+  box-shadow: 0 0 0 3px rgba(214, 179, 106, 0.12);
+}
+
+.status-chip.muted .status-dot {
+  background: var(--color-neutral-400);
+}
+
+.status-chip.muted strong {
+  color: var(--color-neutral-400);
 }
 
 .card.wide {
@@ -433,27 +521,9 @@ h3 {
   line-height: 1.5;
 }
 
-.compact-log-view {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-height: 126px;
-  max-height: 188px;
-  overflow: auto;
-  padding: 10px;
-  border: 1px solid rgba(146, 148, 152, 0.18);
-  border-radius: var(--radius-md);
-  color: var(--color-neutral-300);
-  background: rgba(21, 23, 27, 0.34);
-  font-family: "Cascadia Mono", "Consolas", monospace;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.compact-log-view div {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.log-view.full {
+  min-height: calc(100vh - 300px);
+  max-height: calc(100vh - 300px);
 }
 
 .announcement-actions {

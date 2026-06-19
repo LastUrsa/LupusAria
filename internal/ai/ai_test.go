@@ -182,6 +182,67 @@ func TestGeminiCompleteUsesSystemInstructionAndParsesResponse(t *testing.T) {
 	}
 }
 
+func TestGeminiSearchEnablesGoogleSearchTool(t *testing.T) {
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body geminiGenerateRequest
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Tools) != 1 || body.Tools[0].GoogleSearch == nil {
+			t.Fatalf("tools = %#v, want googleSearch", body.Tools)
+		}
+		if body.SystemInstruction == nil || !strings.Contains(body.SystemInstruction.Parts[0].Text, "Google Search grounding") {
+			t.Fatalf("system instruction = %#v", body.SystemInstruction)
+		}
+
+		return jsonResponse(http.StatusOK, `{
+			"candidates": [{"content": {"parts": [{"text": " grounded answer "} ]}}],
+			"usageMetadata": {"promptTokenCount": 11, "candidatesTokenCount": 22}
+		}`), nil
+	})
+	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-3.1-flash-lite"})
+	client.httpClient = &http.Client{Transport: transport}
+
+	response, err := client.Search(context.Background(), []Message{{Role: "user", Content: "current game question"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "grounded answer" {
+		t.Fatalf("text = %q", response.Text)
+	}
+}
+
+func TestGeminiAnalyzeImageSendsInlineImageData(t *testing.T) {
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		var body geminiGenerateRequest
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		parts := body.Contents[0].Parts
+		if len(parts) != 2 || parts[1].InlineData == nil {
+			t.Fatalf("parts = %#v, want inline image data", parts)
+		}
+		if parts[1].InlineData.MIMEType != "image/png" || parts[1].InlineData.Data == "" {
+			t.Fatalf("inline data = %#v", parts[1].InlineData)
+		}
+
+		return jsonResponse(http.StatusOK, `{
+			"candidates": [{"content": {"parts": [{"text": " snapshot description "} ]}}],
+			"usageMetadata": {"promptTokenCount": 12, "candidatesTokenCount": 23}
+		}`), nil
+	})
+	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-3.1-flash-lite"})
+	client.httpClient = &http.Client{Transport: transport}
+
+	response, err := client.AnalyzeImage(context.Background(), "describe", []byte("png"), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "snapshot description" {
+		t.Fatalf("text = %q", response.Text)
+	}
+}
+
 func TestGeminiCompleteOmitsThinkingConfigForUnsupportedModels(t *testing.T) {
 	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		var body geminiGenerateRequest
