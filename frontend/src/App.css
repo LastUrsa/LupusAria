@@ -204,6 +204,73 @@ h3 {
   gap: 10px 14px;
 }
 
+.feature-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.feature-panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-neutral-700) 88%, white 8%), var(--color-neutral-800));
+  box-shadow: var(--shadow-md);
+}
+
+.feature-panel-summary {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 58px;
+  padding: 14px 46px 14px 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.feature-panel-summary::-webkit-details-marker {
+  display: none;
+}
+
+.feature-panel-summary::after {
+  content: "+";
+  position: absolute;
+  right: 18px;
+  color: var(--color-neutral-300);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.feature-panel[open] > .feature-panel-summary::after {
+  content: "-";
+}
+
+.feature-panel-summary span {
+  min-width: 0;
+  color: var(--color-neutral-100);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.feature-panel-summary small {
+  min-width: 0;
+  color: var(--color-neutral-300);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.feature-panel-body {
+  display: grid;
+  gap: 14px;
+  padding: 0 18px 18px;
+  border-top: 1px solid rgba(146, 148, 152, 0.14);
+}
+
+.feature-panel-body > :first-child {
+  margin-top: 16px;
+}
+
 .info-callout {
   display: grid;
   gap: 4px;
@@ -364,6 +431,29 @@ h3 {
   font-family: "Cascadia Mono", "Consolas", monospace;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.compact-log-view {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 126px;
+  max-height: 188px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(146, 148, 152, 0.18);
+  border-radius: var(--radius-md);
+  color: var(--color-neutral-300);
+  background: rgba(21, 23, 27, 0.34);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.compact-log-view div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .announcement-actions {
