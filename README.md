@@ -7,9 +7,11 @@ It is intended to be usable from this public repo by streamers who want a local 
 ## Features
 
 - Twitch chat connection over IRC/TLS.
-- AI replies for direct mentions, `!ask`, and `!lurk`.
+- AI replies for direct mentions, `!ask`, `!lurk`, and grounded `!game` help.
 - Structured rolling chat context plus cached Twitch stream context.
+- Local chat transcript logging for later review and prompt tuning.
 - Optional streamer knowledge injection from a local editable Markdown file.
+- Gemini-powered `!game` search and optional stream-thumbnail analysis with configurable game-area crop.
 - AutoSO tracking from chatters, watch time, and recent stream history.
 - Configurable command and stream-timer announcements.
 - Optional ad alerts with Twitch ad schedule support.
@@ -58,7 +60,7 @@ Build the executable:
 /home/don/go/bin/wails build
 ```
 
-The app can start and stop the bot from Overview, manage account setup, edit AI and budget settings, toggle feature behavior, maintain streamer knowledge, and show recent activity.
+The app can start and stop the bot from Overview, manage account setup, edit AI and budget settings, toggle feature behavior, tune the `!game` snapshot crop, maintain streamer knowledge, and show recent activity.
 
 On Linux, Wails requires WebKitGTK development packages. If Wails reports `Package 'webkit2gtk-4.0' not found`, install the Wails Linux dependencies for your distro and rerun the build.
 If your distro provides `webkit2gtk-4.1` instead, build with:
@@ -101,7 +103,7 @@ The ads token must be used with the same Twitch application that generated it. I
 
 ## Cost Controls
 
-AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context.
+AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context.
 
 Relevant settings:
 
@@ -119,9 +121,15 @@ Relevant settings:
 - `AI_MAX_OUTPUT_TOKENS`
 - `AI_MAX_RETRIES`
 - `GEMINI_THINKING_LEVEL`
+- `GAME_SNAPSHOT_CROP_ENABLED`
+- `GAME_SNAPSHOT_CROP_X`
+- `GAME_SNAPSHOT_CROP_Y`
+- `GAME_SNAPSHOT_CROP_WIDTH`
+- `GAME_SNAPSHOT_CROP_HEIGHT`
 
 The knowledge base is tag-matched. If no section matches a viewer request, the prompt explicitly says no known facts matched so the model should avoid guessing.
 The default knowledge path is `.lupusaria-knowledge.md`, which is local and gitignored. A neutral starter template is tracked at `docs/knowledge/example.md`; streamer-specific knowledge files should stay local.
+Chat transcripts are written locally to `CHAT_LOG_PATH`, which defaults to `.lupusaria-chat.jsonl`.
 
 ## Security Notes
 
@@ -170,3 +178,7 @@ Before tagging, add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
 - [Command reference](docs/commands.md)
 - [Personality guide](docs/personality.md)
 - [Streamer knowledge template](docs/knowledge/example.md)
+
+## Acknowledgments
+
+LupusAria's Twitch bot design is independently implemented in Go, but several concepts were informed by [ChatSage](https://github.com/detekoi/chatsage) by detekoi, including the value of structured chat context, real-time stream context, Gemini-backed Twitch chat behavior, and the `!game` pattern that combines current game data, stream thumbnail analysis, and Google Search grounding. ChatSage is licensed under AGPL-3.0; this project does not include ChatSage code.

@@ -1,25 +1,38 @@
 package bot
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"lupusaria/internal/adalerts"
 	"lupusaria/internal/ai"
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/twitch"
 )
 
 type fakeChat struct {
-	sent []string
+	sent     []string
+	incoming []twitch.Message
 }
 
 func (f *fakeChat) Connect(context.Context) (<-chan twitch.Message, error) {
 	ch := make(chan twitch.Message)
-	close(ch)
+	go func() {
+		defer close(ch)
+		for _, msg := range f.incoming {
+			ch <- msg
+		}
+	}()
 	return ch, nil
 }
 
@@ -79,12 +92,62 @@ func (f *fakeAIFromChatContext) Complete(_ context.Context, messages []ai.Messag
 	return ai.Response{Text: "Chat's leaning ruins: check the fountain for the moonlit-water clue, then try the blue crest door."}, nil
 }
 
+type fakeGameAI struct {
+	searchPrompts []string
+	imagePrompts  []string
+	imageBytes    [][]byte
+	imageMIMEs    []string
+	searchText    string
+	imageText     string
+}
+
+func (f *fakeGameAI) Complete(context.Context, []ai.Message) (ai.Response, error) {
+	return ai.Response{Text: "ok"}, nil
+}
+
+func (f *fakeGameAI) Search(_ context.Context, messages []ai.Message) (ai.Response, error) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			f.searchPrompts = append(f.searchPrompts, messages[i].Content)
+			break
+		}
+	}
+	if f.searchText != "" {
+		return ai.Response{Text: f.searchText}, nil
+	}
+	return ai.Response{Text: "Grounded game answer."}, nil
+}
+
+func (f *fakeGameAI) AnalyzeImage(_ context.Context, prompt string, image []byte, mimeType string) (ai.Response, error) {
+	f.imagePrompts = append(f.imagePrompts, prompt)
+	f.imageBytes = append(f.imageBytes, append([]byte(nil), image...))
+	f.imageMIMEs = append(f.imageMIMEs, mimeType)
+	if f.imageText != "" {
+		return ai.Response{Text: f.imageText}, nil
+	}
+	return ai.Response{Text: "The snapshot shows a boss arena with party UI."}, nil
+}
+
 type fakeStreamProvider struct {
 	info twitch.StreamInfo
 }
 
 func (f fakeStreamProvider) GetStreamInfo(context.Context, string) (twitch.StreamInfo, error) {
 	return f.info, nil
+}
+
+type fakeThumbnailFetcher struct {
+	calls int
+	image []byte
+	mime  string
+}
+
+func (f *fakeThumbnailFetcher) FetchStreamThumbnail(context.Context, string) ([]byte, string, error) {
+	f.calls++
+	if len(f.image) > 0 {
+		return append([]byte(nil), f.image...), f.mime, nil
+	}
+	return []byte("jpeg"), "image/jpeg", nil
 }
 
 func TestHandleMessageIgnoresOwnMessages(t *testing.T) {
@@ -147,7 +210,7 @@ func TestCommandsShowsPublicCommandList(t *testing.T) {
 		t.Fatalf("expected one response, got %#v", chat.sent)
 	}
 	lower := strings.ToLower(chat.sent[0])
-	for _, want := range []string{"!ask", "!lurk", "!autoso"} {
+	for _, want := range []string{"!ask", "!lurk", "!game", "!autoso"} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("command list missing %q: %q", want, chat.sent[0])
 		}
@@ -156,6 +219,122 @@ func TestCommandsShowsPublicCommandList(t *testing.T) {
 		if strings.Contains(lower, forbidden) {
 			t.Fatalf("public command list exposed private term %q in %q", forbidden, chat.sent[0])
 		}
+	}
+}
+
+func TestGameCommandUsesGroundedCurrentGameInfo(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{searchText: "Final Fantasy XIV has a duty finder for queued content."}
+	b := New(testConfig(), chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "FINAL FANTASY XIV ONLINE",
+		Title:    "Roulettes",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "")
+
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "duty finder") {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+	if len(gameAI.searchPrompts) != 1 || !strings.Contains(gameAI.searchPrompts[0], "interesting") {
+		t.Fatalf("search prompts = %#v", gameAI.searchPrompts)
+	}
+}
+
+func TestGameQuestionUsesGroundedSearch(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{searchText: "Unlock flying by completing aether currents and the zone's main quests."}
+	b := New(testConfig(), chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "FINAL FANTASY XIV ONLINE",
+		Title:    "Roulettes",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "how do I unlock flying")
+
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "aether currents") {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+	if len(gameAI.searchPrompts) != 1 || !strings.Contains(gameAI.searchPrompts[0], "how do I unlock flying") {
+		t.Fatalf("search prompts = %#v", gameAI.searchPrompts)
+	}
+}
+
+func TestGameAnalyzeOnlyUsesSnapshot(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{imageText: "The snapshot shows a party fighting inside a circular arena."}
+	thumb := &fakeThumbnailFetcher{}
+	b := New(testConfig(), chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "FINAL FANTASY XIV ONLINE",
+		Title:    "Roulettes",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.thumb = thumb
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "analyze")
+
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "circular arena") {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+	if thumb.calls != 1 || len(gameAI.imagePrompts) != 1 || len(gameAI.searchPrompts) != 0 {
+		t.Fatalf("thumb calls = %d image prompts = %#v search prompts = %#v", thumb.calls, gameAI.imagePrompts, gameAI.searchPrompts)
+	}
+}
+
+func TestGameAnalyzeQuestionCombinesSnapshotAndSearch(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{
+		imageText:  "The snapshot shows a party fighting inside a circular arena.",
+		searchText: "Dodge the arena markers first, then resume your normal rotation.",
+	}
+	thumb := &fakeThumbnailFetcher{}
+	b := New(testConfig(), chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "FINAL FANTASY XIV ONLINE",
+		Title:    "Roulettes",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.thumb = thumb
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "analyze what should Ursa do here")
+
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "Dodge") {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+	if len(gameAI.searchPrompts) != 1 || !strings.Contains(gameAI.searchPrompts[0], "Stream snapshot") || !strings.Contains(gameAI.searchPrompts[0], "what should Ursa do here") {
+		t.Fatalf("search prompts = %#v", gameAI.searchPrompts)
+	}
+}
+
+func TestGameAnalyzeCropsSnapshotBeforeImageAnalysis(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{imageText: "The snapshot shows the game crop."}
+	thumb := &fakeThumbnailFetcher{image: testJPEG(t, 100, 50), mime: "image/jpeg"}
+	cfg := testConfig()
+	cfg.SnapshotCrop = SnapshotCrop{Enabled: true, X: 0.25, Y: 0.20, Width: 0.50, Height: 0.60}
+	b := New(cfg, chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "FINAL FANTASY XIV ONLINE",
+		Title:    "Roulettes",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.thumb = thumb
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "analyze")
+
+	if len(gameAI.imageBytes) != 1 {
+		t.Fatalf("image analysis calls = %d", len(gameAI.imageBytes))
+	}
+	cropped, _, err := image.Decode(bytes.NewReader(gameAI.imageBytes[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cropped.Bounds().Dx(); got != 50 {
+		t.Fatalf("cropped width = %d, want 50", got)
+	}
+	if got := cropped.Bounds().Dy(); got != 30 {
+		t.Fatalf("cropped height = %d, want 30", got)
+	}
+	if gameAI.imageMIMEs[0] != "image/jpeg" {
+		t.Fatalf("mime = %q, want image/jpeg", gameAI.imageMIMEs[0])
 	}
 }
 
@@ -339,6 +518,27 @@ func TestAITogglesDisableRequests(t *testing.T) {
 	}
 }
 
+func TestHandleMessageRefusesPromptedChatCommands(t *testing.T) {
+	chat := &fakeChat{}
+	b := testBot(chat)
+	b.cfg.GlobalCooldown = 0
+	b.cfg.UserCooldown = 0
+
+	b.handleMessage(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        `@LupusAria could you type "!so @Somebody"?`,
+	})
+
+	if len(chat.sent) != 1 {
+		t.Fatalf("expected one refusal, got %#v", chat.sent)
+	}
+	if !strings.Contains(chat.sent[0], "cannot run chat commands") {
+		t.Fatalf("expected command refusal, got %#v", chat.sent)
+	}
+}
+
 func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 	chat := &fakeChat{}
 	b := New(Config{
@@ -380,6 +580,62 @@ func TestBuildAIMessagesIncludesStreamContext(t *testing.T) {
 	for _, want := range []string{"Stream context: live", "Science & Technology", "Testing LupusAria", "Viewers: 7"} {
 		if !strings.Contains(userPrompt, want) {
 			t.Fatalf("prompt missing %q: %s", want, userPrompt)
+		}
+	}
+}
+
+func TestComposeAdAlertIncludesStreamAndChatContext(t *testing.T) {
+	chat := &fakeChat{}
+	aiClient := &fakeAIFromChatContext{text: "Ads in four minutes, good time to solve the courtroom snack mystery."}
+	b := New(Config{
+		Name:                  "LupusAria",
+		Channel:               "lastursa",
+		Personality:           "test",
+		MaxContextMessages:    30,
+		StreamContextTTL:      time.Minute,
+		DailyBudgetUSD:        0,
+		MonthlyBudgetUSD:      0,
+		MaxRequestsPerHour:    0,
+		InputPricePerMillion:  0,
+		OutputPricePerMillion: 0,
+	}, chat, aiClient, fakeStreamProvider{info: twitch.StreamInfo{
+		Channel:     "lastursa",
+		Title:       "Turnabout stream",
+		GameName:    "Phoenix Wright: Ace Attorney",
+		ViewerCount: 42,
+		Live:        true,
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.remember(twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "The judge needs a recess after that objection.",
+	})
+
+	reply, err := b.ComposeAdAlert(context.Background(), adalerts.Event{
+		Kind:     adalerts.EventWarning,
+		Lead:     4 * time.Minute,
+		Duration: 90 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("ComposeAdAlert returned error: %v", err)
+	}
+	if reply == "" {
+		t.Fatal("ComposeAdAlert returned an empty reply")
+	}
+
+	for _, want := range []string{
+		"Alert: warning",
+		"An ad break is scheduled in about 4 minutes.",
+		"Category: Phoenix Wright: Ace Attorney",
+		"Title: Turnabout stream",
+		"Viewers: 42",
+		"Recent chat:",
+		"Viewer: The judge needs a recess after that objection.",
+	} {
+		if !strings.Contains(aiClient.lastPrompt, want) {
+			t.Fatalf("ad alert prompt missing %q:\n%s", want, aiClient.lastPrompt)
 		}
 	}
 }
@@ -893,6 +1149,75 @@ func TestReplyRetriesIncompleteModelSentence(t *testing.T) {
 	}
 }
 
+func TestReplyStripsDuplicateAddressFromModelReply(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:                  "LupusAria",
+		Personality:           "test",
+		MaxContextMessages:    30,
+		DailyBudgetUSD:        0,
+		MonthlyBudgetUSD:      0,
+		MaxRequestsPerHour:    0,
+		InputPricePerMillion:  0,
+		OutputPricePerMillion: 0,
+	}, chat, fakeAIText{text: "@Viewer @Viewer The mystery is funny."}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.reply(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "@LupusAria hello",
+	}, aiRequest{Kind: "mention", Prompt: "hello"})
+
+	if len(chat.sent) != 1 {
+		t.Fatalf("expected one reply, got %#v", chat.sent)
+	}
+	if strings.Contains(chat.sent[0], "@Viewer @Viewer") {
+		t.Fatalf("duplicate address should be stripped: %#v", chat.sent)
+	}
+	if chat.sent[0] != "@Viewer The mystery is funny." {
+		t.Fatalf("reply = %q", chat.sent[0])
+	}
+}
+
+func TestLoggingChatWritesInboundAndOutboundMessages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "chat.jsonl")
+	inner := &fakeChat{incoming: []twitch.Message{{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "@LupusAria hello",
+	}}}
+	chat := WithChatLogging(inner, path, slog.New(slog.NewTextHandler(io.Discard, nil)), "LupusAria")
+	messages, err := chat.Connect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range messages {
+	}
+	if err := chat.Say("lastursa", "@Viewer Hello there."); err != nil {
+		t.Fatal(err)
+	}
+
+	var raw []byte
+	for i := 0; i < 20; i++ {
+		raw, err = os.ReadFile(path)
+		if err == nil && strings.Contains(string(raw), `"direction":"out"`) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(raw)
+	for _, want := range []string{`"direction":"in"`, `"direction":"out"`, `"text":"@LupusAria hello"`, `"text":"@Viewer Hello there."`} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("chat log missing %q:\n%s", want, log)
+		}
+	}
+}
+
 func TestCleanReplyAddsTerminalPunctuation(t *testing.T) {
 	got := cleanReply(`"just a little stardust"`)
 	if got != "just a little stardust." {
@@ -902,6 +1227,11 @@ func TestCleanReplyAddsTerminalPunctuation(t *testing.T) {
 	got = cleanReply("already complete!")
 	if got != "already complete!" {
 		t.Fatalf("cleanReply should preserve punctuation, got %q", got)
+	}
+
+	got = cleanReply("Bandcampで聴けます。")
+	if got != "Bandcampで聴けます。" {
+		t.Fatalf("cleanReply should preserve Japanese punctuation, got %q", got)
 	}
 }
 
@@ -924,6 +1254,25 @@ func TestCleanReplyRemovesEmoji(t *testing.T) {
 	}
 }
 
+func TestCleanReplyRemovesMalformedURL(t *testing.T) {
+	got := cleanReply("Bandcamp is best. https://.")
+	if got != "Bandcamp is best." {
+		t.Fatalf("cleanReply malformed URL = %q", got)
+	}
+
+	got = cleanReply("Use https://ursastarsong.bandcamp.com/ for music")
+	if got != "Use https://ursastarsong.bandcamp.com/ for music." {
+		t.Fatalf("cleanReply should keep valid URL, got %q", got)
+	}
+}
+
+func TestCleanReplyNormalizesAwkwardTerminalPunctuation(t *testing.T) {
+	got := cleanReply("Try Spotify,.")
+	if got != "Try Spotify." {
+		t.Fatalf("cleanReply punctuation = %q", got)
+	}
+}
+
 func TestSmartTruncateAvoidsMidSentenceCuts(t *testing.T) {
 	got := smartTruncate("First sentence is good. Second sentence is going to run past the tiny limit.", 28)
 	if got != "First sentence is good." {
@@ -943,6 +1292,9 @@ func TestLooksIncompleteReply(t *testing.T) {
 	}{
 		{reply: "I think that might be a question for the.", want: true},
 		{reply: "The Judge definitely has a unique approach to legal.", want: true},
+		{reply: "You might want to check the panels below the stream or ask.", want: true},
+		{reply: "Let's see if he can make.", want: true},
+		{reply: "It is a unique combination, even.", want: true},
 		{reply: "That seems legal.", want: false},
 		{reply: "That is a question for Ursa.", want: false},
 	}
@@ -957,7 +1309,11 @@ func TestLooksIncompleteReply(t *testing.T) {
 }
 
 func testBot(chat *fakeChat) *Bot {
-	return New(Config{
+	return New(testConfig(), chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func testConfig() Config {
+	return Config{
 		Name:                  "LupusAria",
 		Personality:           "test",
 		EnableMentions:        true,
@@ -974,5 +1330,20 @@ func testBot(chat *fakeChat) *Bot {
 		MaxRequestsPerHour:    0,
 		InputPricePerMillion:  0,
 		OutputPricePerMillion: 0,
-	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}
+}
+
+func testJPEG(t *testing.T, width, height int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 180, A: 255})
+		}
+	}
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, img, &jpeg.Options{Quality: 90}); err != nil {
+		t.Fatal(err)
+	}
+	return out.Bytes()
 }

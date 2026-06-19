@@ -69,6 +69,16 @@ type BotConfig struct {
 	MonthlyBudgetUSD   float64
 	MaxRequestsPerHour int
 	BudgetStatePath    string
+	ChatLogPath        string
+	SnapshotCrop       SnapshotCropConfig
+}
+
+type SnapshotCropConfig struct {
+	Enabled bool
+	X       float64
+	Y       float64
+	Width   float64
+	Height  float64
 }
 
 type RecentStreamersConfig struct {
@@ -178,6 +188,14 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			MonthlyBudgetUSD:   getFloat(values, "MONTHLY_AI_BUDGET_USD", 5),
 			MaxRequestsPerHour: getInt(values, "MAX_AI_REQUESTS_PER_HOUR", 30),
 			BudgetStatePath:    resolveLocalPath(baseDir, get(values, "AI_BUDGET_STATE_PATH", ".lupusaria-budget.json")),
+			ChatLogPath:        resolveLocalPath(baseDir, get(values, "CHAT_LOG_PATH", ".lupusaria-chat.jsonl")),
+			SnapshotCrop: SnapshotCropConfig{
+				Enabled: getBool(values, "GAME_SNAPSHOT_CROP_ENABLED", true),
+				X:       getFloat(values, "GAME_SNAPSHOT_CROP_X", 0.255),
+				Y:       getFloat(values, "GAME_SNAPSHOT_CROP_Y", 0.085),
+				Width:   getFloat(values, "GAME_SNAPSHOT_CROP_WIDTH", 0.73),
+				Height:  getFloat(values, "GAME_SNAPSHOT_CROP_HEIGHT", 0.73),
+			},
 		},
 		RecentStreamers: RecentStreamersConfig{
 			Enabled:             getBool(values, "AUTOSO_ENABLED", true),
@@ -287,6 +305,12 @@ func validateRanges(cfg Config) error {
 	}
 	if cfg.AI.MaxRetries < 0 {
 		return errors.New("AI_MAX_RETRIES must be zero or greater")
+	}
+	if cfg.Bot.SnapshotCrop.X < 0 || cfg.Bot.SnapshotCrop.Y < 0 || cfg.Bot.SnapshotCrop.Width <= 0 || cfg.Bot.SnapshotCrop.Height <= 0 {
+		return errors.New("GAME_SNAPSHOT_CROP values must be non-negative, with width and height greater than zero")
+	}
+	if cfg.Bot.SnapshotCrop.X+cfg.Bot.SnapshotCrop.Width > 1.01 || cfg.Bot.SnapshotCrop.Y+cfg.Bot.SnapshotCrop.Height > 1.01 {
+		return errors.New("GAME_SNAPSHOT_CROP values must fit within the image")
 	}
 	if cfg.RecentStreamers.MinWatch < 0 {
 		return errors.New("RECENT_STREAMER_MIN_WATCH_MINUTES must be zero or greater")
