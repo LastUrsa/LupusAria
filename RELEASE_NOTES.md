@@ -1,5 +1,14 @@
 # LupusAria Release Notes
 
+## v0.3.0
+
+- Adds grounded `!game` help with Twitch thumbnail snapshot analysis, optional stream-preview crop controls, and fallback game search context.
+- Expands the personality evaluator with scenario suites for grounded game replies, style checks, and safer regression coverage.
+- Improves Gemini/OpenAI-compatible response handling and keeps game/image prompts focused on observed stream evidence.
+- Makes ad alerts resilient to temporary Twitch ad schedule polling failures instead of disabling alerts for the rest of the session.
+- Refreshes Twitch ads access tokens during long streams and retries ad schedule polling once after an unauthorized response.
+- Adds clearer ad-alert startup, send failure, and configuration logging, plus docs for long-run ads token refresh.
+
 ## v0.2.1
 
 - Adds the LupusAria app icon to the desktop build, Windows executable metadata, and in-app brand lockup.
