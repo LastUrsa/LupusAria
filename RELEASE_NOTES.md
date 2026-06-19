@@ -1,5 +1,13 @@
 # LupusAria Release Notes
 
+## v0.2.1
+
+- Adds the LupusAria app icon to the desktop build, Windows executable metadata, and in-app brand lockup.
+- Reorganizes the desktop control panel into Overview, Setup, AI & Budget, Features, Knowledge, and Activity.
+- Moves editable setup fields out of Overview so the landing page focuses on runtime status and recent activity.
+- Consolidates chat, AutoSO, ad alerts, and announcements into full-width collapsible feature panels.
+- Keeps installed config and knowledge paths internal to the app while preserving local knowledge editing.
+
 ## v0.2.0
 
 - Moves installed-app settings to `%APPDATA%\Starsong Tools\LupusAria` and keeps saved secrets hidden unless replaced.
