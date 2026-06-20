@@ -11,16 +11,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"lupusaria/internal/adalerts"
 	"lupusaria/internal/ai"
+	"lupusaria/internal/announcements"
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/twitch"
 )
 
 type fakeChat struct {
+	mu       sync.Mutex
 	sent     []string
 	incoming []twitch.Message
 }
@@ -37,6 +40,8 @@ func (f *fakeChat) Connect(context.Context) (<-chan twitch.Message, error) {
 }
 
 func (f *fakeChat) Say(_ string, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.sent = append(f.sent, text)
 	return nil
 }
@@ -97,6 +102,7 @@ type fakeGameAI struct {
 	imagePrompts  []string
 	imageBytes    [][]byte
 	imageMIMEs    []string
+	searchTexts   []string
 	searchText    string
 	imageText     string
 }
@@ -114,6 +120,11 @@ func (f *fakeGameAI) Search(_ context.Context, messages []ai.Message) (ai.Respon
 	}
 	if f.searchText != "" {
 		return ai.Response{Text: f.searchText}, nil
+	}
+	if len(f.searchTexts) > 0 {
+		text := f.searchTexts[0]
+		f.searchTexts = f.searchTexts[1:]
+		return ai.Response{Text: text}, nil
 	}
 	return ai.Response{Text: "Grounded game answer."}, nil
 }
@@ -166,6 +177,37 @@ func TestHandleMessageIgnoresOwnMessages(t *testing.T) {
 	}
 	if context := b.recentContext(); len(context) != 0 {
 		t.Fatalf("bot should not remember its own messages, context %#v", context)
+	}
+}
+
+func TestServiceBotMessagesAreNotRememberedForAIContext(t *testing.T) {
+	chat := &fakeChat{}
+	b := testBot(chat)
+
+	b.handleMessage(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "streamlabs",
+		DisplayName: "Streamlabs",
+		Text:        "Want to hang out with the rest of us? Join the discord!",
+	})
+	b.handleMessage(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "The deck is looking spicy.",
+	})
+
+	context := b.formatChatContext(twitch.Message{
+		Channel:     "lastursa",
+		Username:    "other",
+		DisplayName: "Other",
+		Text:        "@LupusAria hello",
+	}, time.Now())
+	if strings.Contains(context, "discord") || strings.Contains(context, "Streamlabs") {
+		t.Fatalf("service bot message leaked into context:\n%s", context)
+	}
+	if !strings.Contains(context, "deck is looking spicy") {
+		t.Fatalf("human message missing from context:\n%s", context)
 	}
 }
 
@@ -257,6 +299,55 @@ func TestGameQuestionUsesGroundedSearch(t *testing.T) {
 	}
 	if len(gameAI.searchPrompts) != 1 || !strings.Contains(gameAI.searchPrompts[0], "how do I unlock flying") {
 		t.Fatalf("search prompts = %#v", gameAI.searchPrompts)
+	}
+}
+
+func TestGameStateQuestionAutomaticallyUsesSnapshot(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{
+		imageText:  "The snapshot shows three Ironclad card rewards: Pommel Strike, Shrug It Off, and Anger.",
+		searchText: "Take Shrug It Off here: it adds block and card draw, which is safer if the deck still needs consistency.",
+	}
+	thumb := &fakeThumbnailFetcher{}
+	b := New(testConfig(), chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "Slay the Spire 2",
+		Title:    "Slaaaaaay The Spire",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.thumb = thumb
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "which card should I take for Ironclad")
+
+	if thumb.calls != 1 || len(gameAI.imagePrompts) != 1 {
+		t.Fatalf("snapshot analysis calls = thumb %d image prompts %#v", thumb.calls, gameAI.imagePrompts)
+	}
+	if len(gameAI.searchPrompts) != 1 || !strings.Contains(gameAI.searchPrompts[0], "Prioritize the visible snapshot") {
+		t.Fatalf("search prompts = %#v", gameAI.searchPrompts)
+	}
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "Shrug It Off") {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+}
+
+func TestGameCommandRetriesIncompleteSearchAnswer(t *testing.T) {
+	chat := &fakeChat{}
+	gameAI := &fakeGameAI{searchTexts: []string{
+		"Treat HP as a resource if it helps you secure a stronger board state or.",
+		"Take the safer card that improves your deck now; skip speculative picks if they do not support your current plan.",
+	}}
+	b := New(testConfig(), chat, gameAI, fakeStreamProvider{info: twitch.StreamInfo{
+		Live:     true,
+		GameName: "Slay the Spire 2",
+		Title:    "Slaaaaaay The Spire",
+	}}, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.handleGameCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", DisplayName: "Viewer"}, "general deck tip")
+
+	if len(gameAI.searchPrompts) != 2 {
+		t.Fatalf("search prompts = %#v", gameAI.searchPrompts)
+	}
+	if len(chat.sent) != 1 || strings.HasSuffix(chat.sent[0], " or.") || !strings.Contains(chat.sent[0], "safer card") {
+		t.Fatalf("sent = %#v", chat.sent)
 	}
 }
 
@@ -378,6 +469,60 @@ func TestResetAllowsBroadcaster(t *testing.T) {
 	}
 	if len(b.recentContext()) != 0 {
 		t.Fatal("broadcaster reset should clear context")
+	}
+}
+
+func TestResetRejectsModerator(t *testing.T) {
+	chat := &fakeChat{}
+	b := testBot(chat)
+	b.remember(twitch.Message{Username: "viewer", Text: "keep me"})
+
+	handled := b.handlePublicCommand(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "modfriend",
+		DisplayName: "ModFriend",
+		Text:        "!reset",
+		IsMod:       true,
+	})
+
+	if !handled {
+		t.Fatal("expected !reset to be handled")
+	}
+	if len(b.recentContext()) != 1 {
+		t.Fatal("moderator reset should not clear context")
+	}
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "Only the broadcaster") {
+		t.Fatalf("unexpected reset response: %#v", chat.sent)
+	}
+}
+
+func TestAnnouncementCommandAllowsModerator(t *testing.T) {
+	chat := &fakeChat{}
+	b := testBot(chat)
+	b.ann = announcements.New(announcements.Config{
+		Enabled: true,
+		Channel: "lastursa",
+		Items: []announcements.Announcement{{
+			Enabled: true,
+			Kind:    announcements.KindCommand,
+			Command: "!donate",
+			Message: "Donate link.",
+		}},
+	}, chat, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	handled := b.handlePublicCommand(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "modfriend",
+		DisplayName: "ModFriend",
+		Text:        "!donate",
+		IsMod:       true,
+	})
+
+	if !handled {
+		t.Fatal("expected announcement command to be handled")
+	}
+	if len(chat.sent) != 1 || chat.sent[0] != "Donate link." {
+		t.Fatalf("sent = %#v", chat.sent)
 	}
 }
 
@@ -536,6 +681,63 @@ func TestHandleMessageRefusesPromptedChatCommands(t *testing.T) {
 	}
 	if !strings.Contains(chat.sent[0], "cannot run chat commands") {
 		t.Fatalf("expected command refusal, got %#v", chat.sent)
+	}
+}
+
+func TestAIQueueAnswersSmallBurstInsteadOfSkippingCooldown(t *testing.T) {
+	chat := &fakeChat{}
+	aiClient := &fakeAISequence{responses: []string{
+		"First answer.",
+		"Second answer.",
+	}}
+	cfg := testConfig()
+	cfg.GlobalCooldown = 20 * time.Millisecond
+	cfg.UserCooldown = 20 * time.Millisecond
+	b := New(cfg, chat, aiClient, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go b.runAIQueue(ctx)
+
+	b.handleMessage(ctx, twitch.Message{
+		Channel:     "lastursa",
+		Username:    "alice",
+		DisplayName: "Alice",
+		Text:        "@LupusAria first?",
+	})
+	b.handleMessage(ctx, twitch.Message{
+		Channel:     "lastursa",
+		Username:    "bram",
+		DisplayName: "Bram",
+		Text:        "@LupusAria second?",
+	})
+
+	sent := waitForSent(t, chat, 2)
+	if !strings.Contains(sent[0], "First answer") || !strings.Contains(sent[1], "Second answer") {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if aiClient.calls != 2 {
+		t.Fatalf("ai calls = %d, want 2", aiClient.calls)
+	}
+}
+
+func TestAIQueueStaysSmallAndRejectsOverflow(t *testing.T) {
+	chat := &fakeChat{}
+	b := testBot(chat)
+
+	for i, user := range []string{"alice", "bram", "cora", "dane"} {
+		b.handleMessage(context.Background(), twitch.Message{
+			Channel:     "lastursa",
+			Username:    user,
+			DisplayName: strings.Title(user),
+			Text:        "@LupusAria request " + string(rune('A'+i)),
+		})
+	}
+
+	if got := len(b.aiQueue); got != aiQueueCapacity {
+		t.Fatalf("queue depth = %d, want %d", got, aiQueueCapacity)
+	}
+	if len(chat.sent) != 0 {
+		t.Fatalf("overflow should be silent in chat, sent %#v", chat.sent)
 	}
 }
 
@@ -1310,6 +1512,24 @@ func TestLooksIncompleteReply(t *testing.T) {
 
 func testBot(chat *fakeChat) *Bot {
 	return New(testConfig(), chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func waitForSent(t *testing.T, chat *fakeChat, count int) []string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		chat.mu.Lock()
+		sent := append([]string(nil), chat.sent...)
+		chat.mu.Unlock()
+		if len(sent) >= count {
+			return sent
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	chat.mu.Lock()
+	defer chat.mu.Unlock()
+	t.Fatalf("timed out waiting for %d sent messages, got %#v", count, chat.sent)
+	return nil
 }
 
 func testConfig() Config {

@@ -32,6 +32,7 @@ type Announcement struct {
 	Enabled       bool   `json:"enabled"`
 	Kind          string `json:"kind"`
 	Command       string `json:"command,omitempty"`
+	Permission    string `json:"permission,omitempty"`
 	AfterMinutes  int    `json:"afterMinutes,omitempty"`
 	RepeatMinutes int    `json:"repeatMinutes,omitempty"`
 	Message       string `json:"message"`
@@ -99,6 +100,11 @@ func Normalize(items []Announcement) []Announcement {
 		if item.Kind == KindCommand && item.Command == "" {
 			item.Command = "!" + item.ID
 		}
+		if item.Kind == KindCommand {
+			item.Permission = normalizePermission(item.Permission, "mods")
+		} else {
+			item.Permission = ""
+		}
 		if item.AfterMinutes < 0 {
 			item.AfterMinutes = 0
 		}
@@ -135,7 +141,7 @@ func (s *Service) Start(ctx context.Context) {
 	go s.run(ctx)
 }
 
-func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message, broadcaster bool) bool {
+func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 	if s == nil || !s.cfg.Enabled {
 		return false
 	}
@@ -147,8 +153,8 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message, broadca
 		if text != item.Command {
 			continue
 		}
-		if !broadcaster {
-			_ = s.chat.Say(msg.Channel, "Only the broadcaster can use announcement commands.")
+		if !permissionAllows(item.Permission, msg) {
+			_ = s.chat.Say(msg.Channel, permissionDeniedMessage(item.Permission, item.Command))
 			return true
 		}
 		if item.Message != "" {
@@ -260,4 +266,41 @@ func normalizeCommand(value string) string {
 		return ""
 	}
 	return fields[0]
+}
+
+func permissionAllows(permission string, msg twitch.Message) bool {
+	switch normalizePermission(permission, "everyone") {
+	case "everyone":
+		return true
+	case "mods":
+		return msg.IsBroadcaster || msg.IsMod || strings.EqualFold(msg.Username, msg.Channel)
+	case "broadcaster":
+		return msg.IsBroadcaster || strings.EqualFold(msg.Username, msg.Channel)
+	default:
+		return true
+	}
+}
+
+func normalizePermission(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "everyone":
+		return "everyone"
+	case "mods", "mod":
+		return "mods"
+	case "broadcaster", "streamer", "owner":
+		return "broadcaster"
+	default:
+		return fallback
+	}
+}
+
+func permissionDeniedMessage(permission, subject string) string {
+	switch normalizePermission(permission, "everyone") {
+	case "mods":
+		return fmt.Sprintf("Only mods or the broadcaster can use %s.", subject)
+	case "broadcaster":
+		return fmt.Sprintf("Only the broadcaster can use %s.", subject)
+	default:
+		return ""
+	}
 }

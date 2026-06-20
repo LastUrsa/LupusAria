@@ -78,6 +78,14 @@ type ControlSettings struct {
 	EnableCommands bool `json:"enableCommands"`
 	EnableReset    bool `json:"enableReset"`
 
+	MentionPermission  string `json:"mentionPermission"`
+	AskPermission      string `json:"askPermission"`
+	LurkPermission     string `json:"lurkPermission"`
+	GamePermission     string `json:"gamePermission"`
+	CommandsPermission string `json:"commandsPermission"`
+	ResetPermission    string `json:"resetPermission"`
+	AutosoPermission   string `json:"autosoPermission"`
+
 	GlobalCooldownSeconds int `json:"globalCooldownSeconds"`
 	UserCooldownSeconds   int `json:"userCooldownSeconds"`
 	MaxContextMessages    int `json:"maxContextMessages"`
@@ -110,6 +118,7 @@ type AnnouncementSettings struct {
 	Enabled       bool   `json:"enabled"`
 	Kind          string `json:"kind"`
 	Command       string `json:"command"`
+	Permission    string `json:"permission"`
 	AfterMinutes  int    `json:"afterMinutes"`
 	RepeatMinutes int    `json:"repeatMinutes"`
 	Message       string `json:"message"`
@@ -179,6 +188,14 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		EnableCommands: cfg.Bot.EnableCommands,
 		EnableReset:    cfg.Bot.EnableReset,
 
+		MentionPermission:  cfg.Bot.MentionPermission,
+		AskPermission:      cfg.Bot.AskPermission,
+		LurkPermission:     cfg.Bot.LurkPermission,
+		GamePermission:     cfg.Bot.GamePermission,
+		CommandsPermission: cfg.Bot.CommandsPermission,
+		ResetPermission:    cfg.Bot.ResetPermission,
+		AutosoPermission:   cfg.RecentStreamers.Permission,
+
 		GlobalCooldownSeconds: int(cfg.Bot.GlobalCooldown / time.Second),
 		UserCooldownSeconds:   int(cfg.Bot.UserCooldown / time.Second),
 		MaxContextMessages:    cfg.Bot.MaxContextMessages,
@@ -241,6 +258,14 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"ENABLE_LURK_COMMAND":      boolString(settings.EnableLurk),
 		"ENABLE_COMMANDS_COMMAND":  boolString(settings.EnableCommands),
 		"ENABLE_RESET_COMMAND":     boolString(settings.EnableReset),
+
+		"MENTION_PERMISSION":          settings.MentionPermission,
+		"ASK_COMMAND_PERMISSION":      settings.AskPermission,
+		"LURK_COMMAND_PERMISSION":     settings.LurkPermission,
+		"GAME_COMMAND_PERMISSION":     settings.GamePermission,
+		"COMMANDS_COMMAND_PERMISSION": settings.CommandsPermission,
+		"RESET_COMMAND_PERMISSION":    settings.ResetPermission,
+		"AUTOSO_COMMAND_PERMISSION":   settings.AutosoPermission,
 
 		"GLOBAL_COOLDOWN_SECONDS": strconv.Itoa(settings.GlobalCooldownSeconds),
 		"USER_COOLDOWN_SECONDS":   strconv.Itoa(settings.UserCooldownSeconds),
@@ -372,6 +397,7 @@ func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {
 			Enabled:       item.Enabled,
 			Kind:          item.Kind,
 			Command:       item.Command,
+			Permission:    item.Permission,
 			AfterMinutes:  item.AfterMinutes,
 			RepeatMinutes: item.RepeatMinutes,
 			Message:       item.Message,
@@ -396,6 +422,7 @@ func (a *App) SaveAnnouncements(settings []AnnouncementSettings) error {
 			Enabled:       item.Enabled,
 			Kind:          item.Kind,
 			Command:       item.Command,
+			Permission:    item.Permission,
 			AfterMinutes:  item.AfterMinutes,
 			RepeatMinutes: item.RepeatMinutes,
 			Message:       item.Message,

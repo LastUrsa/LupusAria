@@ -166,6 +166,47 @@ func TestStatusExcludesChannelOwnerFromWatchedCount(t *testing.T) {
 	}
 }
 
+func TestHandleCommandAllowsAuthorizedStatus(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.Permission = "mods"
+
+	handled := service.HandleCommand(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "modfriend",
+		DisplayName: "ModFriend",
+		Text:        "!autoso status",
+		IsMod:       true,
+	})
+
+	if !handled {
+		t.Fatal("expected !autoso status to be handled")
+	}
+	if len(chat.sent) != 1 || !strings.Contains(chat.sent[0], "Streamer tracker:") {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+}
+
+func TestHandleCommandRejectsUnauthorizedStatus(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.Permission = "mods"
+
+	handled := service.HandleCommand(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "!autoso status",
+	})
+
+	if !handled {
+		t.Fatal("expected !autoso status to be handled")
+	}
+	if len(chat.sent) != 1 || chat.sent[0] != "Only mods or the broadcaster can run streamer shoutouts." {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+}
+
 func TestSendNextPagesAndMarksOnlySuccessfulShoutouts(t *testing.T) {
 	chat := &fakeChat{failFor: map[string]bool{"!so @bob": true}}
 	service := testService(chat, &fakeHelix{})

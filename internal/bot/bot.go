@@ -39,6 +39,12 @@ type Config struct {
 	EnableLurk            bool
 	EnableCommands        bool
 	EnableReset           bool
+	MentionPermission     string
+	AskPermission         string
+	LurkPermission        string
+	GamePermission        string
+	CommandsPermission    string
+	ResetPermission       string
 	MaxContextMessages    int
 	StreamContextTTL      time.Duration
 	GlobalCooldown        time.Duration
@@ -75,11 +81,16 @@ type Bot struct {
 	thumb  StreamThumbnailFetcher
 	recent *recentstreamers.Service
 	ann    *announcements.Service
+	ad     *adalerts.Service
 	know   knowledge.Base
 	logger *slog.Logger
 
 	contextMu     sync.Mutex
 	context       []chatContextEntry
+	aiQueue       chan queuedAIRequest
+	aiQueueMu     sync.Mutex
+	aiPendingUser map[string]bool
+	cooldownMu    sync.Mutex
 	lastGlobalUse time.Time
 	lastUserUse   map[string]time.Time
 }
@@ -94,9 +105,19 @@ type aiRequest struct {
 	Kind   string
 }
 
+type queuedAIRequest struct {
+	Message  twitch.Message
+	Request  aiRequest
+	QueuedAt time.Time
+}
+
 const maxTwitchReplyLength = 300
+const maxGameReplyLength = 240
+const aiQueueCapacity = 3
+const aiQueueMaxAge = 90 * time.Second
 
 func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoProvider, recentStreamers *recentstreamers.Service, announcementService *announcements.Service, logger *slog.Logger) *Bot {
+	cfg = normalizeConfigPermissions(cfg)
 	var streamContext *cachedStreamContext
 	if streamProvider != nil {
 		streamContext = newCachedStreamContext(streamProvider, cfg.StreamContextTTL)
@@ -114,14 +135,26 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 			OutputPricePerMillion: cfg.OutputPricePerMillion,
 			StatePath:             cfg.BudgetStatePath,
 		}),
-		stream:      streamContext,
-		thumb:       twitch.NewThumbnailFetcher(),
-		recent:      recentStreamers,
-		ann:         announcementService,
-		know:        cfg.Knowledge,
-		logger:      logger,
-		lastUserUse: map[string]time.Time{},
+		stream:        streamContext,
+		thumb:         twitch.NewThumbnailFetcher(),
+		recent:        recentStreamers,
+		ann:           announcementService,
+		know:          cfg.Knowledge,
+		logger:        logger,
+		aiQueue:       make(chan queuedAIRequest, aiQueueCapacity),
+		aiPendingUser: map[string]bool{},
+		lastUserUse:   map[string]time.Time{},
 	}
+}
+
+func normalizeConfigPermissions(cfg Config) Config {
+	cfg.MentionPermission = normalizePermissionOrDefault(cfg.MentionPermission, "everyone")
+	cfg.AskPermission = normalizePermissionOrDefault(cfg.AskPermission, "everyone")
+	cfg.LurkPermission = normalizePermissionOrDefault(cfg.LurkPermission, "everyone")
+	cfg.GamePermission = normalizePermissionOrDefault(cfg.GamePermission, "everyone")
+	cfg.CommandsPermission = normalizePermissionOrDefault(cfg.CommandsPermission, "everyone")
+	cfg.ResetPermission = normalizePermissionOrDefault(cfg.ResetPermission, "broadcaster")
+	return cfg
 }
 
 func (b *Bot) Run(ctx context.Context) error {
@@ -130,24 +163,34 @@ func (b *Bot) Run(ctx context.Context) error {
 		return err
 	}
 	defer b.chat.Close()
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if b.recent != nil {
-		b.recent.StartChatterPolling(ctx)
+		b.recent.StartChatterPolling(runCtx)
 	}
 	if b.ann != nil {
-		b.ann.Start(ctx)
+		b.ann.Start(runCtx)
 	}
+	if b.ad != nil {
+		b.ad.Start(runCtx)
+	}
+	go b.runAIQueue(runCtx)
 
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-runCtx.Done():
+			return runCtx.Err()
 		case msg, ok := <-messages:
 			if !ok {
 				return nil
 			}
-			b.handleMessage(ctx, msg)
+			b.handleMessage(runCtx, msg)
 		}
 	}
+}
+
+func (b *Bot) SetAdAlerts(service *adalerts.Service) {
+	b.ad = service
 }
 
 func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
@@ -174,19 +217,84 @@ func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
 		return
 	}
 
-	if remaining, allowed := b.cooldown(msg.Username); !allowed {
-		b.logger.Info("ai request skipped by cooldown", "user", msg.Username, "remaining", remaining.Round(time.Second))
+	b.enqueueAIRequest(msg, request)
+}
+
+func (b *Bot) enqueueAIRequest(msg twitch.Message, request aiRequest) {
+	key := strings.ToLower(strings.TrimSpace(msg.Username))
+	if key == "" {
+		key = strings.ToLower(strings.TrimSpace(msg.DisplayName))
+	}
+
+	b.aiQueueMu.Lock()
+	if key != "" && b.aiPendingUser[key] {
+		b.aiQueueMu.Unlock()
+		b.logger.Info("ai request skipped; user already has a pending request", "user", msg.Username, "kind", request.Kind)
+		return
+	}
+	item := queuedAIRequest{Message: msg, Request: request, QueuedAt: time.Now()}
+	select {
+	case b.aiQueue <- item:
+		if key != "" {
+			b.aiPendingUser[key] = true
+		}
+		depth := len(b.aiQueue)
+		b.aiQueueMu.Unlock()
+		b.logger.Info("ai request queued", "user", msg.Username, "channel", msg.Channel, "kind", request.Kind, "queue_depth", depth)
+	default:
+		b.aiQueueMu.Unlock()
+		b.logger.Info("ai request skipped; queue full", "user", msg.Username, "channel", msg.Channel, "kind", request.Kind)
+	}
+}
+
+func (b *Bot) runAIQueue(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case item := <-b.aiQueue:
+			b.processQueuedAIRequest(ctx, item)
+		}
+	}
+}
+
+func (b *Bot) processQueuedAIRequest(ctx context.Context, item queuedAIRequest) {
+	defer b.clearPendingAIUser(item.Message)
+
+	if age := time.Since(item.QueuedAt); age > aiQueueMaxAge {
+		b.logger.Info("ai request dropped after waiting too long", "user", item.Message.Username, "kind", item.Request.Kind, "age", age.Round(time.Second))
+		return
+	}
+
+	if err := b.waitForCooldown(ctx, item.Message.Username); err != nil {
+		return
+	}
+	if age := time.Since(item.QueuedAt); age > aiQueueMaxAge {
+		b.logger.Info("ai request dropped after cooldown wait", "user", item.Message.Username, "kind", item.Request.Kind, "age", age.Round(time.Second))
 		return
 	}
 
 	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
-		b.logger.Warn("ai request blocked by budget guard", "user", msg.Username, "reason", decision.Reason)
-		b.say(msg.Channel, "AI budget guard is active, so I am pausing replies for now.")
+		b.logger.Warn("ai request blocked by budget guard", "user", item.Message.Username, "reason", decision.Reason)
+		b.say(item.Message.Channel, "AI budget guard is active, so I am pausing replies for now.")
 		return
 	}
 
-	b.logger.Info("ai request accepted", "user", msg.Username, "channel", msg.Channel, "kind", request.Kind)
-	go b.reply(ctx, msg, request)
+	b.logger.Info("ai queued request accepted", "user", item.Message.Username, "channel", item.Message.Channel, "kind", item.Request.Kind)
+	b.reply(ctx, item.Message, item.Request)
+}
+
+func (b *Bot) clearPendingAIUser(msg twitch.Message) {
+	key := strings.ToLower(strings.TrimSpace(msg.Username))
+	if key == "" {
+		key = strings.ToLower(strings.TrimSpace(msg.DisplayName))
+	}
+	if key == "" {
+		return
+	}
+	b.aiQueueMu.Lock()
+	delete(b.aiPendingUser, key)
+	b.aiQueueMu.Unlock()
 }
 
 func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) {
@@ -260,6 +368,9 @@ func (b *Bot) remember(msg twitch.Message) {
 	if b.isSelf(msg.Username) {
 		return
 	}
+	if isServiceBotContextMessage(msg) {
+		return
+	}
 	b.contextMu.Lock()
 	defer b.contextMu.Unlock()
 	b.context = append(b.context, chatContextEntry{Message: msg, Remembered: time.Now()})
@@ -296,20 +407,28 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 	if b.recent != nil && b.recent.HandleCommand(ctx, msg) {
 		return true
 	}
-	if b.ann != nil && b.ann.HandleCommand(ctx, msg, b.isBroadcaster(msg)) {
+	if b.ann != nil && b.ann.HandleCommand(ctx, msg) {
 		return true
 	}
 
 	switch {
 	case b.cfg.EnableCommands && (lower == "!game" || strings.HasPrefix(lower, "!game ")):
+		if !b.commandAllowed(msg, b.cfg.GamePermission) {
+			b.say(msg.Channel, permissionDeniedMessage("!game", b.cfg.GamePermission))
+			return true
+		}
 		go b.handleGameCommand(ctx, msg, strings.TrimSpace(text[len("!game"):]))
 		return true
 	case b.cfg.EnableCommands && lower == "!commands":
+		if !b.commandAllowed(msg, b.cfg.CommandsPermission) {
+			b.say(msg.Channel, permissionDeniedMessage("!commands", b.cfg.CommandsPermission))
+			return true
+		}
 		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !autoso, !autoso next, !autoso refresh, !autoso status.", b.cfg.Name))
 		return true
 	case b.cfg.EnableReset && lower == "!reset":
-		if !b.isBroadcaster(msg) {
-			b.say(msg.Channel, "Only the broadcaster can reset my chat context.")
+		if !b.commandAllowed(msg, b.cfg.ResetPermission) {
+			b.say(msg.Channel, permissionDeniedMessage("!reset", b.cfg.ResetPermission))
 			return true
 		}
 		b.contextMu.Lock()
@@ -329,6 +448,10 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 	botName := strings.ToLower(b.cfg.Name)
 
 	if b.cfg.EnableAsk && strings.HasPrefix(lower, "!ask ") {
+		if !b.commandAllowed(msg, b.cfg.AskPermission) {
+			b.say(msg.Channel, permissionDeniedMessage("!ask", b.cfg.AskPermission))
+			return aiRequest{}, false
+		}
 		prompt := strings.TrimSpace(text[len("!ask "):])
 		if prompt == "" {
 			return aiRequest{}, false
@@ -337,6 +460,10 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 	}
 
 	if b.cfg.EnableLurk && strings.HasPrefix(lower, "!lurk") {
+		if !b.commandAllowed(msg, b.cfg.LurkPermission) {
+			b.say(msg.Channel, permissionDeniedMessage("!lurk", b.cfg.LurkPermission))
+			return aiRequest{}, false
+		}
 		reason := strings.TrimSpace(text[len("!lurk"):])
 		prompt := fmt.Sprintf(`%s is lurking. Send them off naturally.`, msg.DisplayName)
 		if reason != "" {
@@ -347,6 +474,10 @@ func (b *Bot) extractAIRequest(msg twitch.Message) (aiRequest, bool) {
 
 	mention := "@" + botName
 	if b.cfg.EnableMentions && strings.Contains(lower, mention) {
+		if !b.commandAllowed(msg, b.cfg.MentionPermission) {
+			b.say(msg.Channel, permissionDeniedMessage("@"+b.cfg.Name, b.cfg.MentionPermission))
+			return aiRequest{}, false
+		}
 		cleaned := stripMention(text, b.cfg.Name)
 		if cleaned == "" {
 			cleaned = "Say hello."
@@ -369,6 +500,11 @@ func (b *Bot) handleGameCommand(ctx context.Context, msg twitch.Message, rawArgs
 		analysisRequested = true
 		question = strings.TrimSpace(strings.TrimPrefix(rawArgs, fields[0]))
 	}
+	if !analysisRequested && needsCurrentGameState(question) {
+		if _, ok := b.ai.(ai.ImageAnalyzer); ok {
+			analysisRequested = true
+		}
+	}
 
 	gameName, streamInfo, ok := b.currentGameContext(ctx, msg.Channel)
 	if !ok {
@@ -379,14 +515,14 @@ func (b *Bot) handleGameCommand(ctx context.Context, msg twitch.Message, rawArgs
 	var imageContext string
 	if analysisRequested {
 		var err error
-		imageContext, err = b.analyzeGameSnapshot(ctx, msg.Channel, gameName)
+		imageContext, err = b.analyzeGameSnapshot(ctx, msg.Channel, gameName, question)
 		if err != nil {
 			b.logger.Warn("game snapshot analysis failed", "error", err)
 			b.say(msg.Channel, "I could not analyze the stream snapshot right now.")
 			return
 		}
 		if question == "" {
-			b.say(msg.Channel, cleanCommandReply(imageContext, maxTwitchReplyLength))
+			b.say(msg.Channel, cleanCommandReply(imageContext, maxGameReplyLength))
 			return
 		}
 	}
@@ -394,11 +530,11 @@ func (b *Bot) handleGameCommand(ctx context.Context, msg twitch.Message, rawArgs
 	var prompt string
 	switch {
 	case question != "" && imageContext != "":
-		prompt = fmt.Sprintf("Current Twitch category/title context: %q. Stream snapshot: %q. Use web search to answer this gameplay question for %q: %q. Give a direct factual tip in 320 chars or less. Plain text, no markdown, no citations.", streamInfo.Title, imageContext, gameName, question)
+		prompt = fmt.Sprintf("Current Twitch category/title context: %q. Stream snapshot: %q. Answer this gameplay question for %q: %q. Prioritize the visible snapshot and current situation over generic advice. If the snapshot lacks enough information, say what is missing. Give one complete, direct tip in 240 chars or less. Plain text, no markdown, no citations.", streamInfo.Title, imageContext, gameName, question)
 	case question != "":
-		prompt = fmt.Sprintf("Use web search to answer this gameplay question for %q: %q. Give a direct factual tip in 320 chars or less. Plain text, no markdown, no citations.", gameName, question)
+		prompt = fmt.Sprintf("Use web search to answer this gameplay question for %q: %q. Give one complete, direct factual tip in 240 chars or less. If the question depends on the current screen or board state, say to use !game analyze with the question. Plain text, no markdown, no citations.", gameName, question)
 	default:
-		prompt = fmt.Sprintf("Use web search to give one interesting, useful, current-friendly overview or fact about the game %q. Keep it under 320 chars. Plain text, no markdown, no citations.", gameName)
+		prompt = fmt.Sprintf("Use web search to give one interesting, useful, current-friendly overview or fact about the game %q. Keep it under 240 chars as one complete sentence. Plain text, no markdown, no citations.", gameName)
 	}
 
 	response, err := b.searchGameAnswer(ctx, msg, prompt)
@@ -411,7 +547,23 @@ func (b *Bot) handleGameCommand(ctx context.Context, msg twitch.Message, rawArgs
 		}
 		return
 	}
-	b.say(msg.Channel, cleanCommandReply(response.Text, maxTwitchReplyLength))
+	reply := cleanCommandReply(response.Text, maxGameReplyLength)
+	if looksIncompleteReply(reply) {
+		retryPrompt := prompt + " Retry because the previous answer was incomplete. Return one complete sentence under 220 chars."
+		retryResponse, retryErr := b.searchGameAnswer(ctx, msg, retryPrompt)
+		if retryErr != nil {
+			b.logger.Warn("game search retry failed", "error", retryErr)
+			b.say(msg.Channel, fmt.Sprintf("Sorry, I could not form a complete %s tip right now.", gameName))
+			return
+		}
+		reply = cleanCommandReply(retryResponse.Text, maxGameReplyLength)
+		if reply == "" || looksIncompleteReply(reply) {
+			b.logger.Warn("game command reply looked incomplete", "reply", reply)
+			b.say(msg.Channel, fmt.Sprintf("Sorry, I could not form a complete %s tip right now.", gameName))
+			return
+		}
+	}
+	b.say(msg.Channel, reply)
 }
 
 func (b *Bot) currentGameContext(ctx context.Context, channel string) (string, twitch.StreamInfo, bool) {
@@ -436,7 +588,7 @@ func (b *Bot) currentGameContext(ctx context.Context, channel string) (string, t
 	return gameName, info, true
 }
 
-func (b *Bot) analyzeGameSnapshot(ctx context.Context, channel, gameName string) (string, error) {
+func (b *Bot) analyzeGameSnapshot(ctx context.Context, channel, gameName, question string) (string, error) {
 	analyzer, ok := b.ai.(ai.ImageAnalyzer)
 	if !ok {
 		return "", errors.New("configured AI provider does not support image analysis")
@@ -460,7 +612,7 @@ func (b *Bot) analyzeGameSnapshot(ctx context.Context, channel, gameName string)
 			mimeType = croppedMimeType
 		}
 	}
-	prompt := fmt.Sprintf("Describe the current in-game scene from %q in 1-2 short sentences, 220 chars or less. Focus on gameplay/world/UI elements that matter for game help. Ignore overlays, webcam, chat, and alerts. Plain text.", gameName)
+	prompt := fmt.Sprintf("Describe the current in-game scene from %q in 1-2 short sentences, 260 chars or less. Viewer question: %q. Focus on visible gameplay, UI state, readable text, options, and resources that matter for answering. Ignore overlays, webcam, chat, and alerts. Plain text.", gameName, question)
 	response, err := analyzer.AnalyzeImage(ctx, prompt, image, mimeType)
 	if err != nil {
 		return "", err
@@ -472,7 +624,7 @@ func (b *Bot) analyzeGameSnapshot(ctx context.Context, channel, gameName string)
 		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
 		"estimated", receipt.Estimated,
 	)
-	description := cleanCommandReply(response.Text, 220)
+	description := cleanCommandReply(response.Text, 260)
 	if description == "" {
 		return "", errors.New("image analysis returned empty text")
 	}
@@ -507,6 +659,9 @@ func (b *Bot) searchGameAnswer(ctx context.Context, msg twitch.Message, prompt s
 }
 
 func (b *Bot) cooldown(username string) (time.Duration, bool) {
+	b.cooldownMu.Lock()
+	defer b.cooldownMu.Unlock()
+
 	now := time.Now()
 	if remaining := b.cfg.GlobalCooldown - now.Sub(b.lastGlobalUse); remaining > 0 {
 		return remaining, false
@@ -519,6 +674,31 @@ func (b *Bot) cooldown(username string) (time.Duration, bool) {
 	b.lastGlobalUse = now
 	b.lastUserUse[username] = now
 	return 0, true
+}
+
+func (b *Bot) waitForCooldown(ctx context.Context, username string) error {
+	for {
+		remaining, allowed := b.cooldown(username)
+		if allowed {
+			return nil
+		}
+		if remaining < 10*time.Millisecond {
+			remaining = 10 * time.Millisecond
+		}
+		b.logger.Info("ai queued request waiting for cooldown", "user", username, "remaining", remaining.Round(time.Second))
+		timer := time.NewTimer(remaining)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request aiRequest) []ai.Message {
@@ -1241,6 +1421,52 @@ func isLowSignalContextMessage(msg twitch.Message) bool {
 	}
 }
 
+func isServiceBotContextMessage(msg twitch.Message) bool {
+	username := strings.ToLower(strings.TrimSpace(msg.Username))
+	displayName := strings.ToLower(strings.TrimSpace(msg.DisplayName))
+	switch username {
+	case "sery_bot", "streamelements", "streamlabs", "nightbot", "fossabot", "moobot":
+		return true
+	}
+	if strings.HasSuffix(username, "bot") || strings.HasSuffix(username, "_bot") {
+		return true
+	}
+	if strings.Contains(displayName, "streamlabs") || strings.Contains(displayName, "streamelements") {
+		return true
+	}
+	return false
+}
+
+func needsCurrentGameState(question string) bool {
+	question = strings.ToLower(strings.TrimSpace(question))
+	if question == "" {
+		return false
+	}
+	for _, phrase := range []string{
+		"which card",
+		"what card",
+		"card should",
+		"should i take",
+		"should we take",
+		"should i pick",
+		"should we pick",
+		"what should i do",
+		"what should we do",
+		"do here",
+		"take here",
+		"pick here",
+		"this turn",
+		"this fight",
+		"this room",
+		"current board",
+	} {
+		if strings.Contains(question, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 func compactOlderChatSummary(items []chatContextEntry, now time.Time) string {
 	if len(items) == 0 {
 		return "- none"
@@ -1311,6 +1537,51 @@ func formatReplyContext(msg twitch.Message) string {
 
 func (b *Bot) isBroadcaster(msg twitch.Message) bool {
 	return msg.IsBroadcaster || strings.EqualFold(msg.Username, msg.Channel)
+}
+
+func (b *Bot) isModOrBroadcaster(msg twitch.Message) bool {
+	return b.isBroadcaster(msg) || msg.IsMod
+}
+
+func (b *Bot) commandAllowed(msg twitch.Message, permission string) bool {
+	switch normalizeRuntimePermission(permission) {
+	case "everyone":
+		return true
+	case "mods":
+		return b.isModOrBroadcaster(msg)
+	case "broadcaster":
+		return b.isBroadcaster(msg)
+	default:
+		return true
+	}
+}
+
+func normalizeRuntimePermission(permission string) string {
+	return normalizePermissionOrDefault(permission, "everyone")
+}
+
+func normalizePermissionOrDefault(permission, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(permission)) {
+	case "everyone":
+		return "everyone"
+	case "mods", "mod":
+		return "mods"
+	case "broadcaster", "streamer", "owner":
+		return "broadcaster"
+	default:
+		return fallback
+	}
+}
+
+func permissionDeniedMessage(command, permission string) string {
+	switch normalizeRuntimePermission(permission) {
+	case "mods":
+		return fmt.Sprintf("Only mods or the broadcaster can use %s.", command)
+	case "broadcaster":
+		return fmt.Sprintf("Only the broadcaster can use %s.", command)
+	default:
+		return ""
+	}
 }
 
 func (b *Bot) isSelf(username string) bool {
