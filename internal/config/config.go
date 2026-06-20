@@ -76,6 +76,8 @@ type BotConfig struct {
 	MaxRequestsPerHour int
 	BudgetStatePath    string
 	ChatLogPath        string
+	EmoteCachePath     string
+	EnableEmoteContext bool
 	SnapshotCrop       SnapshotCropConfig
 }
 
@@ -202,6 +204,8 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			MaxRequestsPerHour: getInt(values, "MAX_AI_REQUESTS_PER_HOUR", 30),
 			BudgetStatePath:    resolveLocalPath(baseDir, get(values, "AI_BUDGET_STATE_PATH", ".lupusaria-budget.json")),
 			ChatLogPath:        resolveLocalPath(baseDir, get(values, "CHAT_LOG_PATH", ".lupusaria-chat.jsonl")),
+			EmoteCachePath:     resolveLocalPath(baseDir, get(values, "EMOTE_CACHE_PATH", ".lupusaria-emotes.json")),
+			EnableEmoteContext: getBool(values, "ENABLE_EMOTE_CONTEXT", true),
 			SnapshotCrop: SnapshotCropConfig{
 				Enabled: getBool(values, "GAME_SNAPSHOT_CROP_ENABLED", true),
 				X:       getFloat(values, "GAME_SNAPSHOT_CROP_X", 0.255),

@@ -9,6 +9,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Twitch chat connection over IRC/TLS.
 - AI replies for direct mentions, `!ask`, `!lurk`, and grounded `!game` help.
 - Structured rolling chat context plus cached Twitch stream context.
+- Twitch emote context enrichment with local cached visual descriptions.
 - Local chat transcript logging for later review and prompt tuning.
 - Optional streamer knowledge injection from a local editable Markdown file.
 - Gemini-powered `!game` search and optional stream-thumbnail analysis with configurable game-area crop.
@@ -132,10 +133,12 @@ Relevant settings:
 The knowledge base is tag-matched. If no section matches a viewer request, the prompt explicitly says no known facts matched so the model should avoid guessing.
 The default knowledge path is `.lupusaria-knowledge.md`, which is local and gitignored. A neutral starter template is tracked at `docs/knowledge/example.md`; streamer-specific knowledge files should stay local.
 Chat transcripts are written locally to `CHAT_LOG_PATH`, which defaults to `.lupusaria-chat.jsonl`.
+When `ENABLE_EMOTE_CONTEXT=true`, Twitch emotes are treated as part of channel context. LupusAria loads the channel's native emote catalog from Twitch when available, annotates matching emote names in AI prompts, and can visually describe native emotes with the configured image-capable AI provider. Descriptions are cached locally at `EMOTE_CACHE_PATH`, which defaults to `.lupusaria-emotes.json`.
 
 ## Security Notes
 
 - Keep `.env`, token state files, budget state files, and announcement config files local and gitignored.
+- Keep emote description caches local if they contain channel-specific emote notes.
 - Keep `.lupusaria-knowledge.md` local if it contains streamer-specific private or semi-private details.
 - Installed app secrets live under `%APPDATA%\Starsong Tools\LupusAria`.
 - The app writes local secret/state files with owner-only permissions.

@@ -111,6 +111,26 @@ func TestGetChattersHandlesPagination(t *testing.T) {
 	}
 }
 
+func TestGetChannelEmotesParsesNames(t *testing.T) {
+	client := newTestHelixClient(t, func(req *http.Request) string {
+		if req.URL.Path != "/helix/chat/emotes" {
+			t.Fatalf("path = %q, want /helix/chat/emotes", req.URL.Path)
+		}
+		if got := req.URL.Query().Get("broadcaster_id"); got != "broadcaster" {
+			t.Fatalf("broadcaster_id = %q", got)
+		}
+		return `{"data":[{"id":"111","name":"lasturPride"},{"id":"222","name":"lupuseNod"},{"id":"","name":"ignored"}]}`
+	})
+
+	emotes, err := client.GetChannelEmotes(context.Background(), "broadcaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emotes) != 2 || emotes[0].ID != "111" || emotes[0].Name != "lasturPride" || emotes[1].Name != "lupuseNod" {
+		t.Fatalf("emotes = %#v", emotes)
+	}
+}
+
 func TestGetAdScheduleParsesFlexibleFields(t *testing.T) {
 	client := newTestHelixClient(t, func(req *http.Request) string {
 		if req.URL.Query().Get("broadcaster_id") != "broadcaster" {

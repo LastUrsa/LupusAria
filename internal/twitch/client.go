@@ -27,11 +27,18 @@ type Message struct {
 	DisplayName            string
 	Text                   string
 	Raw                    string
+	Emotes                 []Emote
 	ReplyParentDisplayName string
 	ReplyParentUserLogin   string
 	ReplyParentText        string
 	IsBroadcaster          bool
 	IsMod                  bool
+}
+
+type Emote struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 type Client struct {
@@ -186,6 +193,7 @@ func parseMessage(raw string) (Message, bool) {
 		DisplayName:            displayName,
 		Text:                   text,
 		Raw:                    raw,
+		Emotes:                 parseEmotesTag(tags["emotes"], text),
 		ReplyParentDisplayName: tags["reply-parent-display-name"],
 		ReplyParentUserLogin:   tags["reply-parent-user-login"],
 		ReplyParentText:        tags["reply-parent-msg-body"],
@@ -202,6 +210,68 @@ func hasBadge(raw, badge string) bool {
 		}
 	}
 	return false
+}
+
+func parseEmotesTag(raw, text string) []Emote {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	runes := []rune(text)
+	byID := map[string]*Emote{}
+	order := []string{}
+	for _, item := range strings.Split(raw, "/") {
+		id, rangesRaw, ok := strings.Cut(item, ":")
+		id = strings.TrimSpace(id)
+		if !ok || id == "" || rangesRaw == "" {
+			continue
+		}
+		for _, rangeRaw := range strings.Split(rangesRaw, ",") {
+			startRaw, endRaw, ok := strings.Cut(strings.TrimSpace(rangeRaw), "-")
+			if !ok {
+				continue
+			}
+			start, startOK := parseNonNegativeInt(startRaw)
+			end, endOK := parseNonNegativeInt(endRaw)
+			if !startOK || !endOK || start < 0 || end < start || start >= len(runes) {
+				continue
+			}
+			if end >= len(runes) {
+				end = len(runes) - 1
+			}
+			emote, exists := byID[id]
+			if !exists {
+				name := string(runes[start : end+1])
+				emote = &Emote{ID: id, Name: name}
+				byID[id] = emote
+				order = append(order, id)
+			}
+			emote.Count++
+		}
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	out := make([]Emote, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byID[id])
+	}
+	return out
+}
+
+func parseNonNegativeInt(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	n := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n, true
 }
 
 func unescapeIRCTag(value string) string {
