@@ -159,6 +159,23 @@ func (c *HelixClient) GetRecentStream(ctx context.Context, userID string) (time.
 	return result.Data[0].CreatedAt, true, nil
 }
 
+func (c *HelixClient) IsChannelFollower(ctx context.Context, broadcasterID, userID string) (bool, error) {
+	values := url.Values{}
+	values.Set("broadcaster_id", strings.TrimSpace(broadcasterID))
+	values.Set("user_id", strings.TrimSpace(userID))
+
+	endpoint := "https://api.twitch.tv/helix/channels/followers?" + values.Encode()
+	var result struct {
+		Data []struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+	if err := c.getJSON(ctx, endpoint, &result); err != nil {
+		return false, err
+	}
+	return len(result.Data) > 0, nil
+}
+
 func (c *HelixClient) GetChatters(ctx context.Context, broadcasterID, moderatorID string) ([]Chatter, error) {
 	var chatters []Chatter
 	cursor := ""

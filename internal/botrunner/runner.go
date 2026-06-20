@@ -108,16 +108,18 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		}
 		if cfg.RecentStreamers.Enabled {
 			recentService = recentstreamers.New(recentstreamers.Config{
-				Channel:             cfg.Twitch.Channel,
-				Permission:          cfg.RecentStreamers.Permission,
-				BroadcasterID:       broadcasterID,
-				ModeratorID:         moderatorID,
-				MinWatch:            cfg.RecentStreamers.MinWatch,
-				RecentWindow:        cfg.RecentStreamers.RecentWindow,
-				PageSize:            cfg.RecentStreamers.PageSize,
-				ShoutoutDelay:       cfg.RecentStreamers.ShoutoutDelay,
-				CacheTTL:            cfg.RecentStreamers.CacheTTL,
-				ChatterPollInterval: cfg.RecentStreamers.ChatterPollInterval,
+				Channel:              cfg.Twitch.Channel,
+				Permission:           cfg.RecentStreamers.Permission,
+				SORoulettePermission: cfg.RecentStreamers.SORoulettePermission,
+				RouletteStreamers:    cfg.RecentStreamers.RouletteStreamers,
+				BroadcasterID:        broadcasterID,
+				ModeratorID:          moderatorID,
+				MinWatch:             cfg.RecentStreamers.MinWatch,
+				RecentWindow:         cfg.RecentStreamers.RecentWindow,
+				PageSize:             cfg.RecentStreamers.PageSize,
+				ShoutoutDelay:        cfg.RecentStreamers.ShoutoutDelay,
+				CacheTTL:             cfg.RecentStreamers.CacheTTL,
+				ChatterPollInterval:  cfg.RecentStreamers.ChatterPollInterval,
 			}, chat, helix, logger)
 		}
 	}

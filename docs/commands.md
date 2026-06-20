@@ -19,10 +19,11 @@ This file tracks public chat behavior, command scope, and AI usage.
 | `!autoso next` | Mods + broadcaster | No | Sends the next page from the current queue. |
 | `!autoso refresh` | Mods + broadcaster | No | Rebuilds the queue from current watch-time and stream-history data. |
 | `!autoso status` | Mods + broadcaster | No | Shows tracker counts without cost or secret details. |
+| `!soroulette` | Mods + broadcaster | No | Randomly picks up to five configured streamers to shout out. |
 | Configured announcement commands | Per announcement | No | Sends static messages configured in the desktop app. |
 | Ad alerts | Automatic | Yes | Uses AI by default; configured messages are fallbacks. |
 
-Permissions use three configurable tiers: everyone, mods plus broadcaster, and broadcaster only. The desktop app's Features tab can change the permission tier for mentions, `!ask`, `!lurk`, `!game`, `!commands`, `!reset`, and AutoSO commands. Each configured command announcement also has its own permission selector in the announcement editor. The bot checks Twitch IRC tags when available. Broadcaster checks also fall back to matching the username against the channel name.
+Permissions use three configurable tiers: everyone, mods plus broadcaster, and broadcaster only. The desktop app's Features tab can change the permission tier for mentions, `!ask`, `!lurk`, `!game`, `!commands`, `!reset`, `!autoso`, and `!soroulette`. Each configured command announcement also has its own permission selector in the announcement editor. The bot checks Twitch IRC tags when available. Broadcaster checks also fall back to matching the username against the channel name.
 AI requests cannot make LupusAria run chat commands. If a viewer asks Lupus to type or trigger a command such as `!so`, `/ban`, or `/timeout`, the bot refuses and points them to a mod or the broadcaster.
 
 `!game` search and snapshot features require Gemini. Search uses Gemini's built-in Google Search grounding tool. Snapshot analysis uses Twitch's public preview thumbnail, so it can lag behind the live stream and should be treated as approximate. By default, snapshots are cropped to the game capture area before analysis with `GAME_SNAPSHOT_CROP_X=0.255`, `GAME_SNAPSHOT_CROP_Y=0.085`, `GAME_SNAPSHOT_CROP_WIDTH=0.73`, and `GAME_SNAPSHOT_CROP_HEIGHT=0.73`.
@@ -65,7 +66,7 @@ Chat transcripts are appended locally to `CHAT_LOG_PATH`, which defaults to `.lu
 
 ## AutoSO
 
-`!autoso` does not call AI. It uses Twitch Helix APIs for user lookup, recent stream checks, and chatter snapshots.
+`!autoso` and `!soroulette` do not call AI. AutoSO uses Twitch Helix APIs for user lookup, follower checks, recent stream checks, and chatter snapshots. AutoSO candidates must meet the watch-time threshold, follow the channel, and have streamed inside the recent-window setting. SO roulette randomly picks up to five streamers from `SO_ROULETTE_STREAMERS`.
 
 Key settings:
 
@@ -73,13 +74,16 @@ Key settings:
 RECENT_STREAMER_MIN_WATCH_MINUTES=15
 RECENT_STREAMER_RECENT_DAYS=14
 RECENT_STREAMER_PAGE_SIZE=5
-RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=2
+RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=5
+SO_ROULETTE_STREAMERS=alice,bob,cara
 RECENT_STREAMER_CACHE_HOURS=6
 RECENT_STREAMER_CHATTERS_POLL_SECONDS=60
 AUTOSO_COMMAND_PERMISSION=mods
+SO_ROULETTE_COMMAND_PERMISSION=mods
 ```
 
-The streamer running the channel is excluded from AutoSO results.
+The streamer running the channel is excluded from AutoSO and SO roulette results. Follower checks require a user token with `moderator:read:followers`; without that scope, AutoSO cannot safely build the shoutout queue.
+Shoutout command dispatch is shared across AutoSO and SO roulette. It is spaced by `RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS`, with values below 5 seconds treated as 5 seconds. A streamer is shouted out at most once per Twitch stream across both commands.
 
 ## Ad Alerts
 

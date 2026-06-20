@@ -13,7 +13,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Local chat transcript logging for later review and prompt tuning.
 - Optional streamer knowledge injection from a local editable Markdown file.
 - Gemini-powered `!game` search and optional stream-thumbnail analysis with configurable game-area crop.
-- AutoSO tracking from chatters, watch time, and recent stream history.
+- AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` shoutout pools.
 - Configurable command and stream-timer announcements, including per-command announcement permissions.
 - Optional ad alerts with Twitch ad schedule support.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
@@ -90,7 +90,13 @@ For chat, use a bot-account token with chat read/write scopes:
 twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters'
 ```
 
-The bot account should be a moderator in the channel. This is required for Twitch chatter snapshots and helps AutoSO commands work reliably.
+For AutoSO follower checks, include `moderator:read:followers` too:
+
+```bash
+twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters moderator:read:followers'
+```
+
+The bot account should be a moderator in the channel. This is required for Twitch chatter snapshots, follower checks, and reliable AutoSO commands.
 
 Set the bot username, channel, streamer identity, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Setup tab.
 

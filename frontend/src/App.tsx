@@ -86,6 +86,7 @@ const emptySettings: Settings = {
   commandsPermission: 'everyone',
   resetPermission: 'broadcaster',
   autosoPermission: 'mods',
+  soRoulettePermission: 'mods',
   globalCooldownSeconds: 6,
   userCooldownSeconds: 20,
   maxContextMessages: 30,
@@ -98,7 +99,8 @@ const emptySettings: Settings = {
   recentStreamerMinWatch: 15,
   recentStreamerDays: 14,
   recentStreamerPageSize: 5,
-  recentStreamerDelay: 2,
+  recentStreamerDelay: 5,
+  soRouletteStreamers: '',
   adAlertsEnabled: false,
   adWarningMinutes: 5,
   adPollSeconds: 30,
@@ -473,17 +475,21 @@ export default function App() {
                   <NumberField label="Crop height ratio" value={settings.gameSnapshotCropHeight} step={0.001} min={0.001} max={1} onChange={(value) => update('gameSnapshotCropHeight', value)} />
                 </div>
               </FeaturePanel>
-              <FeaturePanel title="AutoSO" summary="Recent streamer shoutout queue and timing." defaultOpen>
-                <Toggle label="Enable AutoSO" checked={settings.autosoEnabled} onChange={(value) => update('autosoEnabled', value)} />
-                <SelectField label="Command permission" value={settings.autosoPermission} options={permissionOptions} onChange={(value) => update('autosoPermission', value)} />
+              <FeaturePanel title="Shoutouts" summary="AutoSO queue, SO roulette pool, and timing." defaultOpen>
+                <Toggle label="Enable !autoso and !soroulette" checked={settings.autosoEnabled} onChange={(value) => update('autosoEnabled', value)} />
+                <div className="split">
+                  <SelectField label="!autoso permission" value={settings.autosoPermission} options={permissionOptions} onChange={(value) => update('autosoPermission', value)} />
+                  <SelectField label="!soroulette permission" value={settings.soRoulettePermission} options={permissionOptions} onChange={(value) => update('soRoulettePermission', value)} />
+                </div>
                 <div className="split">
                   <NumberField label="Minimum watch minutes" value={settings.recentStreamerMinWatch} onChange={(value) => update('recentStreamerMinWatch', value)} />
                   <NumberField label="Recent stream days" value={settings.recentStreamerDays} onChange={(value) => update('recentStreamerDays', value)} />
                 </div>
                 <div className="split">
                   <NumberField label="Page size" value={settings.recentStreamerPageSize} onChange={(value) => update('recentStreamerPageSize', value)} />
-                  <NumberField label="Shoutout delay seconds" value={settings.recentStreamerDelay} onChange={(value) => update('recentStreamerDelay', value)} />
+                  <NumberField label="Shoutout delay seconds" value={settings.recentStreamerDelay} min={5} onChange={(value) => update('recentStreamerDelay', value)} />
                 </div>
+                <TextArea label="!soroulette streamer pool" value={settings.soRouletteStreamers} onChange={(value) => update('soRouletteStreamers', value)} />
               </FeaturePanel>
               <FeaturePanel title="Ad alerts" summary="Scheduled ad warnings and fallback messages.">
                 <div className="info-callout">

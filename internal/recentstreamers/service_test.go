@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,11 +15,15 @@ import (
 )
 
 type fakeChat struct {
+	mu      sync.Mutex
 	sent    []string
 	failFor map[string]bool
 }
 
 func (f *fakeChat) Say(_ string, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.failFor[text] {
 		return errors.New("send failed")
 	}
@@ -26,11 +31,21 @@ func (f *fakeChat) Say(_ string, text string) error {
 	return nil
 }
 
+func (f *fakeChat) Sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.sent...)
+}
+
 type fakeHelix struct {
 	users       map[string]twitch.UserInfo
 	streamedAt  map[string]time.Time
+	following   map[string]bool
+	streamInfo  twitch.StreamInfo
 	userCalls   int
 	streamCalls int
+	followCalls int
 }
 
 func (f *fakeHelix) GetUsersByLogin(_ context.Context, logins []string) ([]twitch.UserInfo, error) {
@@ -50,8 +65,20 @@ func (f *fakeHelix) GetRecentStream(_ context.Context, userID string) (time.Time
 	return streamedAt, ok, nil
 }
 
+func (f *fakeHelix) IsChannelFollower(_ context.Context, _ string, userID string) (bool, error) {
+	f.followCalls++
+	if f.following == nil {
+		return true, nil
+	}
+	return f.following[userID], nil
+}
+
 func (f *fakeHelix) GetChatters(context.Context, string, string) ([]twitch.Chatter, error) {
 	return nil, nil
+}
+
+func (f *fakeHelix) GetStreamInfo(context.Context, string) (twitch.StreamInfo, error) {
+	return f.streamInfo, nil
 }
 
 func TestSnapshotAccruesOnlyWhilePresent(t *testing.T) {
@@ -69,6 +96,14 @@ func TestSnapshotAccruesOnlyWhilePresent(t *testing.T) {
 	}
 	if candidates[0].Watch != 10*time.Minute {
 		t.Fatalf("watch = %s, want 10m", candidates[0].Watch)
+	}
+}
+
+func TestNewDefaultsShoutoutDelayToFiveSeconds(t *testing.T) {
+	service := testService(&fakeChat{}, &fakeHelix{})
+
+	if service.cfg.ShoutoutDelay != 5*time.Second {
+		t.Fatalf("shoutout delay = %s, want 5s", service.cfg.ShoutoutDelay)
 	}
 }
 
@@ -148,6 +183,48 @@ func TestBuildQueueExcludesChannelOwner(t *testing.T) {
 	}
 }
 
+func TestBuildQueueRequiresFollowers(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	helix := &fakeHelix{
+		users: map[string]twitch.UserInfo{
+			"alice": {ID: "1", Login: "alice", DisplayName: "Alice"},
+			"bob":   {ID: "2", Login: "bob", DisplayName: "Bob"},
+		},
+		streamedAt: map[string]time.Time{
+			"1": now.Add(-1 * time.Hour),
+			"2": now.Add(-2 * time.Hour),
+		},
+		following: map[string]bool{
+			"1": true,
+			"2": false,
+		},
+	}
+	service := testService(&fakeChat{}, helix)
+	service.ApplySnapshot(now.Add(-20*time.Minute), []ViewerIdentity{
+		{Login: "alice", DisplayName: "Alice"},
+		{Login: "bob", DisplayName: "Bob"},
+	})
+	service.ApplySnapshot(now, []ViewerIdentity{
+		{Login: "alice", DisplayName: "Alice"},
+		{Login: "bob", DisplayName: "Bob"},
+	})
+
+	queue, err := service.buildQueue(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(queue) != 1 || queue[0].Login != "alice" {
+		t.Fatalf("queue = %#v, want only follower alice", queue)
+	}
+	if helix.followCalls != 2 {
+		t.Fatalf("follower checks = %d, want 2", helix.followCalls)
+	}
+	if helix.streamCalls != 1 {
+		t.Fatalf("stream checks = %d, want only follower stream checked", helix.streamCalls)
+	}
+}
+
 func TestStatusExcludesChannelOwnerFromWatchedCount(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	service := testService(&fakeChat{}, &fakeHelix{})
@@ -202,7 +279,52 @@ func TestHandleCommandRejectsUnauthorizedStatus(t *testing.T) {
 	if !handled {
 		t.Fatal("expected !autoso status to be handled")
 	}
-	if len(chat.sent) != 1 || chat.sent[0] != "Only mods or the broadcaster can run streamer shoutouts." {
+	if len(chat.sent) != 1 || chat.sent[0] != "Only mods or the broadcaster can run !autoso." {
+		t.Fatalf("sent = %#v", chat.sent)
+	}
+}
+
+func TestHandleCommandUsesSeparateSORoulettePermission(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.Permission = "broadcaster"
+	service.cfg.SORoulettePermission = "everyone"
+	service.cfg.ShoutoutDelay = 0
+	service.cfg.RouletteStreamers = []string{"alice", "bob", "cara", "dane", "evie"}
+
+	handled := service.HandleCommand(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "!soroulette",
+	})
+
+	if !handled {
+		t.Fatal("expected !soroulette to be handled")
+	}
+	waitForSent(t, chat, 6)
+	if sent := chat.Sent(); len(sent) != 6 {
+		t.Fatalf("sent = %#v, want roulette summary plus five shoutouts", sent)
+	}
+}
+
+func TestHandleCommandRejectsUnauthorizedSORoulette(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.Permission = "everyone"
+	service.cfg.SORoulettePermission = "broadcaster"
+
+	handled := service.HandleCommand(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "!soroulette",
+	})
+
+	if !handled {
+		t.Fatal("expected !soroulette to be handled")
+	}
+	if len(chat.sent) != 1 || chat.sent[0] != "Only the broadcaster can run !soroulette." {
 		t.Fatalf("sent = %#v", chat.sent)
 	}
 }
@@ -237,6 +359,133 @@ func TestSendNextPagesAndMarksOnlySuccessfulShoutouts(t *testing.T) {
 	service.sendNext(context.Background(), "lastursa")
 	if got := chat.sent[len(chat.sent)-1]; got != "!so @cara" {
 		t.Fatalf("next page last message = %q, want !so @cara", got)
+	}
+}
+
+func TestSendNextSkipsAlreadyShoutedStreamer(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.ShoutoutDelay = 0
+	service.queue = []Candidate{
+		{Login: "alice"},
+		{Login: "bob"},
+	}
+	service.markShouted("alice")
+
+	service.sendNext(context.Background(), "lastursa")
+
+	want := []string{
+		"Shouting out 1 streamer(s). 0 left in queue.",
+		"!so @bob",
+	}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
+func TestSendNextBackfillsAlreadyShoutedStreamer(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.PageSize = 5
+	service.cfg.ShoutoutDelay = 0
+	service.queue = []Candidate{
+		{Login: "alice"},
+		{Login: "bob"},
+		{Login: "cara"},
+		{Login: "dane"},
+		{Login: "evie"},
+		{Login: "finn"},
+	}
+	service.markShouted("cara")
+
+	service.sendNext(context.Background(), "lastursa")
+
+	want := []string{
+		"Shouting out 5 streamer(s). 0 left in queue.",
+		"!so @alice",
+		"!so @bob",
+		"!so @dane",
+		"!so @evie",
+		"!so @finn",
+	}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
+func TestSORouletteSelectsConfiguredUnshoutedStreamers(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.ShoutoutDelay = 0
+	service.cfg.RouletteStreamers = []string{"alice", "bob", "cara", "dane", "evie", "finn"}
+	service.markShouted("bob")
+
+	service.sendRoulette(context.Background(), "lastursa")
+
+	if len(chat.sent) != 6 {
+		t.Fatalf("sent = %#v, want summary plus five shoutouts", chat.sent)
+	}
+	if chat.sent[0] != "Roulette picked 5 streamer(s)." {
+		t.Fatalf("summary = %q", chat.sent[0])
+	}
+	seen := map[string]bool{}
+	for _, text := range chat.sent[1:] {
+		if text == "!so @bob" {
+			t.Fatalf("roulette included already shouted streamer: %#v", chat.sent)
+		}
+		if seen[text] {
+			t.Fatalf("duplicate roulette shoutout %q in %#v", text, chat.sent)
+		}
+		seen[text] = true
+	}
+}
+
+func TestSORouletteBackfillsAlreadyShoutedStreamers(t *testing.T) {
+	chat := &fakeChat{}
+	service := testService(chat, &fakeHelix{})
+	service.cfg.ShoutoutDelay = 0
+	service.cfg.RouletteStreamers = []string{"alice", "bob", "cara", "dane", "evie", "finn", "gail"}
+	service.markShouted("alice")
+	service.markShouted("dane")
+
+	service.sendRoulette(context.Background(), "lastursa")
+
+	if len(chat.sent) != 6 {
+		t.Fatalf("sent = %#v, want summary plus five shoutouts", chat.sent)
+	}
+	if chat.sent[0] != "Roulette picked 5 streamer(s)." {
+		t.Fatalf("summary = %q", chat.sent[0])
+	}
+	for _, text := range chat.sent[1:] {
+		if text == "!so @alice" || text == "!so @dane" {
+			t.Fatalf("roulette included already shouted streamer: %#v", chat.sent)
+		}
+	}
+}
+
+func TestShoutoutLedgerResetsForNewStream(t *testing.T) {
+	started := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	chat := &fakeChat{}
+	helix := &fakeHelix{streamInfo: twitch.StreamInfo{Live: true, StartedAt: started}}
+	service := testService(chat, helix)
+	service.cfg.ShoutoutDelay = 0
+	service.queue = []Candidate{{Login: "alice"}}
+
+	service.sendNext(context.Background(), "lastursa")
+	if !service.shoutedThisRun["alice"] {
+		t.Fatal("alice should be marked shouted")
+	}
+
+	helix.streamInfo = twitch.StreamInfo{Live: true, StartedAt: started.Add(24 * time.Hour)}
+	if err := service.syncStreamRun(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	service.queue = []Candidate{{Login: "alice"}}
+	service.sendNext(context.Background(), "lastursa")
+
+	wantLast := "!so @alice"
+	if got := chat.sent[len(chat.sent)-1]; got != wantLast {
+		t.Fatalf("last sent = %q, want %q after new stream reset", got, wantLast)
 	}
 }
 
@@ -283,6 +532,7 @@ func TestRecentStreamersCommandSimulation(t *testing.T) {
 	chat := &fakeChat{}
 	service := testService(chat, helix)
 	service.cfg.PageSize = 5
+	service.cfg.ShoutoutDelay = 0
 
 	service.ApplySnapshot(now.Add(-20*time.Minute), []ViewerIdentity{
 		{Login: "the_polar_pop", DisplayName: "the_polar_pop"},
@@ -316,10 +566,22 @@ func TestRecentStreamersCommandSimulation(t *testing.T) {
 func testService(chat *fakeChat, helix *fakeHelix) *Service {
 	return New(Config{
 		Channel:       "lastursa",
+		BroadcasterID: "broadcaster",
 		MinWatch:      10 * time.Minute,
 		RecentWindow:  14 * 24 * time.Hour,
 		PageSize:      5,
 		ShoutoutDelay: 0,
 		CacheTTL:      6 * time.Hour,
 	}, chat, helix, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func waitForSent(t *testing.T, chat *fakeChat, count int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if len(chat.Sent()) >= count {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

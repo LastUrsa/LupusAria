@@ -90,14 +90,16 @@ type SnapshotCropConfig struct {
 }
 
 type RecentStreamersConfig struct {
-	Enabled             bool
-	Permission          string
-	MinWatch            time.Duration
-	RecentWindow        time.Duration
-	PageSize            int
-	ShoutoutDelay       time.Duration
-	CacheTTL            time.Duration
-	ChatterPollInterval time.Duration
+	Enabled              bool
+	Permission           string
+	SORoulettePermission string
+	RouletteStreamers    []string
+	MinWatch             time.Duration
+	RecentWindow         time.Duration
+	PageSize             int
+	ShoutoutDelay        time.Duration
+	CacheTTL             time.Duration
+	ChatterPollInterval  time.Duration
 }
 
 type AdAlertsConfig struct {
@@ -114,6 +116,8 @@ type AnnouncementsConfig struct {
 	Path         string
 	PollInterval time.Duration
 }
+
+const minRecentStreamerShoutoutDelay = 5 * time.Second
 
 func Load(envPath string) (Config, error) {
 	return load(envPath, true)
@@ -215,14 +219,16 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			},
 		},
 		RecentStreamers: RecentStreamersConfig{
-			Enabled:             getBool(values, "AUTOSO_ENABLED", true),
-			Permission:          commandPermission(values, "AUTOSO_COMMAND_PERMISSION", "mods"),
-			MinWatch:            time.Duration(getInt(values, "RECENT_STREAMER_MIN_WATCH_MINUTES", 15)) * time.Minute,
-			RecentWindow:        time.Duration(getInt(values, "RECENT_STREAMER_RECENT_DAYS", 14)) * 24 * time.Hour,
-			PageSize:            getInt(values, "RECENT_STREAMER_PAGE_SIZE", 5),
-			ShoutoutDelay:       time.Duration(getInt(values, "RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS", 2)) * time.Second,
-			CacheTTL:            time.Duration(getInt(values, "RECENT_STREAMER_CACHE_HOURS", 6)) * time.Hour,
-			ChatterPollInterval: time.Duration(getInt(values, "RECENT_STREAMER_CHATTERS_POLL_SECONDS", 60)) * time.Second,
+			Enabled:              getBool(values, "AUTOSO_ENABLED", true),
+			Permission:           commandPermission(values, "AUTOSO_COMMAND_PERMISSION", "mods"),
+			SORoulettePermission: commandPermission(values, "SO_ROULETTE_COMMAND_PERMISSION", get(values, "AUTOSO_COMMAND_PERMISSION", "mods")),
+			RouletteStreamers:    parseLoginList(get(values, "SO_ROULETTE_STREAMERS", "")),
+			MinWatch:             time.Duration(getInt(values, "RECENT_STREAMER_MIN_WATCH_MINUTES", 15)) * time.Minute,
+			RecentWindow:         time.Duration(getInt(values, "RECENT_STREAMER_RECENT_DAYS", 14)) * 24 * time.Hour,
+			PageSize:             getInt(values, "RECENT_STREAMER_PAGE_SIZE", 5),
+			ShoutoutDelay:        time.Duration(getInt(values, "RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS", 5)) * time.Second,
+			CacheTTL:             time.Duration(getInt(values, "RECENT_STREAMER_CACHE_HOURS", 6)) * time.Hour,
+			ChatterPollInterval:  time.Duration(getInt(values, "RECENT_STREAMER_CHATTERS_POLL_SECONDS", 60)) * time.Second,
 		},
 		AdAlerts: AdAlertsConfig{
 			Enabled:        getBool(values, "AD_ALERTS_ENABLED", false),
@@ -247,8 +253,16 @@ func load(envPath string, validateRequired bool) (Config, error) {
 	if err := validateRanges(cfg); err != nil {
 		return Config{}, err
 	}
+	cfg = normalizeEffectiveValues(cfg)
 
 	return cfg, nil
+}
+
+func normalizeEffectiveValues(cfg Config) Config {
+	if cfg.RecentStreamers.ShoutoutDelay < minRecentStreamerShoutoutDelay {
+		cfg.RecentStreamers.ShoutoutDelay = minRecentStreamerShoutoutDelay
+	}
+	return cfg
 }
 
 func validate(cfg Config) error {
@@ -480,6 +494,22 @@ func getBool(values map[string]string, key string, fallback bool) bool {
 
 func normalizeChannel(channel string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(channel)), "#")
+}
+
+func parseLoginList(value string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}) {
+		login := normalizeChannel(strings.TrimPrefix(strings.TrimSpace(field), "@"))
+		if login == "" || seen[login] {
+			continue
+		}
+		seen[login] = true
+		out = append(out, login)
+	}
+	return out
 }
 
 func defaultAIPrices(provider, model string) (float64, float64) {

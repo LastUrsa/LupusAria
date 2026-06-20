@@ -433,7 +433,7 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 			b.say(msg.Channel, permissionDeniedMessage("!commands", b.cfg.CommandsPermission))
 			return true
 		}
-		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !autoso, !autoso next, !autoso refresh, !autoso status.", b.cfg.Name))
+		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !autoso, !autoso next, !autoso refresh, !autoso status, !soroulette.", b.cfg.Name))
 		return true
 	case b.cfg.EnableReset && lower == "!reset":
 		if !b.commandAllowed(msg, b.cfg.ResetPermission) {
