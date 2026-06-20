@@ -15,14 +15,14 @@ This file tracks public chat behavior, command scope, and AI usage.
 | `!game analyze <question>` | Everyone | Yes | Combines thumbnail analysis with Google Search grounding for visual gameplay help. |
 | `!commands` | Everyone | No | Shows public commands only. Does not expose private config or costs. |
 | `!reset` | Broadcaster | No | Clears in-memory chat context. |
-| `!autoso` | Broadcaster | No | Builds an eligible streamer queue and sends the first page. |
-| `!autoso next` | Broadcaster | No | Sends the next page from the current queue. |
-| `!autoso refresh` | Broadcaster | No | Rebuilds the queue from current watch-time and stream-history data. |
-| `!autoso status` | Broadcaster | No | Shows tracker counts without cost or secret details. |
-| Configured announcement commands | Broadcaster | No | Sends static messages configured in the desktop app. |
+| `!autoso` | Mods + broadcaster | No | Builds an eligible streamer queue and sends the first page. |
+| `!autoso next` | Mods + broadcaster | No | Sends the next page from the current queue. |
+| `!autoso refresh` | Mods + broadcaster | No | Rebuilds the queue from current watch-time and stream-history data. |
+| `!autoso status` | Mods + broadcaster | No | Shows tracker counts without cost or secret details. |
+| Configured announcement commands | Per announcement | No | Sends static messages configured in the desktop app. |
 | Ad alerts | Automatic | Yes | Uses AI by default; configured messages are fallbacks. |
 
-Broadcaster commands are restricted to the channel owner. The bot checks Twitch IRC tags when available and falls back to matching the username against the channel name.
+Permissions use three configurable tiers: everyone, mods plus broadcaster, and broadcaster only. The desktop app's Features tab can change the permission tier for mentions, `!ask`, `!lurk`, `!game`, `!commands`, `!reset`, and AutoSO commands. Each configured command announcement also has its own permission selector in the announcement editor. The bot checks Twitch IRC tags when available. Broadcaster checks also fall back to matching the username against the channel name.
 AI requests cannot make LupusAria run chat commands. If a viewer asks Lupus to type or trigger a command such as `!so`, `/ban`, or `/timeout`, the bot refuses and points them to a mod or the broadcaster.
 
 `!game` search and snapshot features require Gemini. Search uses Gemini's built-in Google Search grounding tool. Snapshot analysis uses Twitch's public preview thumbnail, so it can lag behind the live stream and should be treated as approximate. By default, snapshots are cropped to the game capture area before analysis with `GAME_SNAPSHOT_CROP_X=0.255`, `GAME_SNAPSHOT_CROP_Y=0.085`, `GAME_SNAPSHOT_CROP_WIDTH=0.73`, and `GAME_SNAPSHOT_CROP_HEIGHT=0.73`.
@@ -36,6 +36,12 @@ They are governed by:
 
 - `GLOBAL_COOLDOWN_SECONDS`
 - `USER_COOLDOWN_SECONDS`
+- `MENTION_PERMISSION`
+- `ASK_COMMAND_PERMISSION`
+- `LURK_COMMAND_PERMISSION`
+- `GAME_COMMAND_PERMISSION`
+- `COMMANDS_COMMAND_PERMISSION`
+- `RESET_COMMAND_PERMISSION`
 - `MAX_AI_REQUESTS_PER_HOUR`
 - `DAILY_AI_BUDGET_USD`
 - `MONTHLY_AI_BUDGET_USD`
@@ -67,6 +73,7 @@ RECENT_STREAMER_PAGE_SIZE=5
 RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=2
 RECENT_STREAMER_CACHE_HOURS=6
 RECENT_STREAMER_CHATTERS_POLL_SECONDS=60
+AUTOSO_COMMAND_PERMISSION=mods
 ```
 
 The streamer running the channel is excluded from AutoSO results.
@@ -98,7 +105,7 @@ Announcements are static messages managed in the desktop app. They do not call A
 
 Types:
 
-- Command announcements: broadcaster-only commands such as `!music`.
+- Command announcements: static commands such as `!music`, with permissions configured per row.
 - Timer announcements: messages based on elapsed stream time from Twitch's stream start time.
 
 Announcement rows are stored locally at `ANNOUNCEMENTS_PATH`, which defaults to `.lupusaria-announcements.json`.

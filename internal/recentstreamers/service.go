@@ -24,6 +24,7 @@ type Helix interface {
 
 type Config struct {
 	Channel             string
+	Permission          string
 	BroadcasterID       string
 	ModeratorID         string
 	MinWatch            time.Duration
@@ -103,6 +104,7 @@ func New(cfg Config, chat Chat, helix Helix, logger *slog.Logger) *Service {
 	if cfg.ChatterPollInterval <= 0 {
 		cfg.ChatterPollInterval = time.Minute
 	}
+	cfg.Permission = normalizePermission(cfg.Permission, "mods")
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -200,8 +202,8 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 		return false
 	}
 
-	if !msg.IsBroadcaster && !strings.EqualFold(msg.Username, msg.Channel) {
-		_ = s.chat.Say(msg.Channel, "Only the broadcaster can run streamer shoutouts.")
+	if !permissionAllows(s.cfg.Permission, msg) {
+		_ = s.chat.Say(msg.Channel, permissionDeniedMessage(s.cfg.Permission, "streamer shoutouts"))
 		return true
 	}
 
@@ -504,6 +506,43 @@ func (s *Service) isChannelOwner(login string) bool {
 
 func normalizeLogin(login string) string {
 	return strings.ToLower(strings.TrimSpace(strings.TrimPrefix(login, "@")))
+}
+
+func permissionAllows(permission string, msg twitch.Message) bool {
+	switch normalizePermission(permission, "everyone") {
+	case "everyone":
+		return true
+	case "mods":
+		return msg.IsBroadcaster || msg.IsMod || strings.EqualFold(msg.Username, msg.Channel)
+	case "broadcaster":
+		return msg.IsBroadcaster || strings.EqualFold(msg.Username, msg.Channel)
+	default:
+		return true
+	}
+}
+
+func normalizePermission(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "everyone":
+		return "everyone"
+	case "mods", "mod":
+		return "mods"
+	case "broadcaster", "streamer", "owner":
+		return "broadcaster"
+	default:
+		return fallback
+	}
+}
+
+func permissionDeniedMessage(permission, subject string) string {
+	switch normalizePermission(permission, "everyone") {
+	case "mods":
+		return fmt.Sprintf("Only mods or the broadcaster can run %s.", subject)
+	case "broadcaster":
+		return fmt.Sprintf("Only the broadcaster can run %s.", subject)
+	default:
+		return ""
+	}
 }
 
 func roundDuration(d time.Duration) string {

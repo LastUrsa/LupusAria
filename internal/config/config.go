@@ -61,6 +61,12 @@ type BotConfig struct {
 	EnableLurk         bool
 	EnableCommands     bool
 	EnableReset        bool
+	MentionPermission  string
+	AskPermission      string
+	LurkPermission     string
+	GamePermission     string
+	CommandsPermission string
+	ResetPermission    string
 	MaxContextMessages int
 	StreamContextTTL   time.Duration
 	GlobalCooldown     time.Duration
@@ -83,6 +89,7 @@ type SnapshotCropConfig struct {
 
 type RecentStreamersConfig struct {
 	Enabled             bool
+	Permission          string
 	MinWatch            time.Duration
 	RecentWindow        time.Duration
 	PageSize            int
@@ -180,6 +187,12 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			EnableLurk:         getBool(values, "ENABLE_LURK_COMMAND", true),
 			EnableCommands:     getBool(values, "ENABLE_COMMANDS_COMMAND", true),
 			EnableReset:        getBool(values, "ENABLE_RESET_COMMAND", true),
+			MentionPermission:  commandPermission(values, "MENTION_PERMISSION", "everyone"),
+			AskPermission:      commandPermission(values, "ASK_COMMAND_PERMISSION", "everyone"),
+			LurkPermission:     commandPermission(values, "LURK_COMMAND_PERMISSION", "everyone"),
+			GamePermission:     commandPermission(values, "GAME_COMMAND_PERMISSION", "everyone"),
+			CommandsPermission: commandPermission(values, "COMMANDS_COMMAND_PERMISSION", "everyone"),
+			ResetPermission:    commandPermission(values, "RESET_COMMAND_PERMISSION", "broadcaster"),
 			MaxContextMessages: getInt(values, "MAX_CONTEXT_MESSAGES", 30),
 			StreamContextTTL:   time.Duration(getInt(values, "STREAM_CONTEXT_TTL_SECONDS", 120)) * time.Second,
 			GlobalCooldown:     time.Duration(getInt(values, "GLOBAL_COOLDOWN_SECONDS", 6)) * time.Second,
@@ -199,6 +212,7 @@ func load(envPath string, validateRequired bool) (Config, error) {
 		},
 		RecentStreamers: RecentStreamersConfig{
 			Enabled:             getBool(values, "AUTOSO_ENABLED", true),
+			Permission:          commandPermission(values, "AUTOSO_COMMAND_PERMISSION", "mods"),
 			MinWatch:            time.Duration(getInt(values, "RECENT_STREAMER_MIN_WATCH_MINUTES", 15)) * time.Minute,
 			RecentWindow:        time.Duration(getInt(values, "RECENT_STREAMER_RECENT_DAYS", 14)) * 24 * time.Hour,
 			PageSize:            getInt(values, "RECENT_STREAMER_PAGE_SIZE", 5),
@@ -351,6 +365,23 @@ func resolveLocalPath(baseDir, value string) string {
 		return value
 	}
 	return filepath.Join(baseDir, value)
+}
+
+func commandPermission(values map[string]string, key, fallback string) string {
+	return normalizeCommandPermission(get(values, key, fallback), normalizeCommandPermission(fallback, "everyone"))
+}
+
+func normalizeCommandPermission(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "everyone", "all", "public", "viewer", "viewers":
+		return "everyone"
+	case "mods", "mod", "moderator", "moderators", "mod-or-broadcaster", "mods+broadcaster":
+		return "mods"
+	case "broadcaster", "streamer", "owner":
+		return "broadcaster"
+	default:
+		return fallback
+	}
 }
 
 func adWarningLead(values map[string]string) time.Duration {

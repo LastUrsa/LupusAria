@@ -134,6 +134,13 @@ func (s *Service) poll(ctx context.Context) {
 		s.logger.Warn("ad alert polling failed; will retry", "error", err)
 		return
 	}
+	s.logger.Info("ad alert schedule polled",
+		"next_ad_at", formatLogTime(schedule.NextAdAt),
+		"last_ad_at", formatLogTime(schedule.LastAdAt),
+		"duration", schedule.Duration,
+		"preroll_free_time", schedule.PrerollFreeTime,
+		"snooze_count", schedule.SnoozeCount,
+	)
 	s.HandleSchedule(schedule)
 }
 
@@ -147,6 +154,7 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 		s.sendEnd(ctx, schedule.Duration)
 	}
 	if schedule.NextAdAt.IsZero() || schedule.Duration <= 0 {
+		s.logger.Info("ad alert schedule has no upcoming ad", "next_ad_at", formatLogTime(schedule.NextAdAt), "duration", schedule.Duration)
 		return
 	}
 
@@ -161,6 +169,12 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 			}
 			s.say(ctx, Event{Kind: EventWarning, Lead: lead, Duration: schedule.Duration}, fmt.Sprintf(s.cfg.WarningMessage, formatLead(lead)))
 			s.warnedAdKey = key
+		} else {
+			s.logger.Info("ad alert waiting for warning window",
+				"starts_at", formatLogTime(startAt),
+				"warning_opens_at", formatLogTime(startAt.Add(-s.cfg.WarningLead)),
+				"warning_lead", s.cfg.WarningLead,
+			)
 		}
 		return
 	}
@@ -176,6 +190,13 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 		s.activeEndAt = endAt
 		s.sendEnd(ctx, schedule.Duration)
 	}
+}
+
+func formatLogTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func (s *Service) sendEnd(ctx context.Context, duration time.Duration) {
@@ -200,7 +221,9 @@ func (s *Service) say(ctx context.Context, event Event, fallback string) {
 	}
 	if err := s.chat.Say(s.cfg.Channel, text); err != nil {
 		s.logger.Warn("failed to send ad alert", "event", event.Kind, "error", err)
+		return
 	}
+	s.logger.Info("ad alert sent", "event", event.Kind, "channel", s.cfg.Channel)
 }
 
 func formatLead(d time.Duration) string {

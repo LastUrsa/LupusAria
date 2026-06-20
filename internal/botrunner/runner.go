@@ -99,6 +99,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		if cfg.RecentStreamers.Enabled {
 			recentService = recentstreamers.New(recentstreamers.Config{
 				Channel:             cfg.Twitch.Channel,
+				Permission:          cfg.RecentStreamers.Permission,
 				BroadcasterID:       broadcasterID,
 				ModeratorID:         moderatorID,
 				MinWatch:            cfg.RecentStreamers.MinWatch,
@@ -135,6 +136,12 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		EnableLurk:            cfg.Bot.EnableLurk,
 		EnableCommands:        cfg.Bot.EnableCommands,
 		EnableReset:           cfg.Bot.EnableReset,
+		MentionPermission:     cfg.Bot.MentionPermission,
+		AskPermission:         cfg.Bot.AskPermission,
+		LurkPermission:        cfg.Bot.LurkPermission,
+		GamePermission:        cfg.Bot.GamePermission,
+		CommandsPermission:    cfg.Bot.CommandsPermission,
+		ResetPermission:       cfg.Bot.ResetPermission,
 		MaxContextMessages:    cfg.Bot.MaxContextMessages,
 		StreamContextTTL:      cfg.Bot.StreamContextTTL,
 		GlobalCooldown:        cfg.Bot.GlobalCooldown,
@@ -186,9 +193,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		)
 	}
 
-	if adService != nil {
-		adService.Start(ctx)
-	}
+	runner.SetAdAlerts(adService)
 
 	err = runner.Run(ctx)
 	if errors.Is(err, context.Canceled) {

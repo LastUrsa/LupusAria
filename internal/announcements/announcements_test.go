@@ -33,11 +33,12 @@ func (f fakeStream) GetStreamInfo(context.Context, string) (twitch.StreamInfo, e
 func TestSaveAndLoadRoundTripWithOwnerOnlyMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "announcements.json")
 	items := []Announcement{{
-		ID:      "music",
-		Enabled: true,
-		Kind:    KindCommand,
-		Command: " !Music ",
-		Message: "Music links are in chat.",
+		ID:         "music",
+		Enabled:    true,
+		Kind:       KindCommand,
+		Command:    " !Music ",
+		Permission: "broadcaster",
+		Message:    "Music links are in chat.",
 	}}
 
 	if err := Save(path, items); err != nil {
@@ -47,7 +48,7 @@ func TestSaveAndLoadRoundTripWithOwnerOnlyMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded) != 1 || loaded[0].Command != "!music" {
+	if len(loaded) != 1 || loaded[0].Command != "!music" || loaded[0].Permission != "broadcaster" {
 		t.Fatalf("loaded = %#v", loaded)
 	}
 	info, err := os.Stat(path)
@@ -59,21 +60,22 @@ func TestSaveAndLoadRoundTripWithOwnerOnlyMode(t *testing.T) {
 	}
 }
 
-func TestHandleCommandSendsBroadcasterAnnouncement(t *testing.T) {
+func TestHandleCommandSendsAuthorizedAnnouncement(t *testing.T) {
 	chat := &fakeChat{}
 	service := New(Config{
 		Enabled: true,
 		Channel: "lastursa",
 		Items: []Announcement{{
-			ID:      "music",
-			Enabled: true,
-			Kind:    KindCommand,
-			Command: "!music",
-			Message: "Ursa's music is on Bandcamp.",
+			ID:         "music",
+			Enabled:    true,
+			Kind:       KindCommand,
+			Command:    "!music",
+			Permission: "mods",
+			Message:    "Ursa's music is on Bandcamp.",
 		}},
 	}, chat, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	handled := service.HandleCommand(context.Background(), twitch.Message{Channel: "lastursa", Text: "!music"}, true)
+	handled := service.HandleCommand(context.Background(), twitch.Message{Channel: "lastursa", Text: "!music", IsMod: true})
 
 	if !handled {
 		t.Fatal("expected command to be handled")
@@ -83,20 +85,48 @@ func TestHandleCommandSendsBroadcasterAnnouncement(t *testing.T) {
 	}
 }
 
-func TestHandleCommandRejectsNonBroadcaster(t *testing.T) {
+func TestHandleCommandRejectsUnauthorizedUser(t *testing.T) {
 	chat := &fakeChat{}
 	service := New(Config{
 		Enabled: true,
-		Items:   []Announcement{{Enabled: true, Kind: KindCommand, Command: "!music", Message: "Music."}},
+		Items:   []Announcement{{Enabled: true, Kind: KindCommand, Command: "!music", Permission: "mods", Message: "Music."}},
 	}, chat, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	handled := service.HandleCommand(context.Background(), twitch.Message{Channel: "lastursa", Text: "!music"}, false)
+	handled := service.HandleCommand(context.Background(), twitch.Message{Channel: "lastursa", Text: "!music"})
 
 	if !handled {
 		t.Fatal("expected command to be handled")
 	}
-	if len(chat.sent) != 1 || chat.sent[0] != "Only the broadcaster can use announcement commands." {
+	if len(chat.sent) != 1 || chat.sent[0] != "Only mods or the broadcaster can use !music." {
 		t.Fatalf("sent = %#v", chat.sent)
+	}
+}
+
+func TestHandleCommandUsesPerAnnouncementPermission(t *testing.T) {
+	chat := &fakeChat{}
+	service := New(Config{
+		Enabled: true,
+		Items: []Announcement{
+			{Enabled: true, Kind: KindCommand, Command: "!public", Permission: "everyone", Message: "Public."},
+			{Enabled: true, Kind: KindCommand, Command: "!owner", Permission: "broadcaster", Message: "Owner."},
+		},
+	}, chat, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if !service.HandleCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", Text: "!public"}) {
+		t.Fatal("expected !public to be handled")
+	}
+	if !service.HandleCommand(context.Background(), twitch.Message{Channel: "lastursa", Username: "viewer", Text: "!owner"}) {
+		t.Fatal("expected !owner to be handled")
+	}
+
+	want := []string{"Public.", "Only the broadcaster can use !owner."}
+	if len(chat.sent) != len(want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+	for i := range want {
+		if chat.sent[i] != want[i] {
+			t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+		}
 	}
 }
 

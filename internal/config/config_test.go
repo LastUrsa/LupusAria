@@ -46,7 +46,14 @@ ENABLE_ASK_COMMAND=no
 ENABLE_LURK_COMMAND=0
 ENABLE_COMMANDS_COMMAND=false
 ENABLE_RESET_COMMAND=true
+MENTION_PERMISSION=mods
+ASK_COMMAND_PERMISSION=everyone
+LURK_COMMAND_PERMISSION=mods
+GAME_COMMAND_PERMISSION=everyone
+COMMANDS_COMMAND_PERMISSION=everyone
+RESET_COMMAND_PERMISSION=broadcaster
 AUTOSO_ENABLED=on
+AUTOSO_COMMAND_PERMISSION=mods
 AD_ALERT_WARNING_MINUTES=8
 AD_ALERT_POLL_SECONDS=45
 ANNOUNCEMENTS_ENABLED=true
@@ -67,8 +74,14 @@ ANNOUNCEMENT_POLL_SECONDS=20
 	if !cfg.Bot.EnableReset {
 		t.Fatal("reset should remain enabled")
 	}
+	if cfg.Bot.MentionPermission != "mods" || cfg.Bot.AskPermission != "everyone" || cfg.Bot.LurkPermission != "mods" || cfg.Bot.GamePermission != "everyone" || cfg.Bot.CommandsPermission != "everyone" || cfg.Bot.ResetPermission != "broadcaster" {
+		t.Fatalf("command permissions = %#v", cfg.Bot)
+	}
 	if !cfg.RecentStreamers.Enabled {
 		t.Fatal("autoso should be enabled")
+	}
+	if cfg.RecentStreamers.Permission != "mods" {
+		t.Fatalf("autoso permission = %q", cfg.RecentStreamers.Permission)
 	}
 	if cfg.AdAlerts.WarningLead != 8*time.Minute || cfg.AdAlerts.PollInterval != 45*time.Second {
 		t.Fatalf("ad alerts = %#v", cfg.AdAlerts)

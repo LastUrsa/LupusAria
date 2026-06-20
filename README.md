@@ -13,7 +13,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Optional streamer knowledge injection from a local editable Markdown file.
 - Gemini-powered `!game` search and optional stream-thumbnail analysis with configurable game-area crop.
 - AutoSO tracking from chatters, watch time, and recent stream history.
-- Configurable command and stream-timer announcements.
+- Configurable command and stream-timer announcements, including per-command announcement permissions.
 - Optional ad alerts with Twitch ad schedule support.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
 - Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
@@ -60,7 +60,7 @@ Build the executable:
 /home/don/go/bin/wails build
 ```
 
-The app can start and stop the bot from Overview, manage account setup, edit AI and budget settings, toggle feature behavior, tune the `!game` snapshot crop, maintain streamer knowledge, and show recent activity.
+The app can start and stop the bot from Overview, manage account setup, edit AI and budget settings, configure command permissions, toggle feature behavior, tune the `!game` snapshot crop, maintain streamer knowledge, and show recent activity.
 
 On Linux, Wails requires WebKitGTK development packages. If Wails reports `Package 'webkit2gtk-4.0' not found`, install the Wails Linux dependencies for your distro and rerun the build.
 If your distro provides `webkit2gtk-4.1` instead, build with:
@@ -79,7 +79,7 @@ Installed app settings are stored in the current user's config folder, not besid
 
 Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
 The Setup tab includes streamer name and streamer pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
-Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, or command.
+Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, command, or command permission.
 
 ## Twitch Tokens
 
@@ -105,7 +105,7 @@ Use an ads refresh token when possible. LupusAria refreshes the ads access token
 
 ## Cost Controls
 
-AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context.
+AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context. A small in-memory queue absorbs short bursts of AI commands; when the queue is full, new AI requests are skipped silently in chat and logged locally.
 
 Relevant settings:
 

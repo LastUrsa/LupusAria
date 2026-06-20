@@ -5,6 +5,7 @@ export namespace main {
 	    enabled: boolean;
 	    kind: string;
 	    command: string;
+	    permission: string;
 	    afterMinutes: number;
 	    repeatMinutes: number;
 	    message: string;
@@ -19,6 +20,7 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	        this.kind = source["kind"];
 	        this.command = source["command"];
+	        this.permission = source["permission"];
 	        this.afterMinutes = source["afterMinutes"];
 	        this.repeatMinutes = source["repeatMinutes"];
 	        this.message = source["message"];
@@ -66,6 +68,13 @@ export namespace main {
 	    enableLurk: boolean;
 	    enableCommands: boolean;
 	    enableReset: boolean;
+	    mentionPermission: string;
+	    askPermission: string;
+	    lurkPermission: string;
+	    gamePermission: string;
+	    commandsPermission: string;
+	    resetPermission: string;
+	    autosoPermission: string;
 	    globalCooldownSeconds: number;
 	    userCooldownSeconds: number;
 	    maxContextMessages: number;
@@ -135,6 +144,13 @@ export namespace main {
 	        this.enableLurk = source["enableLurk"];
 	        this.enableCommands = source["enableCommands"];
 	        this.enableReset = source["enableReset"];
+	        this.mentionPermission = source["mentionPermission"];
+	        this.askPermission = source["askPermission"];
+	        this.lurkPermission = source["lurkPermission"];
+	        this.gamePermission = source["gamePermission"];
+	        this.commandsPermission = source["commandsPermission"];
+	        this.resetPermission = source["resetPermission"];
+	        this.autosoPermission = source["autosoPermission"];
 	        this.globalCooldownSeconds = source["globalCooldownSeconds"];
 	        this.userCooldownSeconds = source["userCooldownSeconds"];
 	        this.maxContextMessages = source["maxContextMessages"];

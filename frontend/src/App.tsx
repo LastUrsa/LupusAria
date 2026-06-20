@@ -31,6 +31,12 @@ const announcementKindOptions = [
   { value: 'timer', label: 'Timer' }
 ]
 
+const permissionOptions = [
+  { value: 'everyone', label: 'Everyone' },
+  { value: 'mods', label: 'Mods + broadcaster' },
+  { value: 'broadcaster', label: 'Broadcaster only' }
+]
+
 const emptySettings: Settings = {
   running: false,
   status: 'Loading',
@@ -73,6 +79,13 @@ const emptySettings: Settings = {
   enableLurk: true,
   enableCommands: true,
   enableReset: true,
+  mentionPermission: 'everyone',
+  askPermission: 'everyone',
+  lurkPermission: 'everyone',
+  gamePermission: 'everyone',
+  commandsPermission: 'everyone',
+  resetPermission: 'broadcaster',
+  autosoPermission: 'mods',
   globalCooldownSeconds: 6,
   userCooldownSeconds: 20,
   maxContextMessages: 30,
@@ -237,6 +250,7 @@ export default function App() {
         enabled: true,
         kind,
         command: kind === 'command' ? `!${kind}${nextNumber}` : '',
+        permission: kind === 'command' ? 'mods' : '',
         afterMinutes: kind === 'timer' ? 30 : 0,
         repeatMinutes: kind === 'timer' ? 0 : 0,
         message: ''
@@ -428,6 +442,18 @@ export default function App() {
                   <Toggle label="Enable !reset" checked={settings.enableReset} onChange={(value) => update('enableReset', value)} />
                 </div>
                 <div className="split">
+                  <SelectField label="Mention permission" value={settings.mentionPermission} options={permissionOptions} onChange={(value) => update('mentionPermission', value)} />
+                  <SelectField label="!ask permission" value={settings.askPermission} options={permissionOptions} onChange={(value) => update('askPermission', value)} />
+                </div>
+                <div className="split">
+                  <SelectField label="!lurk permission" value={settings.lurkPermission} options={permissionOptions} onChange={(value) => update('lurkPermission', value)} />
+                  <SelectField label="!game permission" value={settings.gamePermission} options={permissionOptions} onChange={(value) => update('gamePermission', value)} />
+                </div>
+                <div className="split">
+                  <SelectField label="!commands permission" value={settings.commandsPermission} options={permissionOptions} onChange={(value) => update('commandsPermission', value)} />
+                  <SelectField label="!reset permission" value={settings.resetPermission} options={permissionOptions} onChange={(value) => update('resetPermission', value)} />
+                </div>
+                <div className="split">
                   <NumberField label="Global cooldown seconds" value={settings.globalCooldownSeconds} onChange={(value) => update('globalCooldownSeconds', value)} />
                   <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
                 </div>
@@ -449,6 +475,7 @@ export default function App() {
               </FeaturePanel>
               <FeaturePanel title="AutoSO" summary="Recent streamer shoutout queue and timing." defaultOpen>
                 <Toggle label="Enable AutoSO" checked={settings.autosoEnabled} onChange={(value) => update('autosoEnabled', value)} />
+                <SelectField label="Command permission" value={settings.autosoPermission} options={permissionOptions} onChange={(value) => update('autosoPermission', value)} />
                 <div className="split">
                   <NumberField label="Minimum watch minutes" value={settings.recentStreamerMinWatch} onChange={(value) => update('recentStreamerMinWatch', value)} />
                   <NumberField label="Recent stream days" value={settings.recentStreamerDays} onChange={(value) => update('recentStreamerDays', value)} />
@@ -581,7 +608,10 @@ function AnnouncementSummarySection({
                         <NumberField label="Repeat interval minutes" value={item.repeatMinutes} onChange={(value) => updateAnnouncement(index, 'repeatMinutes', value)} />
                       </>
                     ) : (
-                      <TextField label="Command" value={item.command} onChange={(value) => updateAnnouncement(index, 'command', value)} />
+                      <>
+                        <TextField label="Command" value={item.command} onChange={(value) => updateAnnouncement(index, 'command', value)} />
+                        <SelectField label="Permission" value={item.permission || 'mods'} options={permissionOptions} onChange={(value) => updateAnnouncement(index, 'permission', value)} />
+                      </>
                     )}
                   </div>
                   <TextArea label="Message" value={item.message} onChange={(value) => updateAnnouncement(index, 'message', value)} />
