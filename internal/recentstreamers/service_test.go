@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,16 +15,27 @@ import (
 )
 
 type fakeChat struct {
+	mu      sync.Mutex
 	sent    []string
 	failFor map[string]bool
 }
 
 func (f *fakeChat) Say(_ string, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.failFor[text] {
 		return errors.New("send failed")
 	}
 	f.sent = append(f.sent, text)
 	return nil
+}
+
+func (f *fakeChat) Sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([]string(nil), f.sent...)
 }
 
 type fakeHelix struct {
@@ -291,8 +303,8 @@ func TestHandleCommandUsesSeparateSORoulettePermission(t *testing.T) {
 		t.Fatal("expected !soroulette to be handled")
 	}
 	waitForSent(t, chat, 6)
-	if len(chat.sent) != 6 {
-		t.Fatalf("sent = %#v, want roulette summary plus five shoutouts", chat.sent)
+	if sent := chat.Sent(); len(sent) != 6 {
+		t.Fatalf("sent = %#v, want roulette summary plus five shoutouts", sent)
 	}
 }
 
@@ -567,7 +579,7 @@ func waitForSent(t *testing.T, chat *fakeChat, count int) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if len(chat.sent) >= count {
+		if len(chat.Sent()) >= count {
 			return
 		}
 		time.Sleep(time.Millisecond)
