@@ -56,6 +56,9 @@ type Config struct {
 	OutputPricePerMillion float64
 	BudgetStatePath       string
 	ChatLogPath           string
+	EmoteCachePath        string
+	EnableEmoteContext    bool
+	ChannelEmotes         []twitch.Emote
 	SnapshotCrop          SnapshotCrop
 	Knowledge             knowledge.Base
 }
@@ -83,6 +86,7 @@ type Bot struct {
 	ann    *announcements.Service
 	ad     *adalerts.Service
 	know   knowledge.Base
+	emotes *emoteDescriber
 	logger *slog.Logger
 
 	contextMu     sync.Mutex
@@ -123,6 +127,10 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 		streamContext = newCachedStreamContext(streamProvider, cfg.StreamContextTTL)
 	}
 	chat = WithChatLogging(chat, cfg.ChatLogPath, logger, cfg.Name)
+	var emotes *emoteDescriber
+	if cfg.EnableEmoteContext {
+		emotes = newEmoteDescriber(cfg.EmoteCachePath, aiClient, logger, cfg.ChannelEmotes)
+	}
 	return &Bot{
 		cfg:  cfg,
 		chat: chat,
@@ -140,6 +148,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 		recent:        recentStreamers,
 		ann:           announcementService,
 		know:          cfg.Knowledge,
+		emotes:        emotes,
 		logger:        logger,
 		aiQueue:       make(chan queuedAIRequest, aiQueueCapacity),
 		aiPendingUser: map[string]bool{},
@@ -702,7 +711,7 @@ func (b *Bot) waitForCooldown(ctx context.Context, username string) error {
 }
 
 func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request aiRequest) []ai.Message {
-	chatContext := b.formatChatContext(msg, time.Now())
+	chatContext := b.formatChatContext(ctx, msg, time.Now())
 
 	streamInfo := twitch.StreamInfo{}
 	streamOK := false
@@ -714,7 +723,7 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 		}
 	}
 	streamContext := formatStreamContext(streamInfo, streamOK)
-	replyContext := formatReplyContext(msg)
+	replyContext := joinContextLines(formatReplyContext(msg), b.formatEmoteContext(ctx, msg, true))
 	knowledgeQuery := request.Prompt
 	if msg.ReplyParentText != "" {
 		knowledgeQuery += "\n" + msg.ReplyParentText
@@ -730,6 +739,62 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 		})},
 		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, knowledgeContext, replyContext, chatContext, msg.DisplayName, request.Prompt)},
 	}
+}
+
+func (b *Bot) formatEmoteContext(ctx context.Context, msg twitch.Message, allowDescribe bool) string {
+	if b == nil || b.emotes == nil {
+		return ""
+	}
+	var describe func(context.Context, twitch.Emote, []byte, string) (string, bool)
+	if allowDescribe {
+		describe = b.describeEmoteImage
+	}
+	known := b.emotes.MessageEmotes(msg)
+	return joinContextLines(
+		b.emotes.Context(ctx, msg, describe),
+		formatPossibleEmoteContext(msg.Text, known),
+	)
+}
+
+func (b *Bot) describeEmoteImage(ctx context.Context, emote twitch.Emote, image []byte, mimeType string) (string, bool) {
+	analyzer, ok := b.ai.(ai.ImageAnalyzer)
+	if !ok {
+		return "", false
+	}
+	if decision := b.budget.Allow(time.Now()); !decision.Allowed {
+		if b.logger != nil {
+			b.logger.Warn("emote description blocked by budget guard", "emote_id", emote.ID, "emote_name", emote.Name, "reason", decision.Reason)
+		}
+		return "", false
+	}
+	prompt := fmt.Sprintf(`Describe this Twitch emote so a chat AI can understand viewer intent.
+
+Rules:
+- Reply with only a short description, no preamble.
+- Do not repeat the raw emote token %q.
+- Prioritize emotional meaning, meme/reference cues, or tone over literal detail.
+- If the image contains a recognizable symbol, icon, pride flag, or pop-culture reference, name it cautiously.
+- Keep it under 140 characters.`, emote.Name)
+	response, err := analyzer.AnalyzeImage(ctx, prompt, image, mimeType)
+	if err != nil {
+		if b.logger != nil {
+			b.logger.Warn("failed to describe twitch emote", "emote_id", emote.ID, "emote_name", emote.Name, "error", err)
+		}
+		return "", false
+	}
+	receipt := b.budget.Record(time.Now(), []ai.Message{{Role: "user", Content: prompt}}, response)
+	if b.logger != nil {
+		b.logger.Info("emote description ai usage recorded",
+			"emote_id", emote.ID,
+			"emote_name", emote.Name,
+			"input_tokens", receipt.InputTokens,
+			"output_tokens", receipt.OutputTokens,
+			"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
+			"estimated", receipt.Estimated,
+		)
+	}
+	description := cleanEmoteDescription(response.Text)
+	return description, description != ""
 }
 
 func (b *Bot) ComposeAdAlert(ctx context.Context, event adalerts.Event) (string, error) {
@@ -797,17 +862,18 @@ type chatLogger struct {
 }
 
 type chatLogEntry struct {
-	At                     string `json:"at"`
-	Direction              string `json:"direction"`
-	Channel                string `json:"channel"`
-	Username               string `json:"username"`
-	DisplayName            string `json:"displayName"`
-	Text                   string `json:"text"`
-	IsBroadcaster          bool   `json:"isBroadcaster,omitempty"`
-	IsMod                  bool   `json:"isMod,omitempty"`
-	ReplyParentDisplayName string `json:"replyParentDisplayName,omitempty"`
-	ReplyParentUserLogin   string `json:"replyParentUserLogin,omitempty"`
-	ReplyParentText        string `json:"replyParentText,omitempty"`
+	At                     string         `json:"at"`
+	Direction              string         `json:"direction"`
+	Channel                string         `json:"channel"`
+	Username               string         `json:"username"`
+	DisplayName            string         `json:"displayName"`
+	Text                   string         `json:"text"`
+	Emotes                 []twitch.Emote `json:"emotes,omitempty"`
+	IsBroadcaster          bool           `json:"isBroadcaster,omitempty"`
+	IsMod                  bool           `json:"isMod,omitempty"`
+	ReplyParentDisplayName string         `json:"replyParentDisplayName,omitempty"`
+	ReplyParentUserLogin   string         `json:"replyParentUserLogin,omitempty"`
+	ReplyParentText        string         `json:"replyParentText,omitempty"`
 }
 
 type loggingChat struct {
@@ -874,6 +940,7 @@ func (c *loggingChat) write(direction string, msg twitch.Message) {
 		Username:               msg.Username,
 		DisplayName:            msg.DisplayName,
 		Text:                   msg.Text,
+		Emotes:                 msg.Emotes,
 		IsBroadcaster:          msg.IsBroadcaster,
 		IsMod:                  msg.IsMod,
 		ReplyParentDisplayName: msg.ReplyParentDisplayName,
@@ -927,7 +994,7 @@ func (b *Bot) recentContext() []chatContextEntry {
 	return append([]chatContextEntry(nil), b.context...)
 }
 
-func (b *Bot) formatChatContext(current twitch.Message, now time.Time) string {
+func (b *Bot) formatChatContext(ctx context.Context, current twitch.Message, now time.Time) string {
 	items := b.recentContext()
 	filtered := make([]chatContextEntry, 0, len(items))
 	for _, item := range items {
@@ -960,6 +1027,9 @@ func (b *Bot) formatChatContext(current twitch.Message, now time.Time) string {
 		fmt.Fprintf(&out, "- %s %s: %s\n", formatContextAge(now.Sub(item.Remembered)), displayNameForContext(item.Message), strings.TrimSpace(item.Message.Text))
 		if reply := formatReplyContext(item.Message); reply != "" {
 			fmt.Fprintf(&out, "  %s\n", reply)
+		}
+		if emotes := b.formatEmoteContext(ctx, item.Message, false); emotes != "" {
+			fmt.Fprintf(&out, "  %s\n", emotes)
 		}
 	}
 	return strings.TrimSpace(out.String())
@@ -1533,6 +1603,17 @@ func formatReplyContext(msg twitch.Message) string {
 		name = "previous message"
 	}
 	return fmt.Sprintf("Reply context: %s said: %s", name, text)
+}
+
+func joinContextLines(lines ...string) string {
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func (b *Bot) isBroadcaster(msg twitch.Message) bool {

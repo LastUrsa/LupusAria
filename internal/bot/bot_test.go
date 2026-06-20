@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,12 @@ type fakeChat struct {
 	mu       sync.Mutex
 	sent     []string
 	incoming []twitch.Message
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func (f *fakeChat) Connect(context.Context) (<-chan twitch.Message, error) {
@@ -197,7 +204,7 @@ func TestServiceBotMessagesAreNotRememberedForAIContext(t *testing.T) {
 		Text:        "The deck is looking spicy.",
 	})
 
-	context := b.formatChatContext(twitch.Message{
+	context := b.formatChatContext(context.Background(), twitch.Message{
 		Channel:     "lastursa",
 		Username:    "other",
 		DisplayName: "Other",
@@ -976,6 +983,168 @@ func TestBuildAIMessagesStructuresChatContext(t *testing.T) {
 	}
 }
 
+func TestBuildAIMessagesIncludesCurrentMessageEmoteContext(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		MaxContextMessages: 30,
+		EnableEmoteContext: true,
+		EmoteCachePath:     filepath.Join(t.TempDir(), "emotes.json"),
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	current := twitch.Message{
+		Channel:     "lastursa",
+		Username:    "foxhound8492nd",
+		DisplayName: "Foxhound8492nd",
+		Text:        "@LupusAria foxhou33Renegade",
+		Emotes:      []twitch.Emote{{ID: "foxhou33-renegade", Name: "foxhou33Renegade", Count: 1}},
+	}
+
+	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "foxhou33Renegade"})
+	userPrompt := messages[1].Content
+	for _, want := range []string{
+		"Current request: Foxhound8492nd asks: foxhou33Renegade",
+		"Emote context: foxhou33Renegade = custom Twitch emote; visual meaning unknown",
+	} {
+		if !strings.Contains(userPrompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, userPrompt)
+		}
+	}
+}
+
+func TestBuildAIMessagesFlagsPossibleThirdPartyEmoteToken(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		MaxContextMessages: 30,
+		EnableEmoteContext: true,
+		EmoteCachePath:     filepath.Join(t.TempDir(), "emotes.json"),
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	current := twitch.Message{
+		Channel:     "lastursa",
+		Username:    "foxhound8492nd",
+		DisplayName: "Foxhound8492nd",
+		Text:        "@LupusAria foxhou33Renegade",
+	}
+
+	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "foxhou33Renegade"})
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Possible emote tokens: foxhou33Renegade = possible custom/third-party emote or meme token; meaning unknown") {
+		t.Fatalf("prompt missing possible emote token context:\n%s", userPrompt)
+	}
+}
+
+func TestBuildAIMessagesRecognizesChannelEmoteCatalog(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		MaxContextMessages: 30,
+		EnableEmoteContext: true,
+		EmoteCachePath:     filepath.Join(t.TempDir(), "emotes.json"),
+		ChannelEmotes:      []twitch.Emote{{ID: "lastur-pride", Name: "lasturPride", Count: 1}},
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	current := twitch.Message{
+		Channel:     "lastursa",
+		Username:    "lastursa",
+		DisplayName: "LastUrsa",
+		Text:        "@LupusAria lasturPride",
+	}
+
+	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "lasturPride"})
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Emote context: lasturPride = custom Twitch emote; visual meaning unknown") {
+		t.Fatalf("prompt missing channel emote catalog context:\n%s", userPrompt)
+	}
+	if strings.Contains(userPrompt, "Possible emote tokens: lasturPride") {
+		t.Fatalf("known channel emote should not be treated as merely possible:\n%s", userPrompt)
+	}
+}
+
+func TestBuildAIMessagesUsesCachedEmoteDescription(t *testing.T) {
+	chat := &fakeChat{}
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		MaxContextMessages: 30,
+		EnableEmoteContext: true,
+		EmoteCachePath:     filepath.Join(t.TempDir(), "emotes.json"),
+	}, chat, fakeAI{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.emotes.store(twitch.Emote{ID: "foxhou33-renegade", Name: "foxhou33Renegade"}, "ReBoot-style renegade icon, identity-change reference")
+
+	current := twitch.Message{
+		Channel:     "lastursa",
+		Username:    "foxhound8492nd",
+		DisplayName: "Foxhound8492nd",
+		Text:        "@LupusAria foxhou33Renegade",
+		Emotes:      []twitch.Emote{{ID: "foxhou33-renegade", Name: "foxhou33Renegade", Count: 1}},
+	}
+
+	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "foxhou33Renegade"})
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Emote context: foxhou33Renegade = ReBoot-style renegade icon, identity-change reference") {
+		t.Fatalf("prompt missing cached emote description:\n%s", userPrompt)
+	}
+}
+
+func TestBuildAIMessagesDescribesAndCachesUnknownNativeEmote(t *testing.T) {
+	chat := &fakeChat{}
+	aiClient := &fakeGameAI{imageText: "ReBoot-style renegade icon, identity-change reference"}
+	cachePath := filepath.Join(t.TempDir(), "emotes.json")
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		MaxContextMessages: 30,
+		EnableEmoteContext: true,
+		EmoteCachePath:     cachePath,
+	}, chat, aiClient, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.emotes.client = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.String(), "foxhou33-renegade") {
+			t.Fatalf("unexpected emote image URL: %s", req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"image/png"}},
+			Body:       io.NopCloser(strings.NewReader("png bytes")),
+			Request:    req,
+		}, nil
+	})}
+
+	current := twitch.Message{
+		Channel:     "lastursa",
+		Username:    "foxhound8492nd",
+		DisplayName: "Foxhound8492nd",
+		Text:        "@LupusAria foxhou33Renegade",
+		Emotes:      []twitch.Emote{{ID: "foxhou33-renegade", Name: "foxhou33Renegade", Count: 1}},
+	}
+
+	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "foxhou33Renegade"})
+	userPrompt := messages[1].Content
+	if !strings.Contains(userPrompt, "Emote context: foxhou33Renegade = ReBoot-style renegade icon, identity-change reference") {
+		t.Fatalf("prompt missing generated emote description:\n%s", userPrompt)
+	}
+	if len(aiClient.imagePrompts) != 1 || !strings.Contains(aiClient.imagePrompts[0], "Describe this Twitch emote") {
+		t.Fatalf("image prompts = %#v", aiClient.imagePrompts)
+	}
+	raw, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "identity-change reference") {
+		t.Fatalf("cache missing generated description:\n%s", string(raw))
+	}
+}
+
 func TestBuildAIMessagesChatContextPromptExample(t *testing.T) {
 	chat := &fakeChat{}
 	b := New(Config{
@@ -1389,6 +1558,7 @@ func TestLoggingChatWritesInboundAndOutboundMessages(t *testing.T) {
 		Username:    "viewer",
 		DisplayName: "Viewer",
 		Text:        "@LupusAria hello",
+		Emotes:      []twitch.Emote{{ID: "25", Name: "Kappa", Count: 1}},
 	}}}
 	chat := WithChatLogging(inner, path, slog.New(slog.NewTextHandler(io.Discard, nil)), "LupusAria")
 	messages, err := chat.Connect(context.Background())
@@ -1413,7 +1583,7 @@ func TestLoggingChatWritesInboundAndOutboundMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := string(raw)
-	for _, want := range []string{`"direction":"in"`, `"direction":"out"`, `"text":"@LupusAria hello"`, `"text":"@Viewer Hello there."`} {
+	for _, want := range []string{`"direction":"in"`, `"direction":"out"`, `"text":"@LupusAria hello"`, `"text":"@Viewer Hello there."`, `"emotes":[{"id":"25","name":"Kappa","count":1}]`} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("chat log missing %q:\n%s", want, log)
 		}

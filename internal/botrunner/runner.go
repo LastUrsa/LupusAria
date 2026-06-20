@@ -91,11 +91,21 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	var announcementService *announcements.Service
 	var adService *adalerts.Service
 	var broadcasterID string
+	var channelEmotes []twitch.Emote
 	if cfg.Twitch.ClientID != "" {
 		helix = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
 		streamProvider = helix
 		var moderatorID string
 		broadcasterID, moderatorID = resolveRecentStreamerIDs(ctx, helix, cfg.Twitch.Channel, cfg.Twitch.BotUsername, logger)
+		if cfg.Bot.EnableEmoteContext && broadcasterID != "" {
+			emotes, err := helix.GetChannelEmotes(ctx, broadcasterID)
+			if err != nil {
+				logger.Warn("failed to load channel emote catalog; continuing with IRC emote tags only", "error", err)
+			} else {
+				channelEmotes = convertChannelEmotes(emotes)
+				logger.Info("loaded channel emote catalog", "count", len(channelEmotes))
+			}
+		}
 		if cfg.RecentStreamers.Enabled {
 			recentService = recentstreamers.New(recentstreamers.Config{
 				Channel:             cfg.Twitch.Channel,
@@ -153,6 +163,9 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		OutputPricePerMillion: cfg.AI.OutputPricePerMillion,
 		BudgetStatePath:       cfg.Bot.BudgetStatePath,
 		ChatLogPath:           cfg.Bot.ChatLogPath,
+		EmoteCachePath:        cfg.Bot.EmoteCachePath,
+		EnableEmoteContext:    cfg.Bot.EnableEmoteContext,
+		ChannelEmotes:         channelEmotes,
 		SnapshotCrop: bot.SnapshotCrop{
 			Enabled: cfg.Bot.SnapshotCrop.Enabled,
 			X:       cfg.Bot.SnapshotCrop.X,
@@ -200,6 +213,17 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		return nil
 	}
 	return err
+}
+
+func convertChannelEmotes(items []twitch.ChannelEmote) []twitch.Emote {
+	emotes := make([]twitch.Emote, 0, len(items))
+	for _, item := range items {
+		if item.ID == "" || item.Name == "" {
+			continue
+		}
+		emotes = append(emotes, twitch.Emote{ID: item.ID, Name: item.Name, Count: 1})
+	}
+	return emotes
 }
 
 type adScheduleHelix interface {

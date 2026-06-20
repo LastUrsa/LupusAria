@@ -181,3 +181,17 @@ func TestConvertAdScheduleMapsFields(t *testing.T) {
 		t.Fatalf("schedule = %#v", got)
 	}
 }
+
+func TestConvertChannelEmotesMapsCatalog(t *testing.T) {
+	got := convertChannelEmotes([]twitch.ChannelEmote{
+		{ID: "111", Name: "lasturPride"},
+		{ID: "", Name: "ignored"},
+	})
+
+	if len(got) != 1 {
+		t.Fatalf("emotes = %#v, want one", got)
+	}
+	if got[0].ID != "111" || got[0].Name != "lasturPride" || got[0].Count != 1 {
+		t.Fatalf("emote = %#v", got[0])
+	}
+}

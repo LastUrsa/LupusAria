@@ -43,3 +43,20 @@ func TestParseMessageExtractsReplyContext(t *testing.T) {
 		t.Fatalf("reply parent text = %q", msg.ReplyParentText)
 	}
 }
+
+func TestParseMessageExtractsEmotes(t *testing.T) {
+	raw := `@badges=;display-name=Foxhound8492nd;emotes=emote-123:11-26/emote-456:28-32,34-38 :foxhound8492nd!foxhound8492nd@foxhound8492nd.tmi.twitch.tv PRIVMSG #lastursa :@LupusAria foxhou33Renegade Kappa Kappa`
+	msg, ok := parseMessage(raw)
+	if !ok {
+		t.Fatal("expected message to parse")
+	}
+	if len(msg.Emotes) != 2 {
+		t.Fatalf("emotes = %#v, want two", msg.Emotes)
+	}
+	if msg.Emotes[0].ID != "emote-123" || msg.Emotes[0].Name != "foxhou33Renegade" || msg.Emotes[0].Count != 1 {
+		t.Fatalf("first emote = %#v", msg.Emotes[0])
+	}
+	if msg.Emotes[1].ID != "emote-456" || msg.Emotes[1].Name != "Kappa" || msg.Emotes[1].Count != 2 {
+		t.Fatalf("second emote = %#v", msg.Emotes[1])
+	}
+}

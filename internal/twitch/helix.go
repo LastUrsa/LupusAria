@@ -33,6 +33,11 @@ type Chatter struct {
 	UserName  string
 }
 
+type ChannelEmote struct {
+	ID   string
+	Name string
+}
+
 type AdSchedule struct {
 	NextAdAt        time.Time
 	LastAdAt        time.Time
@@ -193,6 +198,30 @@ func (c *HelixClient) GetChatters(ctx context.Context, broadcasterID, moderatorI
 		}
 		cursor = result.Pagination.Cursor
 	}
+}
+
+func (c *HelixClient) GetChannelEmotes(ctx context.Context, broadcasterID string) ([]ChannelEmote, error) {
+	values := url.Values{}
+	values.Set("broadcaster_id", strings.TrimSpace(broadcasterID))
+
+	endpoint := "https://api.twitch.tv/helix/chat/emotes?" + values.Encode()
+	var result struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"data"`
+	}
+	if err := c.getJSON(ctx, endpoint, &result); err != nil {
+		return nil, err
+	}
+	emotes := make([]ChannelEmote, 0, len(result.Data))
+	for _, item := range result.Data {
+		if item.ID == "" || item.Name == "" {
+			continue
+		}
+		emotes = append(emotes, ChannelEmote{ID: item.ID, Name: item.Name})
+	}
+	return emotes, nil
 }
 
 func (c *HelixClient) GetAdSchedule(ctx context.Context, broadcasterID string) (AdSchedule, error) {

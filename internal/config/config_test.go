@@ -52,6 +52,8 @@ LURK_COMMAND_PERMISSION=mods
 GAME_COMMAND_PERMISSION=everyone
 COMMANDS_COMMAND_PERMISSION=everyone
 RESET_COMMAND_PERMISSION=broadcaster
+ENABLE_EMOTE_CONTEXT=true
+EMOTE_CACHE_PATH=.custom-emotes.json
 AUTOSO_ENABLED=on
 AUTOSO_COMMAND_PERMISSION=mods
 AD_ALERT_WARNING_MINUTES=8
@@ -76,6 +78,10 @@ ANNOUNCEMENT_POLL_SECONDS=20
 	}
 	if cfg.Bot.MentionPermission != "mods" || cfg.Bot.AskPermission != "everyone" || cfg.Bot.LurkPermission != "mods" || cfg.Bot.GamePermission != "everyone" || cfg.Bot.CommandsPermission != "everyone" || cfg.Bot.ResetPermission != "broadcaster" {
 		t.Fatalf("command permissions = %#v", cfg.Bot)
+	}
+	wantEmoteCachePath := filepath.Join(filepath.Dir(envPath), ".custom-emotes.json")
+	if !cfg.Bot.EnableEmoteContext || cfg.Bot.EmoteCachePath != wantEmoteCachePath {
+		t.Fatalf("emote context config = enabled %v path %q, want enabled path %q", cfg.Bot.EnableEmoteContext, cfg.Bot.EmoteCachePath, wantEmoteCachePath)
 	}
 	if !cfg.RecentStreamers.Enabled {
 		t.Fatal("autoso should be enabled")

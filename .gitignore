@@ -8,6 +8,7 @@
 .lupusaria-announcements.json
 .lupusaria-knowledge.md
 .lupusaria-chat.jsonl
+.lupusaria-emotes.json
 examples/knowledge/ursa.md
 /bin/
 /build/*
