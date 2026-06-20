@@ -78,13 +78,14 @@ type ControlSettings struct {
 	EnableCommands bool `json:"enableCommands"`
 	EnableReset    bool `json:"enableReset"`
 
-	MentionPermission  string `json:"mentionPermission"`
-	AskPermission      string `json:"askPermission"`
-	LurkPermission     string `json:"lurkPermission"`
-	GamePermission     string `json:"gamePermission"`
-	CommandsPermission string `json:"commandsPermission"`
-	ResetPermission    string `json:"resetPermission"`
-	AutosoPermission   string `json:"autosoPermission"`
+	MentionPermission    string `json:"mentionPermission"`
+	AskPermission        string `json:"askPermission"`
+	LurkPermission       string `json:"lurkPermission"`
+	GamePermission       string `json:"gamePermission"`
+	CommandsPermission   string `json:"commandsPermission"`
+	ResetPermission      string `json:"resetPermission"`
+	AutosoPermission     string `json:"autosoPermission"`
+	SORoulettePermission string `json:"soRoulettePermission"`
 
 	GlobalCooldownSeconds int `json:"globalCooldownSeconds"`
 	UserCooldownSeconds   int `json:"userCooldownSeconds"`
@@ -96,11 +97,12 @@ type ControlSettings struct {
 	GameSnapshotCropWidth   float64 `json:"gameSnapshotCropWidth"`
 	GameSnapshotCropHeight  float64 `json:"gameSnapshotCropHeight"`
 
-	AutosoEnabled          bool `json:"autosoEnabled"`
-	RecentStreamerMinWatch int  `json:"recentStreamerMinWatch"`
-	RecentStreamerDays     int  `json:"recentStreamerDays"`
-	RecentStreamerPageSize int  `json:"recentStreamerPageSize"`
-	RecentStreamerDelay    int  `json:"recentStreamerDelay"`
+	AutosoEnabled          bool   `json:"autosoEnabled"`
+	RecentStreamerMinWatch int    `json:"recentStreamerMinWatch"`
+	RecentStreamerDays     int    `json:"recentStreamerDays"`
+	RecentStreamerPageSize int    `json:"recentStreamerPageSize"`
+	RecentStreamerDelay    int    `json:"recentStreamerDelay"`
+	SORouletteStreamers    string `json:"soRouletteStreamers"`
 
 	AdAlertsEnabled  bool   `json:"adAlertsEnabled"`
 	AdWarningMinutes int    `json:"adWarningMinutes"`
@@ -188,13 +190,14 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		EnableCommands: cfg.Bot.EnableCommands,
 		EnableReset:    cfg.Bot.EnableReset,
 
-		MentionPermission:  cfg.Bot.MentionPermission,
-		AskPermission:      cfg.Bot.AskPermission,
-		LurkPermission:     cfg.Bot.LurkPermission,
-		GamePermission:     cfg.Bot.GamePermission,
-		CommandsPermission: cfg.Bot.CommandsPermission,
-		ResetPermission:    cfg.Bot.ResetPermission,
-		AutosoPermission:   cfg.RecentStreamers.Permission,
+		MentionPermission:    cfg.Bot.MentionPermission,
+		AskPermission:        cfg.Bot.AskPermission,
+		LurkPermission:       cfg.Bot.LurkPermission,
+		GamePermission:       cfg.Bot.GamePermission,
+		CommandsPermission:   cfg.Bot.CommandsPermission,
+		ResetPermission:      cfg.Bot.ResetPermission,
+		AutosoPermission:     cfg.RecentStreamers.Permission,
+		SORoulettePermission: cfg.RecentStreamers.SORoulettePermission,
 
 		GlobalCooldownSeconds: int(cfg.Bot.GlobalCooldown / time.Second),
 		UserCooldownSeconds:   int(cfg.Bot.UserCooldown / time.Second),
@@ -211,6 +214,7 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		RecentStreamerDays:     int(cfg.RecentStreamers.RecentWindow / (24 * time.Hour)),
 		RecentStreamerPageSize: cfg.RecentStreamers.PageSize,
 		RecentStreamerDelay:    int(cfg.RecentStreamers.ShoutoutDelay / time.Second),
+		SORouletteStreamers:    strings.Join(cfg.RecentStreamers.RouletteStreamers, "\n"),
 
 		AdAlertsEnabled:  cfg.AdAlerts.Enabled,
 		AdWarningMinutes: displayMinutes(cfg.AdAlerts.WarningLead),
@@ -259,13 +263,14 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"ENABLE_COMMANDS_COMMAND":  boolString(settings.EnableCommands),
 		"ENABLE_RESET_COMMAND":     boolString(settings.EnableReset),
 
-		"MENTION_PERMISSION":          settings.MentionPermission,
-		"ASK_COMMAND_PERMISSION":      settings.AskPermission,
-		"LURK_COMMAND_PERMISSION":     settings.LurkPermission,
-		"GAME_COMMAND_PERMISSION":     settings.GamePermission,
-		"COMMANDS_COMMAND_PERMISSION": settings.CommandsPermission,
-		"RESET_COMMAND_PERMISSION":    settings.ResetPermission,
-		"AUTOSO_COMMAND_PERMISSION":   settings.AutosoPermission,
+		"MENTION_PERMISSION":             settings.MentionPermission,
+		"ASK_COMMAND_PERMISSION":         settings.AskPermission,
+		"LURK_COMMAND_PERMISSION":        settings.LurkPermission,
+		"GAME_COMMAND_PERMISSION":        settings.GamePermission,
+		"COMMANDS_COMMAND_PERMISSION":    settings.CommandsPermission,
+		"RESET_COMMAND_PERMISSION":       settings.ResetPermission,
+		"AUTOSO_COMMAND_PERMISSION":      settings.AutosoPermission,
+		"SO_ROULETTE_COMMAND_PERMISSION": settings.SORoulettePermission,
 
 		"GLOBAL_COOLDOWN_SECONDS": strconv.Itoa(settings.GlobalCooldownSeconds),
 		"USER_COOLDOWN_SECONDS":   strconv.Itoa(settings.UserCooldownSeconds),
@@ -281,7 +286,8 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"RECENT_STREAMER_MIN_WATCH_MINUTES":      strconv.Itoa(settings.RecentStreamerMinWatch),
 		"RECENT_STREAMER_RECENT_DAYS":            strconv.Itoa(settings.RecentStreamerDays),
 		"RECENT_STREAMER_PAGE_SIZE":              strconv.Itoa(settings.RecentStreamerPageSize),
-		"RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS": strconv.Itoa(settings.RecentStreamerDelay),
+		"RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS": strconv.Itoa(minInt(settings.RecentStreamerDelay, 5)),
+		"SO_ROULETTE_STREAMERS":                  formatLoginList(settings.SORouletteStreamers),
 
 		"AD_ALERTS_ENABLED":        boolString(settings.AdAlertsEnabled),
 		"AD_ALERT_WARNING_MINUTES": strconv.Itoa(settings.AdWarningMinutes),
@@ -634,4 +640,27 @@ func displayMinutes(value time.Duration) int {
 		return 1
 	}
 	return minutes
+}
+
+func minInt(value, minimum int) int {
+	if value < minimum {
+		return minimum
+	}
+	return value
+}
+
+func formatLoginList(value string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}) {
+		login := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(field, "@")))
+		if login == "" || seen[login] {
+			continue
+		}
+		seen[login] = true
+		out = append(out, login)
+	}
+	return strings.Join(out, ",")
 }

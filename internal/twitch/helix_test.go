@@ -82,6 +82,41 @@ func TestGetRecentStreamParsesLatestArchive(t *testing.T) {
 	}
 }
 
+func TestIsChannelFollowerChecksSpecificUser(t *testing.T) {
+	client := newTestHelixClient(t, func(req *http.Request) string {
+		query := req.URL.Query()
+		if req.URL.Path != "/helix/channels/followers" {
+			t.Fatalf("path = %q, want /helix/channels/followers", req.URL.Path)
+		}
+		if query.Get("broadcaster_id") != "broadcaster" || query.Get("user_id") != "viewer" {
+			t.Fatalf("query = %s", query.Encode())
+		}
+		return `{"data":[{"user_id":"viewer","user_login":"viewer","user_name":"Viewer"}],"pagination":{},"total":1}`
+	})
+
+	follows, err := client.IsChannelFollower(context.Background(), "broadcaster", "viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !follows {
+		t.Fatal("expected user to follow channel")
+	}
+}
+
+func TestIsChannelFollowerReturnsFalseForEmptyResult(t *testing.T) {
+	client := newTestHelixClient(t, func(*http.Request) string {
+		return `{"data":[],"pagination":{},"total":0}`
+	})
+
+	follows, err := client.IsChannelFollower(context.Background(), "broadcaster", "viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if follows {
+		t.Fatal("expected empty follower result to be false")
+	}
+}
+
 func TestGetChattersHandlesPagination(t *testing.T) {
 	calls := 0
 	client := newTestHelixClient(t, func(req *http.Request) string {

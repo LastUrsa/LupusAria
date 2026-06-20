@@ -56,6 +56,8 @@ ENABLE_EMOTE_CONTEXT=true
 EMOTE_CACHE_PATH=.custom-emotes.json
 AUTOSO_ENABLED=on
 AUTOSO_COMMAND_PERMISSION=mods
+SO_ROULETTE_COMMAND_PERMISSION=broadcaster
+SO_ROULETTE_STREAMERS=@Alice,bob Alice
 AD_ALERT_WARNING_MINUTES=8
 AD_ALERT_POLL_SECONDS=45
 ANNOUNCEMENTS_ENABLED=true
@@ -88,6 +90,15 @@ ANNOUNCEMENT_POLL_SECONDS=20
 	}
 	if cfg.RecentStreamers.Permission != "mods" {
 		t.Fatalf("autoso permission = %q", cfg.RecentStreamers.Permission)
+	}
+	if cfg.RecentStreamers.SORoulettePermission != "broadcaster" {
+		t.Fatalf("so roulette permission = %q", cfg.RecentStreamers.SORoulettePermission)
+	}
+	if got, want := strings.Join(cfg.RecentStreamers.RouletteStreamers, ","), "alice,bob"; got != want {
+		t.Fatalf("roulette streamers = %q, want %q", got, want)
+	}
+	if cfg.RecentStreamers.ShoutoutDelay != 5*time.Second {
+		t.Fatalf("default shoutout delay = %s, want 5s", cfg.RecentStreamers.ShoutoutDelay)
 	}
 	if cfg.AdAlerts.WarningLead != 8*time.Minute || cfg.AdAlerts.PollInterval != 45*time.Second {
 		t.Fatalf("ad alerts = %#v", cfg.AdAlerts)
@@ -124,6 +135,24 @@ AI_MAX_RETRIES=2
 	}
 	if cfg.AI.InputPricePerMillion != 0.25 || cfg.AI.OutputPricePerMillion != 1.50 {
 		t.Fatalf("prices = %f/%f", cfg.AI.InputPricePerMillion, cfg.AI.OutputPricePerMillion)
+	}
+}
+
+func TestLoadRaisesShortAutoSODelayToMinimum(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=2
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RecentStreamers.ShoutoutDelay != 5*time.Second {
+		t.Fatalf("shoutout delay = %s, want 5s", cfg.RecentStreamers.ShoutoutDelay)
 	}
 }
 

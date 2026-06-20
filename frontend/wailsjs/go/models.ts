@@ -75,6 +75,7 @@ export namespace main {
 	    commandsPermission: string;
 	    resetPermission: string;
 	    autosoPermission: string;
+	    soRoulettePermission: string;
 	    globalCooldownSeconds: number;
 	    userCooldownSeconds: number;
 	    maxContextMessages: number;
@@ -88,6 +89,7 @@ export namespace main {
 	    recentStreamerDays: number;
 	    recentStreamerPageSize: number;
 	    recentStreamerDelay: number;
+	    soRouletteStreamers: string;
 	    adAlertsEnabled: boolean;
 	    adWarningMinutes: number;
 	    adPollSeconds: number;
@@ -151,6 +153,7 @@ export namespace main {
 	        this.commandsPermission = source["commandsPermission"];
 	        this.resetPermission = source["resetPermission"];
 	        this.autosoPermission = source["autosoPermission"];
+	        this.soRoulettePermission = source["soRoulettePermission"];
 	        this.globalCooldownSeconds = source["globalCooldownSeconds"];
 	        this.userCooldownSeconds = source["userCooldownSeconds"];
 	        this.maxContextMessages = source["maxContextMessages"];
@@ -164,6 +167,7 @@ export namespace main {
 	        this.recentStreamerDays = source["recentStreamerDays"];
 	        this.recentStreamerPageSize = source["recentStreamerPageSize"];
 	        this.recentStreamerDelay = source["recentStreamerDelay"];
+	        this.soRouletteStreamers = source["soRouletteStreamers"];
 	        this.adAlertsEnabled = source["adAlertsEnabled"];
 	        this.adWarningMinutes = source["adWarningMinutes"];
 	        this.adPollSeconds = source["adPollSeconds"];
