@@ -1,5 +1,14 @@
 # LupusAria Release Notes
 
+## v0.4.0
+
+- Adds Twitch emote context enrichment with native emote catalog lookup, image-based descriptions, and a local emote cache.
+- Adds `!soroulette` for configurable shoutout roulette pools, sharing shoutout dispatch and per-stream duplicate protection with AutoSO.
+- Expands AutoSO with follower eligibility checks, configurable command permissions, safer shoutout pacing, and stream-run state reset.
+- Adds configurable permission tiers for public commands and per-command announcement permissions in the desktop app.
+- Improves AI command handling with a small in-memory request queue, filtered room context, and clearer command safety boundaries.
+- Updates docs and example settings for emote context, shoutout roulette, follower scopes, command permissions, and the five-second shoutout delay floor.
+
 ## v0.3.0
 
 - Adds grounded `!game` help with Twitch thumbnail snapshot analysis, optional stream-preview crop controls, and fallback game search context.
