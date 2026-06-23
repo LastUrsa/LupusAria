@@ -1,5 +1,15 @@
 # LupusAria Release Notes
 
+## v0.5.0
+
+- Migrates Twitch chat from IRC-first handling to EventSub WebSockets with an IRC fallback for incomplete setup.
+- Sends Twitch chat messages through Helix Send Chat Message, using an app access token for the Twitch Chat Bot Badge path when available.
+- Adds EventSub chat badge and reply metadata support for permission checks, reply cleanup, and richer chat context.
+- Adds EventSub `channel.ad_break.begin` handling so ad-start alerts can use live Twitch ad events while schedule polling still provides warnings and fallback starts.
+- Adds a Setup tab Twitch permissions check for saved app, bot, and ads credentials.
+- Refreshes Twitch app and ads token state handling, documents the EventSub/chat badge setup, and expands tests around Twitch auth, Helix, EventSub, ad alerts, and permission reporting.
+- Tunes LupusAria's personality prompts and reply cleanup to reduce repeated names, incomplete endings, and overly technical phrasing.
+
 ## v0.4.0
 
 - Adds Twitch emote context enrichment with native emote catalog lookup, image-based descriptions, and a local emote cache.
