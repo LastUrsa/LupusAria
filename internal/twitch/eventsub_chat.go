@@ -21,9 +21,18 @@ type EventSubConfig struct {
 	ClientID      string
 	Token         string
 	SendToken     string
+	AdClientID    string
+	AdToken       string
 	Channel       string
 	BroadcasterID string
 	UserID        string
+	AdBreaks      chan<- AdBreakEvent
+}
+
+type AdBreakEvent struct {
+	StartedAt time.Time
+	Duration  time.Duration
+	Automatic bool
 }
 
 type EventSubChatClient struct {
@@ -59,7 +68,7 @@ func (c *EventSubChatClient) Connect(ctx context.Context) (<-chan Message, error
 	if err != nil {
 		return nil, err
 	}
-	if err := c.subscribeToChat(ctx, session.ID); err != nil {
+	if err := c.subscribe(ctx, session.ID); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -112,6 +121,30 @@ func (c *EventSubChatClient) subscribeToChat(ctx context.Context, sessionID stri
 		"user_id":             c.cfg.UserID,
 	}
 	return c.helix.CreateEventSubWebSocketSubscription(ctx, "channel.chat.message", "1", condition, sessionID)
+}
+
+func (c *EventSubChatClient) subscribeToAdBreaks(ctx context.Context, sessionID string) error {
+	if c.cfg.AdBreaks == nil {
+		return nil
+	}
+	if strings.TrimSpace(c.cfg.AdToken) == "" {
+		return errors.New("missing Twitch ads access token")
+	}
+	condition := map[string]string{
+		"broadcaster_user_id": c.cfg.BroadcasterID,
+	}
+	helix := NewHelixClient(firstNonEmpty(c.cfg.AdClientID, c.cfg.ClientID), c.cfg.AdToken)
+	return helix.CreateEventSubWebSocketSubscription(ctx, "channel.ad_break.begin", "1", condition, sessionID)
+}
+
+func (c *EventSubChatClient) subscribe(ctx context.Context, sessionID string) error {
+	if err := c.subscribeToChat(ctx, sessionID); err != nil {
+		return err
+	}
+	if err := c.subscribeToAdBreaks(ctx, sessionID); err != nil && c.logger != nil {
+		c.logger.Warn("EventSub ad break subscription unavailable; ad alerts will use schedule polling", "error", err)
+	}
+	return nil
 }
 
 func (c *EventSubChatClient) connectSession(ctx context.Context, rawURL string) (*websocket.Conn, eventSubSession, error) {
@@ -207,12 +240,23 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 			conn = next
 			c.setConn(conn)
 		case "notification":
-			if msg.Metadata.SubscriptionType != "channel.chat.message" && msg.Payload.Subscription.Type != "channel.chat.message" {
-				continue
-			}
-			chatMsg, ok := eventSubChatMessageToMessage(msg.Payload.Event, string(data))
-			if ok {
-				messages <- chatMsg
+			subscriptionType := firstNonEmpty(msg.Metadata.SubscriptionType, msg.Payload.Subscription.Type)
+			switch subscriptionType {
+			case "channel.chat.message":
+				chatMsg, ok := eventSubChatMessageToMessage(msg.Payload.Event, string(data))
+				if ok {
+					messages <- chatMsg
+				}
+			case "channel.ad_break.begin":
+				if adBreak, ok := eventSubAdBreakToEvent(msg.Payload.Event); ok {
+					select {
+					case c.cfg.AdBreaks <- adBreak:
+					default:
+						if c.logger != nil {
+							c.logger.Warn("EventSub ad break event dropped; receiver is busy")
+						}
+					}
+				}
 			}
 		case "revocation":
 			if c.logger != nil {
@@ -227,7 +271,7 @@ func (c *EventSubChatClient) reconnectFresh(ctx context.Context) (*websocket.Con
 	for {
 		conn, session, err := c.connectSession(ctx, c.wsURL)
 		if err == nil {
-			if err := c.subscribeToChat(ctx, session.ID); err != nil {
+			if err := c.subscribe(ctx, session.ID); err != nil {
 				_ = conn.Close()
 				err = fmt.Errorf("resubscribe EventSub chat: %w", err)
 			} else {
@@ -282,11 +326,14 @@ type eventSubSubscription struct {
 }
 
 type eventSubChatEvent struct {
-	BroadcasterUserLogin string `json:"broadcaster_user_login"`
-	ChatterUserID        string `json:"chatter_user_id"`
-	ChatterUserLogin     string `json:"chatter_user_login"`
-	ChatterUserName      string `json:"chatter_user_name"`
-	MessageID            string `json:"message_id"`
+	BroadcasterUserLogin string          `json:"broadcaster_user_login"`
+	ChatterUserID        string          `json:"chatter_user_id"`
+	ChatterUserLogin     string          `json:"chatter_user_login"`
+	ChatterUserName      string          `json:"chatter_user_name"`
+	MessageID            string          `json:"message_id"`
+	DurationSeconds      flexibleInteger `json:"duration_seconds"`
+	StartedAt            string          `json:"started_at"`
+	IsAutomatic          flexibleBool    `json:"is_automatic"`
 	Message              struct {
 		Text      string                 `json:"text"`
 		Fragments []eventSubChatFragment `json:"fragments"`
@@ -353,6 +400,45 @@ func eventSubChatMessageToMessage(event eventSubChatEvent, raw string) (Message,
 		msg.ReplyParentText = event.Reply.ParentMessageBody
 	}
 	return msg, true
+}
+
+func eventSubAdBreakToEvent(event eventSubChatEvent) (AdBreakEvent, bool) {
+	if event.DurationSeconds <= 0 {
+		return AdBreakEvent{}, false
+	}
+	startedAt, err := parseOptionalTime(event.StartedAt)
+	if err != nil {
+		return AdBreakEvent{}, false
+	}
+	return AdBreakEvent{
+		StartedAt: startedAt,
+		Duration:  time.Duration(event.DurationSeconds) * time.Second,
+		Automatic: bool(event.IsAutomatic),
+	}, true
+}
+
+type flexibleBool bool
+
+func (b *flexibleBool) UnmarshalJSON(data []byte) error {
+	var asBool bool
+	if err := json.Unmarshal(data, &asBool); err == nil {
+		*b = flexibleBool(asBool)
+		return nil
+	}
+
+	var asString string
+	if err := json.Unmarshal(data, &asString); err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(asString)) {
+	case "true":
+		*b = true
+	case "false", "":
+		*b = false
+	default:
+		return fmt.Errorf("parse bool %q", asString)
+	}
+	return nil
 }
 
 func eventSubHasBadge(badges []eventSubBadge, setID string) bool {
