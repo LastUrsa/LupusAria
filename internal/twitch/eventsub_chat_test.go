@@ -78,3 +78,68 @@ func TestEventSubChatMessageToMessageMapsIdentityBadgesReplyAndEmotes(t *testing
 		t.Fatal("expected raw payload")
 	}
 }
+
+func TestEventSubAdBreakToEventParsesStringPayload(t *testing.T) {
+	raw := `{
+		"metadata": {
+			"message_type": "notification",
+			"subscription_type": "channel.ad_break.begin",
+			"subscription_version": "1"
+		},
+		"payload": {
+			"event": {
+				"duration_seconds": "60",
+				"started_at": "2026-06-16T12:10:00Z",
+				"is_automatic": "true",
+				"broadcaster_user_id": "1337",
+				"broadcaster_user_login": "lastursa",
+				"broadcaster_user_name": "LastUrsa"
+			}
+		}
+	}`
+	envelope, err := parseEventSubMessage([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	event, ok := eventSubAdBreakToEvent(envelope.Payload.Event)
+	if !ok {
+		t.Fatal("expected ad break to map")
+	}
+	if event.Duration.String() != "1m0s" {
+		t.Fatalf("duration = %s, want 1m0s", event.Duration)
+	}
+	if event.StartedAt.Format("2006-01-02T15:04:05Z07:00") != "2026-06-16T12:10:00Z" {
+		t.Fatalf("started at = %s", event.StartedAt)
+	}
+	if !event.Automatic {
+		t.Fatal("expected automatic ad break")
+	}
+}
+
+func TestEventSubAdBreakToEventParsesNativePayload(t *testing.T) {
+	raw := `{
+		"payload": {
+			"event": {
+				"duration_seconds": 90,
+				"started_at": "2026-06-16T12:10:00Z",
+				"is_automatic": false
+			}
+		}
+	}`
+	envelope, err := parseEventSubMessage([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	event, ok := eventSubAdBreakToEvent(envelope.Payload.Event)
+	if !ok {
+		t.Fatal("expected ad break to map")
+	}
+	if event.Duration.String() != "1m30s" {
+		t.Fatalf("duration = %s, want 1m30s", event.Duration)
+	}
+	if event.Automatic {
+		t.Fatal("expected manual ad break")
+	}
+}

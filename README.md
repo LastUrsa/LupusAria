@@ -112,6 +112,8 @@ The ads token must be used with the same Twitch application that generated it. I
 
 Use an ads refresh token when possible. LupusAria refreshes the ads access token during long runs and retries temporary Twitch ad schedule polling failures instead of disabling ad alerts for the rest of the session.
 
+Ad warnings still come from Twitch's ad schedule. When EventSub can create the `channel.ad_break.begin` subscription with the ads token, ad-start alerts use that live event; otherwise LupusAria falls back to schedule polling for starts too.
+
 ## Cost Controls
 
 AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context. A small in-memory queue absorbs short bursts of AI commands; when the queue is full, new AI requests are skipped silently in chat and logged locally.

@@ -88,6 +88,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	var moderatorID string
 	var chatSendToken string
 	var channelEmotes []twitch.Emote
+	var adBreaks chan twitch.AdBreakEvent
 	if cfg.Twitch.ClientID != "" {
 		helix = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
 		streamProvider = helix
@@ -104,7 +105,11 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		}
 	}
 
-	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
+	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsOAuthToken != "" {
+		adBreaks = make(chan twitch.AdBreakEvent, 16)
+	}
+
+	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
 
 	if helix != nil && cfg.RecentStreamers.Enabled {
 		recentService = recentstreamers.New(recentstreamers.Config{
@@ -208,6 +213,22 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	}
 
 	runner.SetAdAlerts(adService)
+	if adService != nil && adBreaks != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event := <-adBreaks:
+					adService.HandleAdBreakBegin(ctx, adalerts.AdBreakBegin{
+						StartedAt: event.StartedAt,
+						Duration:  event.Duration,
+						Automatic: event.Automatic,
+					})
+				}
+			}
+		}()
+	}
 
 	err = runner.Run(ctx)
 	if errors.Is(err, context.Canceled) {
@@ -243,15 +264,18 @@ func appAccessToken(ctx context.Context, cfg config.Config, logger *slog.Logger)
 	return tokenSet.AccessToken
 }
 
-func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, logger *slog.Logger) bot.Chat {
+func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, adBreaks chan<- twitch.AdBreakEvent, logger *slog.Logger) bot.Chat {
 	if cfg.Twitch.ClientID != "" && cfg.Twitch.OAuthToken != "" && broadcasterID != "" && botUserID != "" {
 		return twitch.NewEventSubChatClient(twitch.EventSubConfig{
 			ClientID:      cfg.Twitch.ClientID,
 			Token:         cfg.Twitch.OAuthToken,
 			SendToken:     sendToken,
+			AdClientID:    cfg.Twitch.AdsClientID,
+			AdToken:       cfg.Twitch.AdsOAuthToken,
 			Channel:       cfg.Twitch.Channel,
 			BroadcasterID: broadcasterID,
 			UserID:        botUserID,
+			AdBreaks:      adBreaks,
 		}, logger)
 	}
 	if logger != nil {

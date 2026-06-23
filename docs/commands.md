@@ -87,7 +87,7 @@ Shoutout command dispatch is shared across AutoSO and SO roulette. It is spaced 
 
 ## Ad Alerts
 
-When enabled, Lupus polls Twitch's ad schedule, sends one heads-up before the next scheduled ad, announces the start, and announces the expected end.
+When enabled, Lupus polls Twitch's ad schedule for upcoming ad warnings. If EventSub ad-break events are available, the start alert uses Twitch's live `channel.ad_break.begin` event; otherwise the schedule poller announces the start. The expected end is announced after the break duration.
 
 AI-powered ad messages are the default when AI is available. Fallback messages are used when the AI provider is unavailable or local AI limits are active.
 
@@ -104,7 +104,7 @@ AD_ALERT_END_MESSAGE=Welcome back. Ads should be done now.
 
 `AD_ALERT_WARNING_MESSAGE` should include one `%s` placeholder, such as `5 minutes`.
 
-Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally during long runs. If the ads token was generated from a different Twitch application than the bot token, set `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET` too. Temporary Twitch ad schedule polling failures are logged and retried.
+Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally during long runs. If the ads token was generated from a different Twitch application than the bot token, set `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET` too. Temporary Twitch ad schedule polling failures are logged and retried. If the EventSub ad-break subscription is unavailable, Lupus keeps using the schedule poller for start alerts.
 
 ## Announcements
 

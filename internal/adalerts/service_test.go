@@ -111,6 +111,47 @@ func TestPollRetriesAfterTemporaryScheduleError(t *testing.T) {
 	}
 }
 
+func TestHandleAdBreakBeginStartsOnceAndScheduleDoesNotDuplicate(t *testing.T) {
+	chat := &fakeChat{}
+	start := time.Date(2026, 6, 16, 12, 10, 0, 0, time.UTC)
+	service := New(Config{
+		Channel:     "lastursa",
+		Enabled:     true,
+		WarningLead: 5 * time.Minute,
+	}, chat, nil, nil)
+
+	service.now = func() time.Time { return start.Add(10 * time.Second) }
+	service.HandleAdBreakBegin(context.Background(), AdBreakBegin{StartedAt: start, Duration: 90 * time.Second, Automatic: true})
+	service.HandleAdBreakBegin(context.Background(), AdBreakBegin{StartedAt: start, Duration: 90 * time.Second, Automatic: true})
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 90 * time.Second})
+
+	service.now = func() time.Time { return start.Add(91 * time.Second) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 90 * time.Second})
+
+	want := []string{
+		"Ad break starting now. Good moment to stretch, hydrate, and rest your eyes.",
+		"Welcome back. Ads should be done now.",
+	}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
+func TestHandleAdBreakBeginIgnoredWhileAdActive(t *testing.T) {
+	chat := &fakeChat{}
+	start := time.Date(2026, 6, 16, 12, 10, 0, 0, time.UTC)
+	service := New(Config{Channel: "lastursa", Enabled: true}, chat, nil, nil)
+	service.now = func() time.Time { return start.Add(10 * time.Second) }
+
+	service.HandleAdBreakBegin(context.Background(), AdBreakBegin{StartedAt: start, Duration: 90 * time.Second})
+	service.HandleAdBreakBegin(context.Background(), AdBreakBegin{StartedAt: start.Add(5 * time.Second), Duration: 90 * time.Second})
+
+	want := []string{"Ad break starting now. Good moment to stretch, hydrate, and rest your eyes."}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
 func TestHandleScheduleUsesComposerWhenAvailable(t *testing.T) {
 	chat := &fakeChat{}
 	composer := &fakeComposer{text: "Composed in character."}

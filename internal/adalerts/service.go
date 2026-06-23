@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,12 @@ type Event struct {
 	Duration time.Duration
 }
 
+type AdBreakBegin struct {
+	StartedAt time.Time
+	Duration  time.Duration
+	Automatic bool
+}
+
 const (
 	EventWarning = "warning"
 	EventStart   = "start"
@@ -66,6 +73,7 @@ type Service struct {
 	logger *slog.Logger
 	now    func() time.Time
 
+	mu           sync.Mutex
 	warnedAdKey  string
 	startedAdKey string
 	endedAdKey   string
@@ -145,7 +153,36 @@ func (s *Service) poll(ctx context.Context) {
 }
 
 func (s *Service) HandleSchedule(schedule Schedule) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.handleSchedule(s.ctx, schedule)
+}
+
+func (s *Service) HandleAdBreakBegin(ctx context.Context, event AdBreakBegin) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if event.Duration <= 0 {
+		s.logger.Info("ad break begin event ignored; missing duration")
+		return
+	}
+	startedAt := event.StartedAt
+	if startedAt.IsZero() {
+		startedAt = s.now()
+	}
+	key := startedAt.UTC().Format(time.RFC3339)
+	now := s.now()
+	if s.activeAdKey != "" && now.Before(s.activeEndAt) {
+		s.logger.Info("ad break begin event ignored; ad alert already active", "started_at", formatLogTime(startedAt), "duration", event.Duration)
+		return
+	}
+	if s.startedAdKey == key {
+		return
+	}
+	s.say(ctx, Event{Kind: EventStart, Duration: event.Duration}, s.cfg.StartMessage)
+	s.startedAdKey = key
+	s.activeAdKey = key
+	s.activeEndAt = startedAt.Add(event.Duration)
+	s.logger.Info("ad alert started from EventSub", "started_at", formatLogTime(startedAt), "duration", event.Duration, "automatic", event.Automatic)
 }
 
 func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
@@ -161,6 +198,10 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 	key := schedule.NextAdAt.UTC().Format(time.RFC3339)
 	startAt := schedule.NextAdAt
 	endAt := startAt.Add(schedule.Duration)
+	if s.activeAdKey != "" && now.Before(s.activeEndAt) {
+		s.logger.Info("ad alert schedule ignored; ad alert already active", "active_end_at", formatLogTime(s.activeEndAt))
+		return
+	}
 	if now.Before(startAt) {
 		if s.warnedAdKey != key && !now.Before(startAt.Add(-s.cfg.WarningLead)) {
 			lead := startAt.Sub(now).Round(time.Second)
