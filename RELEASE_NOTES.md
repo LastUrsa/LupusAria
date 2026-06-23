@@ -1,10 +1,5 @@
 # LupusAria Release Notes
 
-## Unreleased
-
-- Lowers the AutoSO and SO roulette shoutout delay floor from five seconds to one second so shorter saved delays persist.
-- Cleans up the sticky save bar and adds an in-place save toast so saving settings is easier to confirm without scrolling.
-
 ## v0.5.0
 
 - Migrates Twitch chat from IRC-first handling to EventSub WebSockets with an IRC fallback for incomplete setup.
@@ -14,6 +9,8 @@
 - Adds a Setup tab Twitch permissions check for saved app, bot, and ads credentials.
 - Refreshes Twitch app and ads token state handling, documents the EventSub/chat badge setup, and expands tests around Twitch auth, Helix, EventSub, ad alerts, and permission reporting.
 - Tunes LupusAria's personality prompts and reply cleanup to reduce repeated names, incomplete endings, and overly technical phrasing.
+- Lowers the AutoSO and SO roulette shoutout delay floor from five seconds to one second so shorter saved delays persist.
+- Cleans up the sticky save bar and adds an in-place save toast so saving settings is easier to confirm without scrolling.
 
 ## v0.4.0
 
