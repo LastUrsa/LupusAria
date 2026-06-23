@@ -970,7 +970,8 @@ func TestBuildAIMessagesStructuresChatContext(t *testing.T) {
 		"Recent chat timeline:",
 		"chat point A",
 		"chat point R",
-		"Current request: Current asks: what were they talking about?",
+		"Current viewer display name: Current",
+		"Current request: what were they talking about?",
 	} {
 		if !strings.Contains(userPrompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, userPrompt)
@@ -1005,7 +1006,8 @@ func TestBuildAIMessagesIncludesCurrentMessageEmoteContext(t *testing.T) {
 	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "foxhou33Renegade"})
 	userPrompt := messages[1].Content
 	for _, want := range []string{
-		"Current request: Foxhound8492nd asks: foxhou33Renegade",
+		"Current viewer display name: Foxhound8492nd",
+		"Current request: foxhou33Renegade",
 		"Emote context: foxhou33Renegade = custom Twitch emote; visual meaning unknown",
 	} {
 		if !strings.Contains(userPrompt, want) {
@@ -1416,7 +1418,8 @@ func TestBuildAIMessagesEncouragesAmbientChatContextForLurk(t *testing.T) {
 		"for lurk/send-off replies, include one concrete harmless chat/game detail when recent chat exists.",
 		"Send them off naturally.",
 		"Viewer: The ruins puzzle is absolutely soup-coded.",
-		"Current request: Lurker asks: Lurker is lurking.",
+		"Current viewer display name: Lurker",
+		"Current request: Lurker is lurking.",
 	} {
 		if !strings.Contains(userPrompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, userPrompt)
@@ -1645,6 +1648,32 @@ func TestCleanReplyNormalizesAwkwardTerminalPunctuation(t *testing.T) {
 	}
 }
 
+func TestCleanAddressedReplyRemovesRedundantDisplayNameOpening(t *testing.T) {
+	tests := []struct {
+		reply string
+		want  string
+	}{
+		{reply: "@LastUrsa Thanks, LastUrsa! Suppose that makes me official.", want: "Thanks! Suppose that makes me official."},
+		{reply: "LastUrsa, thanks. The badge is a sharp look.", want: "thanks. The badge is a sharp look."},
+		{reply: "LastUrsa! Thanks, the badge is a sharp look.", want: "Thanks, the badge is a sharp look."},
+		{reply: "Thanks, LastUrsa! The badge is a sharp look.", want: "Thanks! The badge is a sharp look."},
+		{reply: "I accept the partnership, LastUrsa. As for the awoo, tiny awoo.", want: "I accept the partnership. As for the awoo, tiny awoo."},
+		{reply: "You are persistent, LastUrsa. Fine: awoo.", want: "You are persistent. Fine: awoo."},
+		{reply: "Thanks for helping me settle in, LastUrsa.", want: "Thanks for helping me settle in."},
+		{reply: "How about you, LastUrsa? Do you have a favorite way to let loose?", want: "How about you? Do you have a favorite way to let loose?"},
+		{reply: "If LastUrsa wants a tiny awoo, that seems fair.", want: "If LastUrsa wants a tiny awoo, that seems fair."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.reply, func(t *testing.T) {
+			got := cleanAddressedReply(tt.reply, "LastUrsa")
+			if got != tt.want {
+				t.Fatalf("cleanAddressedReply = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSmartTruncateAvoidsMidSentenceCuts(t *testing.T) {
 	got := smartTruncate("First sentence is good. Second sentence is going to run past the tiny limit.", 28)
 	if got != "First sentence is good." {
@@ -1667,6 +1696,8 @@ func TestLooksIncompleteReply(t *testing.T) {
 		{reply: "You might want to check the panels below the stream or ask.", want: true},
 		{reply: "Let's see if he can make.", want: true},
 		{reply: "It is a unique combination, even.", want: true},
+		{reply: "Maybe next time.", want: true},
+		{reply: "Maybe later.", want: true},
 		{reply: "That seems legal.", want: false},
 		{reply: "That is a question for Ursa.", want: false},
 	}

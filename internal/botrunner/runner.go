@@ -79,49 +79,48 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		cfg.Twitch.AdsOAuthToken = cfg.Twitch.OAuthToken
 	}
 
-	chat := bot.WithChatLogging(twitch.NewClient(twitch.Config{
-		Username: cfg.Twitch.BotUsername,
-		Token:    cfg.Twitch.OAuthToken,
-		Channel:  cfg.Twitch.Channel,
-	}, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
-
 	var streamProvider bot.StreamInfoProvider
 	var helix *twitch.HelixClient
 	var recentService *recentstreamers.Service
 	var announcementService *announcements.Service
 	var adService *adalerts.Service
 	var broadcasterID string
+	var moderatorID string
+	var chatSendToken string
 	var channelEmotes []twitch.Emote
 	if cfg.Twitch.ClientID != "" {
 		helix = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
 		streamProvider = helix
-		var moderatorID string
 		broadcasterID, moderatorID = resolveRecentStreamerIDs(ctx, helix, cfg.Twitch.Channel, cfg.Twitch.BotUsername, logger)
+		chatSendToken = appAccessToken(ctx, cfg, logger)
 		if cfg.Bot.EnableEmoteContext && broadcasterID != "" {
 			emotes, err := helix.GetChannelEmotes(ctx, broadcasterID)
 			if err != nil {
-				logger.Warn("failed to load channel emote catalog; continuing with IRC emote tags only", "error", err)
+				logger.Warn("failed to load channel emote catalog; continuing with message emote metadata only", "error", err)
 			} else {
 				channelEmotes = convertChannelEmotes(emotes)
 				logger.Info("loaded channel emote catalog", "count", len(channelEmotes))
 			}
 		}
-		if cfg.RecentStreamers.Enabled {
-			recentService = recentstreamers.New(recentstreamers.Config{
-				Channel:              cfg.Twitch.Channel,
-				Permission:           cfg.RecentStreamers.Permission,
-				SORoulettePermission: cfg.RecentStreamers.SORoulettePermission,
-				RouletteStreamers:    cfg.RecentStreamers.RouletteStreamers,
-				BroadcasterID:        broadcasterID,
-				ModeratorID:          moderatorID,
-				MinWatch:             cfg.RecentStreamers.MinWatch,
-				RecentWindow:         cfg.RecentStreamers.RecentWindow,
-				PageSize:             cfg.RecentStreamers.PageSize,
-				ShoutoutDelay:        cfg.RecentStreamers.ShoutoutDelay,
-				CacheTTL:             cfg.RecentStreamers.CacheTTL,
-				ChatterPollInterval:  cfg.RecentStreamers.ChatterPollInterval,
-			}, chat, helix, logger)
-		}
+	}
+
+	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
+
+	if helix != nil && cfg.RecentStreamers.Enabled {
+		recentService = recentstreamers.New(recentstreamers.Config{
+			Channel:              cfg.Twitch.Channel,
+			Permission:           cfg.RecentStreamers.Permission,
+			SORoulettePermission: cfg.RecentStreamers.SORoulettePermission,
+			RouletteStreamers:    cfg.RecentStreamers.RouletteStreamers,
+			BroadcasterID:        broadcasterID,
+			ModeratorID:          moderatorID,
+			MinWatch:             cfg.RecentStreamers.MinWatch,
+			RecentWindow:         cfg.RecentStreamers.RecentWindow,
+			PageSize:             cfg.RecentStreamers.PageSize,
+			ShoutoutDelay:        cfg.RecentStreamers.ShoutoutDelay,
+			CacheTTL:             cfg.RecentStreamers.CacheTTL,
+			ChatterPollInterval:  cfg.RecentStreamers.ChatterPollInterval,
+		}, chat, helix, logger)
 	}
 
 	announcementItems, err := announcements.Load(cfg.Announcements.Path)
@@ -215,6 +214,59 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		return nil
 	}
 	return err
+}
+
+func appAccessToken(ctx context.Context, cfg config.Config, logger *slog.Logger) string {
+	if cfg.Twitch.ClientID == "" || cfg.Twitch.ClientSecret == "" {
+		if logger != nil {
+			logger.Warn("Twitch app access token unavailable; chat messages will not use the Chat Bot Badge app-token path",
+				"has_client_id", cfg.Twitch.ClientID != "",
+				"has_client_secret", cfg.Twitch.ClientSecret != "",
+			)
+		}
+		return ""
+	}
+	tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
+		ClientID:     cfg.Twitch.ClientID,
+		ClientSecret: cfg.Twitch.ClientSecret,
+		StatePath:    cfg.Twitch.AppTokenStatePath,
+	}).AppAccessToken(ctx)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("failed to get Twitch app access token; chat messages will use the user token", "error", err)
+		}
+		return ""
+	}
+	if logger != nil {
+		logger.Info("using Twitch app access token for chat message sending", "expires_at", tokenSet.ExpiresAt.Format(time.RFC3339))
+	}
+	return tokenSet.AccessToken
+}
+
+func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, logger *slog.Logger) bot.Chat {
+	if cfg.Twitch.ClientID != "" && cfg.Twitch.OAuthToken != "" && broadcasterID != "" && botUserID != "" {
+		return twitch.NewEventSubChatClient(twitch.EventSubConfig{
+			ClientID:      cfg.Twitch.ClientID,
+			Token:         cfg.Twitch.OAuthToken,
+			SendToken:     sendToken,
+			Channel:       cfg.Twitch.Channel,
+			BroadcasterID: broadcasterID,
+			UserID:        botUserID,
+		}, logger)
+	}
+	if logger != nil {
+		logger.Warn("using legacy IRC chat transport; EventSub chat requires client ID, access token, broadcaster ID, and bot user ID",
+			"has_client_id", cfg.Twitch.ClientID != "",
+			"has_token", cfg.Twitch.OAuthToken != "",
+			"has_broadcaster_id", broadcasterID != "",
+			"has_bot_user_id", botUserID != "",
+		)
+	}
+	return twitch.NewClient(twitch.Config{
+		Username: cfg.Twitch.BotUsername,
+		Token:    cfg.Twitch.OAuthToken,
+		Channel:  cfg.Twitch.Channel,
+	}, logger)
 }
 
 func convertChannelEmotes(items []twitch.ChannelEmote) []twitch.Emote {

@@ -28,6 +28,7 @@ type TwitchConfig struct {
 	ClientSecret      string
 	RefreshToken      string
 	TokenStatePath    string
+	AppTokenStatePath string
 	AdsClientID       string
 	AdsClientSecret   string
 	AdsOAuthToken     string
@@ -162,6 +163,7 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			ClientSecret:      get(values, "TWITCH_CLIENT_SECRET", ""),
 			RefreshToken:      get(values, "TWITCH_REFRESH_TOKEN", ""),
 			TokenStatePath:    resolveLocalPath(baseDir, get(values, "TWITCH_TOKEN_STATE_PATH", ".lupusaria-twitch-token.json")),
+			AppTokenStatePath: resolveLocalPath(baseDir, get(values, "TWITCH_APP_TOKEN_STATE_PATH", ".lupusaria-twitch-app-token.json")),
 			AdsClientID:       get(values, "TWITCH_ADS_CLIENT_ID", get(values, "TWITCH_CLIENT_ID", "")),
 			AdsClientSecret:   get(values, "TWITCH_ADS_CLIENT_SECRET", get(values, "TWITCH_CLIENT_SECRET", "")),
 			AdsOAuthToken:     get(values, "TWITCH_ADS_OAUTH_TOKEN", ""),
@@ -186,7 +188,7 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			Name:               get(values, "BOT_NAME", "LupusAria"),
 			StreamerName:       get(values, "STREAMER_NAME", "the streamer"),
 			StreamerPronouns:   get(values, "STREAMER_PRONOUNS", "they/them"),
-			Personality:        get(values, "BOT_PERSONALITY", "Warm, steady, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
+			Personality:        get(values, "BOT_PERSONALITY", "Relaxed, warm, lightly playful, and useful. You fit into live Twitch chat without dominating it."),
 			KnowledgePath:      resolveLocalPath(baseDir, get(values, "BOT_KNOWLEDGE_PATH", ".lupusaria-knowledge.md")),
 			EnableMentions:     getBool(values, "ENABLE_MENTION_RESPONSES", true),
 			EnableAsk:          getBool(values, "ENABLE_ASK_COMMAND", true),

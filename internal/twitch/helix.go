@@ -1,8 +1,10 @@
 package twitch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -45,6 +47,13 @@ type AdSchedule struct {
 	PrerollFreeTime time.Duration
 	SnoozeCount     int
 	SnoozeRefreshAt time.Time
+}
+
+type ChatMessageResult struct {
+	MessageID   string
+	IsSent      bool
+	DropCode    string
+	DropMessage string
 }
 
 type HelixClient struct {
@@ -287,6 +296,86 @@ func (c *HelixClient) GetAdSchedule(ctx context.Context, broadcasterID string) (
 	}, nil
 }
 
+func (c *HelixClient) CreateEventSubWebSocketSubscription(ctx context.Context, subscriptionType, version string, condition map[string]string, sessionID string) error {
+	if strings.TrimSpace(subscriptionType) == "" {
+		return errors.New("missing EventSub subscription type")
+	}
+	if strings.TrimSpace(version) == "" {
+		version = "1"
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return errors.New("missing EventSub WebSocket session ID")
+	}
+	payload := struct {
+		Type      string            `json:"type"`
+		Version   string            `json:"version"`
+		Condition map[string]string `json:"condition"`
+		Transport struct {
+			Method    string `json:"method"`
+			SessionID string `json:"session_id"`
+		} `json:"transport"`
+	}{
+		Type:      subscriptionType,
+		Version:   version,
+		Condition: condition,
+	}
+	payload.Transport.Method = "websocket"
+	payload.Transport.SessionID = sessionID
+
+	var result any
+	return c.postJSON(ctx, "https://api.twitch.tv/helix/eventsub/subscriptions", payload, &result)
+}
+
+func (c *HelixClient) SendChatMessage(ctx context.Context, broadcasterID, senderID, message, replyParentMessageID string) (ChatMessageResult, error) {
+	payload := struct {
+		BroadcasterID        string `json:"broadcaster_id"`
+		SenderID             string `json:"sender_id"`
+		Message              string `json:"message"`
+		ReplyParentMessageID string `json:"reply_parent_message_id,omitempty"`
+	}{
+		BroadcasterID:        strings.TrimSpace(broadcasterID),
+		SenderID:             strings.TrimSpace(senderID),
+		Message:              sanitizeChatAPIMessage(message),
+		ReplyParentMessageID: strings.TrimSpace(replyParentMessageID),
+	}
+	if payload.BroadcasterID == "" || payload.SenderID == "" {
+		return ChatMessageResult{}, errors.New("missing broadcaster or sender ID")
+	}
+	if payload.Message == "" {
+		return ChatMessageResult{}, errors.New("missing chat message")
+	}
+
+	var result struct {
+		Data []struct {
+			MessageID  string `json:"message_id"`
+			IsSent     bool   `json:"is_sent"`
+			DropReason *struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"drop_reason"`
+		} `json:"data"`
+	}
+	if err := c.postJSON(ctx, "https://api.twitch.tv/helix/chat/messages", payload, &result); err != nil {
+		return ChatMessageResult{}, err
+	}
+	if len(result.Data) == 0 {
+		return ChatMessageResult{}, errors.New("send chat message response did not include data")
+	}
+	item := result.Data[0]
+	out := ChatMessageResult{MessageID: item.MessageID, IsSent: item.IsSent}
+	if item.DropReason != nil {
+		out.DropCode = item.DropReason.Code
+		out.DropMessage = item.DropReason.Message
+	}
+	if !out.IsSent {
+		if out.DropMessage != "" {
+			return out, fmt.Errorf("twitch dropped chat message: %s", out.DropMessage)
+		}
+		return out, errors.New("twitch dropped chat message")
+	}
+	return out, nil
+}
+
 func (c *HelixClient) getJSON(ctx context.Context, endpoint string, target any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -305,6 +394,40 @@ func (c *HelixClient) getJSON(ctx context.Context, endpoint string, target any) 
 		return fmt.Errorf("helix request failed with status %s", resp.Status)
 	}
 	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+func (c *HelixClient) postJSON(ctx context.Context, endpoint string, payload, target any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Client-Id", c.clientID)
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("helix request failed with status %s", resp.Status)
+	}
+	if target == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(target)
+}
+
+func sanitizeChatAPIMessage(message string) string {
+	message = strings.ReplaceAll(message, "\r", " ")
+	message = strings.ReplaceAll(message, "\n", " ")
+	return strings.Join(strings.Fields(message), " ")
 }
 
 type flexibleInteger int
