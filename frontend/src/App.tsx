@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { GetAnnouncements, GetKnowledge, GetLogs, GetSettings, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
+import { CheckTwitchPermissions, GetAnnouncements, GetKnowledge, GetLogs, GetSettings, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
 import lupusAriaIcon from './assets/images/LupusAriaIcon.png'
 import './App.css'
@@ -7,6 +7,7 @@ import './App.css'
 type Settings = main.ControlSettings
 type Announcement = main.AnnouncementSettings
 type Knowledge = main.KnowledgeSettings
+type TwitchPermissionCheck = main.TwitchPermissionCheck
 type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'knowledge'
 type AnnouncementKind = 'command' | 'timer'
 type IndexedAnnouncement = { item: Announcement; index: number }
@@ -122,6 +123,7 @@ export default function App() {
   const [knowledge, setKnowledge] = useState<Knowledge>(emptyKnowledge)
   const [logs, setLogs] = useState<string[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [permissionCheck, setPermissionCheck] = useState<TwitchPermissionCheck | null>(null)
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [section, setSection] = useState<Section>('overview')
@@ -215,6 +217,20 @@ export default function App() {
     try {
       await StopBot()
       setNotice('Bot stopping.')
+      await refresh(false)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function checkTwitchPermissions() {
+    setBusy(true)
+    try {
+      const result = await CheckTwitchPermissions()
+      setPermissionCheck(result)
+      setNotice(`Twitch permissions check: ${result.overall}.`)
       await refresh(false)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -371,6 +387,20 @@ export default function App() {
                 <StatusRow label="Twitch app" value={settings.hasTwitchClientId ? 'Saved' : 'Missing'} tone={settings.hasTwitchClientId ? 'good' : 'muted'} />
                 <StatusRow label="Bot token" value={settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken ? 'Saved' : 'Missing'} tone={settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken ? 'good' : 'muted'} />
                 <StatusRow label="Ads token" value={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'Saved' : 'Optional'} tone={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'good' : 'muted'} />
+                <div className="permission-check-header">
+                  <div>
+                    <strong>{permissionCheck ? `Permissions: ${permissionCheck.overall}` : 'Permissions'}</strong>
+                    <span>{permissionCheck ? `Checked ${formatCheckedAt(permissionCheck.checkedAt)}` : 'Validate saved tokens and scopes.'}</span>
+                  </div>
+                  <button type="button" onClick={checkTwitchPermissions} disabled={busy}>Check permissions</button>
+                </div>
+                {permissionCheck && (
+                  <div className="permission-results">
+                    {permissionCheck.items.map((item) => (
+                      <PermissionResult key={item.name} item={item} />
+                    ))}
+                  </div>
+                )}
               </Card>
               <Card title="Twitch credentials" wide>
                 <div className="info-callout">
@@ -660,6 +690,28 @@ function FeaturePanel({
       <div className="feature-panel-body">{children}</div>
     </details>
   )
+}
+
+function PermissionResult({ item }: { item: main.TwitchPermissionItem }) {
+  const missingScopes = item.missingScopes ?? []
+  return (
+    <div className={`permission-result ${item.status}`}>
+      <span className="permission-dot" aria-hidden="true" />
+      <div>
+        <strong>{item.name}</strong>
+        <span>{item.detail}</span>
+        {missingScopes.length > 0 && <code>{missingScopes.join(', ')}</code>}
+      </div>
+    </div>
+  )
+}
+
+function formatCheckedAt(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+  return date.toLocaleString()
 }
 
 function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {

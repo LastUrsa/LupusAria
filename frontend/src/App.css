@@ -507,6 +507,93 @@ h3 {
   color: var(--color-neutral-400);
 }
 
+.permission-check-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 2px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(146, 148, 152, 0.14);
+}
+
+.permission-check-header div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-neutral-300);
+  font-size: 13px;
+}
+
+.permission-check-header strong {
+  color: var(--color-neutral-100);
+}
+
+.permission-check-header button {
+  flex: 0 0 auto;
+  min-width: 132px;
+}
+
+.permission-results {
+  display: grid;
+  gap: 10px;
+}
+
+.permission-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(146, 148, 152, 0.18);
+  border-radius: var(--radius-md);
+  background: rgba(21, 23, 27, 0.26);
+}
+
+.permission-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--color-neutral-400);
+}
+
+.permission-result.ok .permission-dot {
+  background: var(--color-semantic-success);
+  box-shadow: 0 0 0 3px rgba(137, 200, 157, 0.12);
+}
+
+.permission-result.warning .permission-dot {
+  background: var(--color-semantic-warning);
+  box-shadow: 0 0 0 3px rgba(214, 179, 106, 0.12);
+}
+
+.permission-result.error .permission-dot {
+  background: var(--color-semantic-danger);
+  box-shadow: 0 0 0 3px rgba(255, 122, 122, 0.12);
+}
+
+.permission-result div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.permission-result strong {
+  color: var(--color-neutral-100);
+}
+
+.permission-result span {
+  color: var(--color-neutral-300);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.permission-result code {
+  overflow-wrap: anywhere;
+  color: var(--color-neutral-100);
+  font-size: 12px;
+}
+
 .log-view {
   min-height: 360px;
   max-height: calc(100vh - 270px);
