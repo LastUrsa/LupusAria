@@ -125,10 +125,12 @@ export default function App() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [permissionCheck, setPermissionCheck] = useState<TwitchPermissionCheck | null>(null)
   const [notice, setNotice] = useState('')
+  const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [section, setSection] = useState<Section>('overview')
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
+  const toastTimerRef = useRef<number | null>(null)
 
   async function refresh(replaceSettings = false) {
     try {
@@ -154,8 +156,24 @@ export default function App() {
   useEffect(() => {
     refresh(true)
     const timer = window.setInterval(() => refresh(false), 3000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current)
+      }
+    }
   }, [])
+
+  function showToast(message: string) {
+    setToast(message)
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast('')
+      toastTimerRef.current = null
+    }, 3200)
+  }
 
   async function save() {
     setBusy(true)
@@ -166,6 +184,7 @@ export default function App() {
       dirtyRef.current = false
       setDirty(false)
       setNotice('Settings saved. Restart the bot to apply runtime changes.')
+      showToast('Settings saved.')
       await refresh(true)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -353,6 +372,7 @@ export default function App() {
 
         {notice && <div className="notice">{notice}</div>}
         {settings.error && <div className="notice error">{settings.error}</div>}
+        {toast && <div className="toast" role="status">{toast}</div>}
 
         <section className="panel">
           {section === 'overview' && (
@@ -517,7 +537,7 @@ export default function App() {
                 </div>
                 <div className="split">
                   <NumberField label="Page size" value={settings.recentStreamerPageSize} onChange={(value) => update('recentStreamerPageSize', value)} />
-                  <NumberField label="Shoutout delay seconds" value={settings.recentStreamerDelay} min={5} onChange={(value) => update('recentStreamerDelay', value)} />
+                  <NumberField label="Shoutout delay seconds" value={settings.recentStreamerDelay} min={1} onChange={(value) => update('recentStreamerDelay', value)} />
                 </div>
                 <TextArea label="!soroulette streamer pool" value={settings.soRouletteStreamers} onChange={(value) => update('soRouletteStreamers', value)} />
               </FeaturePanel>

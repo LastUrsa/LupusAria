@@ -311,7 +311,7 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"RECENT_STREAMER_MIN_WATCH_MINUTES":      strconv.Itoa(settings.RecentStreamerMinWatch),
 		"RECENT_STREAMER_RECENT_DAYS":            strconv.Itoa(settings.RecentStreamerDays),
 		"RECENT_STREAMER_PAGE_SIZE":              strconv.Itoa(settings.RecentStreamerPageSize),
-		"RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS": strconv.Itoa(minInt(settings.RecentStreamerDelay, 5)),
+		"RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS": strconv.Itoa(minInt(settings.RecentStreamerDelay, 1)),
 		"SO_ROULETTE_STREAMERS":                  formatLoginList(settings.SORouletteStreamers),
 
 		"AD_ALERTS_ENABLED":        boolString(settings.AdAlertsEnabled),

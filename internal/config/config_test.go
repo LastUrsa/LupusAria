@@ -138,7 +138,25 @@ AI_MAX_RETRIES=2
 	}
 }
 
-func TestLoadRaisesShortAutoSODelayToMinimum(t *testing.T) {
+func TestLoadRaisesSubsecondAutoSODelayToMinimum(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=0
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RecentStreamers.ShoutoutDelay != time.Second {
+		t.Fatalf("shoutout delay = %s, want 1s", cfg.RecentStreamers.ShoutoutDelay)
+	}
+}
+
+func TestLoadAllowsTwoSecondAutoSODelay(t *testing.T) {
 	envPath := filepath.Join(t.TempDir(), ".env")
 	writeTestEnv(t, envPath, `
 TWITCH_BOT_USERNAME=LupusAria
@@ -151,8 +169,8 @@ RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=2
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.RecentStreamers.ShoutoutDelay != 5*time.Second {
-		t.Fatalf("shoutout delay = %s, want 5s", cfg.RecentStreamers.ShoutoutDelay)
+	if cfg.RecentStreamers.ShoutoutDelay != 2*time.Second {
+		t.Fatalf("shoutout delay = %s, want 2s", cfg.RecentStreamers.ShoutoutDelay)
 	}
 }
 
