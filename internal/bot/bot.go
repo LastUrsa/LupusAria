@@ -1195,17 +1195,144 @@ func cleanAddressedReply(reply, displayName string) string {
 	for {
 		trimmed := strings.TrimSpace(reply)
 		if !strings.HasPrefix(trimmed, "@") {
-			return trimmed
+			return cleanRedundantNameReferences(cleanRedundantDisplayNameOpening(trimmed, name), name)
 		}
 		first, rest, hasRest := strings.Cut(trimmed, " ")
 		if !sameMention(first, name) {
-			return trimmed
+			return cleanRedundantNameReferences(cleanRedundantDisplayNameOpening(trimmed, name), name)
 		}
 		if !hasRest {
 			return ""
 		}
 		reply = strings.TrimSpace(rest)
 	}
+}
+
+func cleanRedundantDisplayNameOpening(reply, displayName string) string {
+	reply = strings.TrimSpace(reply)
+	name := strings.TrimSpace(displayName)
+	if reply == "" || name == "" {
+		return reply
+	}
+	lower := strings.ToLower(reply)
+	nameLower := strings.ToLower(name)
+	if !strings.HasPrefix(lower, nameLower) {
+		return reply
+	}
+	rest := strings.TrimSpace(reply[len(name):])
+	if rest == "" {
+		return ""
+	}
+	if strings.HasPrefix(rest, ",") || strings.HasPrefix(rest, ":") || strings.HasPrefix(rest, "-") {
+		return strings.TrimSpace(rest[1:])
+	}
+	if strings.HasPrefix(rest, "!") || strings.HasPrefix(rest, ".") {
+		afterPunctuation := strings.TrimSpace(rest[1:])
+		if startsWithCommonFollowup(afterPunctuation) {
+			return afterPunctuation
+		}
+	}
+	return reply
+}
+
+func cleanRedundantNameReferences(reply, displayName string) string {
+	reply = cleanRedundantVocativeOpening(reply, displayName)
+	reply = cleanRedundantSentenceEndingVocatives(reply, displayName)
+	return strings.TrimSpace(reply)
+}
+
+func cleanRedundantVocativeOpening(reply, displayName string) string {
+	reply = strings.TrimSpace(reply)
+	name := strings.TrimSpace(displayName)
+	if reply == "" || name == "" {
+		return reply
+	}
+	lower := strings.ToLower(reply)
+	nameLower := strings.ToLower(name)
+	for _, lead := range []string{"thanks", "thank you", "yeah", "yep", "sure", "honestly"} {
+		prefix := lead + ", " + nameLower
+		if !strings.HasPrefix(lower, prefix) {
+			continue
+		}
+		keptLead := reply[:len(lead)]
+		rest := strings.TrimSpace(reply[len(prefix):])
+		if rest == "" {
+			return keptLead + "."
+		}
+		switch rest[0] {
+		case '!', '?', '.':
+			return keptLead + rest
+		case ',', ':', ';':
+			return keptLead + rest
+		default:
+			return reply
+		}
+	}
+	return reply
+}
+
+func cleanRedundantSentenceEndingVocatives(reply, displayName string) string {
+	reply = strings.TrimSpace(reply)
+	name := strings.TrimSpace(displayName)
+	if reply == "" || name == "" {
+		return reply
+	}
+	nameLower := strings.ToLower(name)
+	for {
+		changed := false
+		lower := strings.ToLower(reply)
+		for _, pattern := range []string{", " + nameLower + ".", ", " + nameLower + "!", ", " + nameLower + "?"} {
+			index := strings.Index(lower, pattern)
+			if index < 0 {
+				continue
+			}
+			punctuationIndex := index + len(pattern) - 1
+			reply = strings.TrimSpace(reply[:index] + reply[punctuationIndex:punctuationIndex+1] + reply[punctuationIndex+1:])
+			reply = strings.Join(strings.Fields(reply), " ")
+			changed = true
+			break
+		}
+		if changed {
+			continue
+		}
+		for _, pattern := range []string{", " + nameLower + ",", ", " + nameLower + ";", ", " + nameLower + ":"} {
+			index := strings.Index(lower, pattern)
+			if index < 0 {
+				continue
+			}
+			reply = strings.TrimSpace(reply[:index] + reply[index+len(pattern)-1:])
+			reply = strings.Join(strings.Fields(reply), " ")
+			changed = true
+			break
+		}
+		if !changed {
+			return reply
+		}
+	}
+}
+
+func startsWithCommonFollowup(text string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	for _, prefix := range []string{
+		"thanks",
+		"thank you",
+		"yeah",
+		"yep",
+		"nope",
+		"sure",
+		"honestly",
+		"i ",
+		"i'll ",
+		"i'm ",
+		"that ",
+		"this ",
+		"it ",
+	} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func sameMention(mention, displayName string) bool {
@@ -1466,6 +1593,8 @@ var incompletePhraseSuffixes = []string{
 	"let's see if he can make",
 	"if it is some cryptic code",
 	"it is a unique combination, even",
+	"maybe next time",
+	"maybe later",
 	"most players burn their mp too",
 }
 

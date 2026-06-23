@@ -2,6 +2,7 @@ package twitch
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -190,6 +191,93 @@ func TestGetAdScheduleParsesFlexibleFields(t *testing.T) {
 	}
 	if schedule.NextAdAt.IsZero() || schedule.LastAdAt.IsZero() || schedule.SnoozeRefreshAt.IsZero() {
 		t.Fatalf("expected parsed times: %#v", schedule)
+	}
+}
+
+func TestCreateEventSubWebSocketSubscriptionPostsSessionTransport(t *testing.T) {
+	client := newTestHelixClient(t, func(req *http.Request) string {
+		if req.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", req.Method)
+		}
+		if req.URL.Path != "/helix/eventsub/subscriptions" {
+			t.Fatalf("path = %q, want /helix/eventsub/subscriptions", req.URL.Path)
+		}
+		var body struct {
+			Type      string            `json:"type"`
+			Version   string            `json:"version"`
+			Condition map[string]string `json:"condition"`
+			Transport struct {
+				Method    string `json:"method"`
+				SessionID string `json:"session_id"`
+			} `json:"transport"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Type != "channel.chat.message" || body.Version != "1" {
+			t.Fatalf("subscription = %#v", body)
+		}
+		if body.Condition["broadcaster_user_id"] != "broadcaster" || body.Condition["user_id"] != "bot" {
+			t.Fatalf("condition = %#v", body.Condition)
+		}
+		if body.Transport.Method != "websocket" || body.Transport.SessionID != "session-123" {
+			t.Fatalf("transport = %#v", body.Transport)
+		}
+		return `{"data":[]}`
+	})
+
+	err := client.CreateEventSubWebSocketSubscription(context.Background(), "channel.chat.message", "1", map[string]string{
+		"broadcaster_user_id": "broadcaster",
+		"user_id":             "bot",
+	}, "session-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSendChatMessagePostsMessageAndReturnsID(t *testing.T) {
+	client := newTestHelixClient(t, func(req *http.Request) string {
+		if req.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", req.Method)
+		}
+		if req.URL.Path != "/helix/chat/messages" {
+			t.Fatalf("path = %q, want /helix/chat/messages", req.URL.Path)
+		}
+		var body struct {
+			BroadcasterID        string `json:"broadcaster_id"`
+			SenderID             string `json:"sender_id"`
+			Message              string `json:"message"`
+			ReplyParentMessageID string `json:"reply_parent_message_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.BroadcasterID != "broadcaster" || body.SenderID != "bot" || body.Message != "Hello chat" || body.ReplyParentMessageID != "parent" {
+			t.Fatalf("body = %#v", body)
+		}
+		return `{"data":[{"message_id":"message-123","is_sent":true,"drop_reason":null}]}`
+	})
+
+	result, err := client.SendChatMessage(context.Background(), "broadcaster", "bot", "Hello\nchat", "parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.MessageID != "message-123" || !result.IsSent {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestSendChatMessageReturnsDropReason(t *testing.T) {
+	client := newTestHelixClient(t, func(*http.Request) string {
+		return `{"data":[{"message_id":"","is_sent":false,"drop_reason":{"code":"automod_held","message":"held by automod"}}]}`
+	})
+
+	result, err := client.SendChatMessage(context.Background(), "broadcaster", "bot", "Hello chat", "")
+	if err == nil || !strings.Contains(err.Error(), "held by automod") {
+		t.Fatalf("err = %v", err)
+	}
+	if result.DropCode != "automod_held" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

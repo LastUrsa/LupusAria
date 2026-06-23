@@ -4,6 +4,7 @@
 *.log
 .lupusaria-budget.json
 .lupusaria-twitch-token.json
+.lupusaria-twitch-app-token.json
 .lupusaria-twitch-ads-token.json
 .lupusaria-announcements.json
 .lupusaria-knowledge.md

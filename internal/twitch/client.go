@@ -22,7 +22,9 @@ type Config struct {
 }
 
 type Message struct {
+	ID                     string
 	Channel                string
+	UserID                 string
 	Username               string
 	DisplayName            string
 	Text                   string
@@ -188,7 +190,9 @@ func parseMessage(raw string) (Message, bool) {
 	isMod := isBroadcaster || hasBadge(tags["badges"], "moderator") || tags["mod"] == "1"
 
 	return Message{
+		ID:                     tags["id"],
 		Channel:                strings.TrimPrefix(channelPart, "#"),
+		UserID:                 tags["user-id"],
 		Username:               strings.ToLower(username),
 		DisplayName:            displayName,
 		Text:                   text,

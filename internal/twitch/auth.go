@@ -39,6 +39,60 @@ func NewAuthManager(cfg AuthConfig) *AuthManager {
 	}
 }
 
+func (m *AuthManager) AppAccessToken(ctx context.Context) (TokenSet, error) {
+	if cached, err := m.load(); err == nil && cached.AccessToken != "" && time.Now().Before(cached.ExpiresAt.Add(-2*time.Minute)) {
+		return cached, nil
+	}
+	if strings.TrimSpace(m.cfg.ClientID) == "" || strings.TrimSpace(m.cfg.ClientSecret) == "" {
+		return TokenSet{}, errors.New("missing Twitch client ID or client secret")
+	}
+
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	form.Set("client_id", m.cfg.ClientID)
+	form.Set("client_secret", m.cfg.ClientSecret)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return TokenSet{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return TokenSet{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
+		if apiErr.Message != "" {
+			return TokenSet{}, errors.New(apiErr.Message)
+		}
+		return TokenSet{}, fmt.Errorf("twitch app token request failed with status %s", resp.Status)
+	}
+
+	var result struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return TokenSet{}, err
+	}
+	if result.AccessToken == "" {
+		return TokenSet{}, errors.New("twitch app token response did not include an access token")
+	}
+	tokenSet := TokenSet{
+		AccessToken: result.AccessToken,
+		ExpiresAt:   time.Now().Add(time.Duration(result.ExpiresIn) * time.Second),
+	}
+	m.save(tokenSet)
+	return tokenSet, nil
+}
+
 func (m *AuthManager) Refresh(ctx context.Context) (TokenSet, error) {
 	refreshToken := strings.TrimSpace(m.cfg.RefreshToken)
 	if refreshToken == "" {

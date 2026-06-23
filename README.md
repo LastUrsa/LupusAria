@@ -6,7 +6,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 
 ## Features
 
-- Twitch chat connection over IRC/TLS.
+- Twitch chat connection over EventSub WebSockets with Twitch API sending and an IRC fallback for incomplete setup.
 - AI replies for direct mentions, `!ask`, `!lurk`, and grounded `!game` help.
 - Structured rolling chat context plus cached Twitch stream context.
 - Twitch emote context enrichment with local cached visual descriptions.
@@ -87,18 +87,20 @@ Announcement settings are grouped into Timer Announcements and Command Announcem
 For chat, use a bot-account token with chat read/write scopes:
 
 ```bash
-twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters'
+twitch token -u --dcf -s 'user:read:chat user:write:chat user:bot moderator:read:chatters'
 ```
 
 For AutoSO follower checks, include `moderator:read:followers` too:
 
 ```bash
-twitch token -u --dcf -s 'chat:read chat:edit moderator:read:chatters moderator:read:followers'
+twitch token -u --dcf -s 'user:read:chat user:write:chat user:bot moderator:read:chatters moderator:read:followers'
 ```
 
 The bot account should be a moderator in the channel. This is required for Twitch chatter snapshots, follower checks, and reliable AutoSO commands.
 
 Set the bot username, channel, streamer identity, Twitch client ID, client secret, and bot access or refresh token in the desktop app's Setup tab.
+
+When the Twitch client secret is saved, LupusAria uses an app access token for Twitch API chat sends. This is the Twitch Chat Bot Badge path when the bot account has authorized `user:bot` and `user:write:chat`, the bot is not the broadcaster account, and the bot is a moderator in the channel or the broadcaster has granted `channel:bot` to the app.
 
 Ad alerts require a broadcaster token with `channel:read:ads`:
 
