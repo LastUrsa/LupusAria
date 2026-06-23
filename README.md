@@ -79,7 +79,7 @@ Installed app settings are stored in the current user's config folder, not besid
 ```
 
 Twitch and AI secrets can be entered from the app; saved secret values are hidden and are only replaced when a new value is typed.
-The Setup tab includes streamer name and streamer pronouns. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
+The Setup tab includes streamer name, streamer pronouns, and a Twitch permissions check for saved app, bot, and ads credentials. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
 Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, command, or command permission.
 
 ## Twitch Tokens

@@ -104,6 +104,54 @@ func TestGetSettingsWorksBeforeEnvExists(t *testing.T) {
 	}
 }
 
+func TestCheckTwitchPermissionsReportsMissingFirstRunCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	t.Setenv(envPathOverride, path)
+
+	check, err := NewApp().CheckTwitchPermissions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Overall != "error" {
+		t.Fatalf("overall = %q, want error", check.Overall)
+	}
+	if len(check.Items) != 3 {
+		t.Fatalf("items = %#v", check.Items)
+	}
+	if check.Items[0].Name != "Twitch app" || check.Items[0].Status != "error" {
+		t.Fatalf("app item = %#v", check.Items[0])
+	}
+	if check.Items[1].Name != "Bot token" || check.Items[1].Status != "error" {
+		t.Fatalf("bot item = %#v", check.Items[1])
+	}
+	if check.Items[2].Name != "Ads token" || check.Items[2].Status != "warning" {
+		t.Fatalf("ads item = %#v", check.Items[2])
+	}
+}
+
+func TestPermissionStatusAndMissingScopes(t *testing.T) {
+	missing := missingScopes([]string{"user:read:chat", "user:bot"}, []string{"user:read:chat", "user:write:chat", "user:bot"})
+	if got, want := strings.Join(missing, ","), "user:write:chat"; got != want {
+		t.Fatalf("missing scopes = %q, want %q", got, want)
+	}
+
+	overall := overallPermissionStatus([]TwitchPermissionItem{
+		{Name: "ok", Status: "ok"},
+		{Name: "warning", Status: "warning"},
+	})
+	if overall != "warning" {
+		t.Fatalf("overall = %q, want warning", overall)
+	}
+	overall = overallPermissionStatus([]TwitchPermissionItem{
+		{Name: "ok", Status: "ok"},
+		{Name: "error", Status: "error"},
+		{Name: "warning", Status: "warning"},
+	})
+	if overall != "error" {
+		t.Fatalf("overall = %q, want error", overall)
+	}
+}
+
 func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	t.Setenv(envPathOverride, path)

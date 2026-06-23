@@ -3,8 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +19,7 @@ import (
 	"lupusaria/internal/botrunner"
 	"lupusaria/internal/config"
 	"lupusaria/internal/knowledge"
+	"lupusaria/internal/twitch"
 )
 
 const envPathOverride = "LUPUSARIA_ENV_PATH"
@@ -130,6 +134,27 @@ type KnowledgeSettings struct {
 	Path    string `json:"path"`
 	Exists  bool   `json:"exists"`
 	Content string `json:"content"`
+}
+
+type TwitchPermissionCheck struct {
+	CheckedAt string                 `json:"checkedAt"`
+	Overall   string                 `json:"overall"`
+	Items     []TwitchPermissionItem `json:"items"`
+}
+
+type TwitchPermissionItem struct {
+	Name          string   `json:"name"`
+	Status        string   `json:"status"`
+	Detail        string   `json:"detail"`
+	MissingScopes []string `json:"missingScopes"`
+}
+
+type twitchTokenValidation struct {
+	ClientID  string   `json:"client_id"`
+	Login     string   `json:"login"`
+	Scopes    []string `json:"scopes"`
+	UserID    string   `json:"user_id"`
+	ExpiresIn int      `json:"expires_in"`
 }
 
 func NewApp() *App {
@@ -316,6 +341,51 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 	return nil
 }
 
+func (a *App) CheckTwitchPermissions() (TwitchPermissionCheck, error) {
+	envPath, err := appEnvPath()
+	if err != nil {
+		return TwitchPermissionCheck{}, err
+	}
+	cfg, err := config.LoadPartial(envPath)
+	if err != nil {
+		return TwitchPermissionCheck{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	check := TwitchPermissionCheck{
+		CheckedAt: time.Now().Format(time.RFC3339),
+		Overall:   "ok",
+	}
+	check.Items = append(check.Items, checkTwitchAppCredentials(ctx, cfg))
+	check.Items = append(check.Items, checkTwitchUserToken(ctx, "Bot token", cfg.Twitch.ClientID, cfg.Twitch.ClientSecret, cfg.Twitch.OAuthToken, cfg.Twitch.RefreshToken, cfg.Twitch.TokenStatePath, cfg.Twitch.BotUsername, []string{
+		"user:read:chat",
+		"user:write:chat",
+		"user:bot",
+		"moderator:read:chatters",
+		"moderator:read:followers",
+	}))
+	if cfg.AdAlerts.Enabled || cfg.Twitch.AdsOAuthToken != "" || cfg.Twitch.AdsRefreshToken != "" {
+		check.Items = append(check.Items, checkTwitchUserToken(ctx, "Ads token", cfg.Twitch.AdsClientID, cfg.Twitch.AdsClientSecret, cfg.Twitch.AdsOAuthToken, cfg.Twitch.AdsRefreshToken, cfg.Twitch.AdsTokenStatePath, cfg.Twitch.Channel, []string{
+			"channel:read:ads",
+		}))
+	} else {
+		check.Items = append(check.Items, TwitchPermissionItem{
+			Name:   "Ads token",
+			Status: "warning",
+			Detail: "Ad alerts are disabled and no ads token is saved.",
+		})
+	}
+	check.Overall = overallPermissionStatus(check.Items)
+	for i := range check.Items {
+		if check.Items[i].MissingScopes == nil {
+			check.Items[i].MissingScopes = []string{}
+		}
+	}
+	a.appendLog("twitch permissions checked: " + check.Overall)
+	return check, nil
+}
+
 func (a *App) GetKnowledge() (KnowledgeSettings, error) {
 	envPath, err := appEnvPath()
 	if err != nil {
@@ -376,6 +446,156 @@ func (a *App) ResetKnowledgeTemplate() (KnowledgeSettings, error) {
 	}
 	a.appendLog("knowledge reset from template")
 	return a.GetKnowledge()
+}
+
+func checkTwitchAppCredentials(ctx context.Context, cfg config.Config) TwitchPermissionItem {
+	if strings.TrimSpace(cfg.Twitch.ClientID) == "" {
+		return TwitchPermissionItem{Name: "Twitch app", Status: "error", Detail: "Missing Twitch client ID."}
+	}
+	if strings.TrimSpace(cfg.Twitch.ClientSecret) == "" {
+		return TwitchPermissionItem{Name: "Twitch app", Status: "error", Detail: "Missing Twitch client secret."}
+	}
+	_, err := twitch.NewAuthManager(twitch.AuthConfig{
+		ClientID:     cfg.Twitch.ClientID,
+		ClientSecret: cfg.Twitch.ClientSecret,
+		StatePath:    cfg.Twitch.AppTokenStatePath,
+	}).AppAccessToken(ctx)
+	if err != nil {
+		return TwitchPermissionItem{Name: "Twitch app", Status: "error", Detail: "Could not get a Twitch app access token: " + safePermissionError(err)}
+	}
+	return TwitchPermissionItem{Name: "Twitch app", Status: "ok", Detail: "Client ID and secret can mint an app access token for chat sends."}
+}
+
+func checkTwitchUserToken(ctx context.Context, name, clientID, clientSecret, accessToken, refreshToken, statePath, expectedLogin string, requiredScopes []string) TwitchPermissionItem {
+	token := strings.TrimSpace(strings.TrimPrefix(accessToken, "oauth:"))
+	refreshed := false
+	if strings.TrimSpace(refreshToken) != "" && strings.TrimSpace(clientID) != "" && strings.TrimSpace(clientSecret) != "" {
+		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			RefreshToken: refreshToken,
+			StatePath:    statePath,
+		}).Refresh(ctx)
+		if err == nil {
+			token = tokenSet.AccessToken
+			refreshed = true
+		} else if token == "" {
+			return TwitchPermissionItem{Name: name, Status: "error", Detail: "Refresh failed and no saved access token is available: " + safePermissionError(err)}
+		}
+	}
+	if token == "" {
+		return TwitchPermissionItem{Name: name, Status: "error", Detail: "Missing access token or refresh token."}
+	}
+
+	validation, err := validateTwitchToken(ctx, http.DefaultClient, token)
+	if err != nil {
+		return TwitchPermissionItem{Name: name, Status: "error", Detail: "Token validation failed: " + safePermissionError(err)}
+	}
+
+	missing := missingScopes(validation.Scopes, requiredScopes)
+	if len(missing) > 0 {
+		return TwitchPermissionItem{
+			Name:          name,
+			Status:        "error",
+			Detail:        fmt.Sprintf("Validated as %s, but required scopes are missing.", displayLogin(validation.Login)),
+			MissingScopes: missing,
+		}
+	}
+
+	if expected := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(expectedLogin, "@"))); expected != "" && validation.Login != "" && !strings.EqualFold(expected, validation.Login) {
+		return TwitchPermissionItem{
+			Name:   name,
+			Status: "warning",
+			Detail: fmt.Sprintf("Validated as %s; expected %s.", displayLogin(validation.Login), expected),
+		}
+	}
+
+	source := "access token"
+	if refreshed {
+		source = "refresh token"
+	}
+	return TwitchPermissionItem{
+		Name:   name,
+		Status: "ok",
+		Detail: fmt.Sprintf("Validated %s for %s with all required scopes.", source, displayLogin(validation.Login)),
+	}
+}
+
+func validateTwitchToken(ctx context.Context, client *http.Client, token string) (twitchTokenValidation, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://id.twitch.tv/oauth2/validate", nil)
+	if err != nil {
+		return twitchTokenValidation{}, err
+	}
+	req.Header.Set("Authorization", "OAuth "+strings.TrimSpace(strings.TrimPrefix(token, "oauth:")))
+	resp, err := client.Do(req)
+	if err != nil {
+		return twitchTokenValidation{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&apiErr)
+		if apiErr.Message != "" {
+			return twitchTokenValidation{}, errors.New(apiErr.Message)
+		}
+		return twitchTokenValidation{}, fmt.Errorf("validate failed with status %s", resp.Status)
+	}
+	var validation twitchTokenValidation
+	if err := json.NewDecoder(resp.Body).Decode(&validation); err != nil {
+		return twitchTokenValidation{}, err
+	}
+	return validation, nil
+}
+
+func missingScopes(have, required []string) []string {
+	haveSet := map[string]bool{}
+	for _, scope := range have {
+		haveSet[scope] = true
+	}
+	var missing []string
+	for _, scope := range required {
+		if !haveSet[scope] {
+			missing = append(missing, scope)
+		}
+	}
+	return missing
+}
+
+func overallPermissionStatus(items []TwitchPermissionItem) string {
+	overall := "ok"
+	for _, item := range items {
+		if item.Status == "error" {
+			return "error"
+		}
+		if item.Status == "warning" {
+			overall = "warning"
+		}
+	}
+	return overall
+}
+
+func displayLogin(login string) string {
+	login = strings.TrimSpace(login)
+	if login == "" {
+		return "the authorized account"
+	}
+	return "@" + login
+}
+
+func safePermissionError(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return "unknown error"
+	}
+	return msg
 }
 
 func knowledgeExists(path string) bool {
