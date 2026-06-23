@@ -98,7 +98,7 @@ h3 {
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   min-width: 0;
-  padding: 20px;
+  padding: 20px 20px 0;
 }
 
 .topbar {
@@ -184,6 +184,24 @@ h3 {
   border-color: rgba(255, 122, 122, 0.44);
   color: var(--color-semantic-danger);
   background: rgba(74, 16, 20, 0.36);
+}
+
+.toast {
+  position: fixed;
+  left: calc(220px + (100vw - 220px) / 2);
+  bottom: 82px;
+  transform: translateX(-50%);
+  z-index: 60;
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 44px));
+  padding: 12px 14px;
+  border: 1px solid rgba(137, 200, 157, 0.42);
+  border-radius: var(--radius-md);
+  color: var(--color-neutral-100);
+  background: color-mix(in srgb, var(--color-neutral-800) 88%, var(--color-semantic-success) 12%);
+  box-shadow: var(--shadow-md);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .panel {
@@ -738,11 +756,13 @@ h3 {
   bottom: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 10px;
-  margin-top: 16px;
-  padding: 14px 0 0;
-  background: linear-gradient(180deg, transparent, #1f2130 34%);
+  margin: 18px -20px 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--color-neutral-900) 92%, var(--color-brand-anchor) 8%);
+  box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.18);
 }
 
 .actions button {

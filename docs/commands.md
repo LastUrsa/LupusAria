@@ -83,7 +83,7 @@ SO_ROULETTE_COMMAND_PERMISSION=mods
 ```
 
 The streamer running the channel is excluded from AutoSO and SO roulette results. Follower checks require a user token with `moderator:read:followers`; without that scope, AutoSO cannot safely build the shoutout queue.
-Shoutout command dispatch is shared across AutoSO and SO roulette. It is spaced by `RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS`, with values below 5 seconds treated as 5 seconds. A streamer is shouted out at most once per Twitch stream across both commands.
+Shoutout command dispatch is shared across AutoSO and SO roulette. It is spaced by `RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS`, with values below 1 second treated as 1 second. A streamer is shouted out at most once per Twitch stream across both commands.
 
 ## Ad Alerts
 

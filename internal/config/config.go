@@ -118,7 +118,7 @@ type AnnouncementsConfig struct {
 	PollInterval time.Duration
 }
 
-const minRecentStreamerShoutoutDelay = 5 * time.Second
+const minRecentStreamerShoutoutDelay = time.Second
 
 func Load(envPath string) (Config, error) {
 	return load(envPath, true)

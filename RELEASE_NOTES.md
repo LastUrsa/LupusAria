@@ -1,5 +1,10 @@
 # LupusAria Release Notes
 
+## Unreleased
+
+- Lowers the AutoSO and SO roulette shoutout delay floor from five seconds to one second so shorter saved delays persist.
+- Cleans up the sticky save bar and adds an in-place save toast so saving settings is easier to confirm without scrolling.
+
 ## v0.5.0
 
 - Migrates Twitch chat from IRC-first handling to EventSub WebSockets with an IRC fallback for incomplete setup.

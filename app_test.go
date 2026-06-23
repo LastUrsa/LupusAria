@@ -178,6 +178,7 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	settings.GameSnapshotCropY = 0.1
 	settings.GameSnapshotCropWidth = 0.7
 	settings.GameSnapshotCropHeight = 0.75
+	settings.RecentStreamerDelay = 2
 
 	if err := app.SaveSettings(settings); err != nil {
 		t.Fatal(err)
@@ -208,6 +209,7 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 		"GAME_SNAPSHOT_CROP_Y=0.1",
 		"GAME_SNAPSHOT_CROP_WIDTH=0.7",
 		"GAME_SNAPSHOT_CROP_HEIGHT=0.75",
+		"RECENT_STREAMER_SHOUTOUT_DELAY_SECONDS=2",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("saved env missing %q:\n%s", want, got)
