@@ -194,6 +194,36 @@ func TestGetAdScheduleParsesFlexibleFields(t *testing.T) {
 	}
 }
 
+func TestGetAdScheduleParsesUnixTimestampFields(t *testing.T) {
+	client := newTestHelixClient(t, func(req *http.Request) string {
+		if req.URL.Query().Get("broadcaster_id") != "broadcaster" {
+			t.Fatalf("query = %s", req.URL.RawQuery)
+		}
+		return `{"data":[{
+			"next_ad_at":1782262592,
+			"last_ad_at":1782258992,
+			"duration":180,
+			"preroll_free_time":3531,
+			"snooze_count":3,
+			"snooze_refresh_at":0
+		}]}`
+	})
+
+	schedule, err := client.GetAdSchedule(context.Background(), "broadcaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !schedule.NextAdAt.Equal(time.Unix(1782262592, 0).UTC()) {
+		t.Fatalf("next ad = %s", schedule.NextAdAt)
+	}
+	if !schedule.LastAdAt.Equal(time.Unix(1782258992, 0).UTC()) {
+		t.Fatalf("last ad = %s", schedule.LastAdAt)
+	}
+	if !schedule.SnoozeRefreshAt.IsZero() {
+		t.Fatalf("snooze refresh = %s, want zero", schedule.SnoozeRefreshAt)
+	}
+}
+
 func TestCreateEventSubWebSocketSubscriptionPostsSessionTransport(t *testing.T) {
 	client := newTestHelixClient(t, func(req *http.Request) string {
 		if req.Method != http.MethodPost {
@@ -288,8 +318,20 @@ func TestGetJSONReturnsHTTPStatusError(t *testing.T) {
 
 	var target any
 	err := client.getJSON(context.Background(), "https://api.twitch.tv/helix/users", &target)
-	if err == nil || !strings.Contains(err.Error(), "401 Unauthorized") {
-		t.Fatalf("err = %v, want 401", err)
+	if err == nil || !strings.Contains(err.Error(), "401 Unauthorized") || !strings.Contains(err.Error(), "bad token") {
+		t.Fatalf("err = %v, want 401 with response body", err)
+	}
+}
+
+func TestPostJSONReturnsHTTPStatusErrorBody(t *testing.T) {
+	client := newTestHelixClientWithStatus(t, http.StatusForbidden, func(*http.Request) string {
+		return `{"message":"missing required scope channel:read:ads"}`
+	})
+
+	var target any
+	err := client.postJSON(context.Background(), "https://api.twitch.tv/helix/eventsub/subscriptions", map[string]string{"type": "test"}, &target)
+	if err == nil || !strings.Contains(err.Error(), "403 Forbidden") || !strings.Contains(err.Error(), "channel:read:ads") {
+		t.Fatalf("err = %v, want 403 with response body", err)
 	}
 }
 
