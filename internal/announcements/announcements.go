@@ -167,6 +167,26 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 	return false
 }
 
+func (s *Service) CommandContext() string {
+	if s == nil || !s.cfg.Enabled {
+		return ""
+	}
+	lines := make([]string, 0, len(s.cfg.Items))
+	for _, item := range s.cfg.Items {
+		if !item.Enabled || item.Kind != KindCommand || item.Command == "" || item.Message == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", item.Command, compactMessage(item.Message, 220)))
+		if len(lines) >= 8 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Known channel command announcements:\n" + strings.Join(lines, "\n")
+}
+
 func (s *Service) run(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.PollInterval)
 	defer ticker.Stop()
@@ -179,6 +199,18 @@ func (s *Service) run(ctx context.Context) {
 			s.checkTimers(ctx)
 		}
 	}
+}
+
+func compactMessage(message string, maxLength int) string {
+	message = strings.Join(strings.Fields(strings.TrimSpace(message)), " ")
+	if maxLength < 1 || len(message) <= maxLength {
+		return message
+	}
+	cut := message[:maxLength]
+	if index := strings.LastIndex(cut, " "); index > int(float64(maxLength)*0.7) {
+		cut = strings.TrimSpace(cut[:index])
+	}
+	return strings.TrimRight(cut, " ,;:") + "..."
 }
 
 func (s *Service) checkTimers(ctx context.Context) {

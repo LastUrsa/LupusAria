@@ -130,6 +130,23 @@ func TestHandleCommandUsesPerAnnouncementPermission(t *testing.T) {
 	}
 }
 
+func TestCommandContextSummarizesEnabledCommandAnnouncements(t *testing.T) {
+	service := New(Config{
+		Enabled: true,
+		Items: []Announcement{
+			{Enabled: true, Kind: KindCommand, Command: "!donate", Message: "Donate to the Starsong Pride campaign."},
+			{Enabled: false, Kind: KindCommand, Command: "!secret", Message: "Hidden."},
+			{Enabled: true, Kind: KindTimer, Message: "Timer only."},
+		},
+	}, &fakeChat{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	got := service.CommandContext()
+	want := "Known channel command announcements:\n- !donate: Donate to the Starsong Pride campaign."
+	if got != want {
+		t.Fatalf("CommandContext = %q, want %q", got, want)
+	}
+}
+
 func TestCheckTimersUsesStreamStartAndSendsOnce(t *testing.T) {
 	started := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	chat := &fakeChat{}

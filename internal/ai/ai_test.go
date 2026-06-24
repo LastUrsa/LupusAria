@@ -305,11 +305,18 @@ func TestGeminiCompleteRetriesEmptyText(t *testing.T) {
 	}
 }
 
-func TestGeminiCompleteAllowsTextWithMaxTokenFinish(t *testing.T) {
-	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-test"})
+func TestGeminiCompleteRetriesTextWithMaxTokenFinish(t *testing.T) {
+	attempts := 0
+	client := NewGeminiClient(config.AIConfig{APIKey: "gemini-key", Model: "gemini-test", MaxRetries: 1})
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return jsonResponse(http.StatusOK, `{
+				"candidates": [{"finishReason":"MAX_TOKENS","content": {"parts": [{"text": "partial"}]}}]
+			}`), nil
+		}
 		return jsonResponse(http.StatusOK, `{
-			"candidates": [{"finishReason":"MAX_TOKENS","content": {"parts": [{"text": "partial"}]}}]
+			"candidates": [{"finishReason":"STOP","content": {"parts": [{"text": "complete"}]}}]
 		}`), nil
 	})}
 
@@ -317,8 +324,11 @@ func TestGeminiCompleteAllowsTextWithMaxTokenFinish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Text != "partial" {
-		t.Fatalf("text = %q, want partial", response.Text)
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if response.Text != "complete" {
+		t.Fatalf("text = %q, want complete", response.Text)
 	}
 }
 

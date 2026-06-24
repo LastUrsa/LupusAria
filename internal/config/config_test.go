@@ -240,8 +240,8 @@ GEMINI_API_KEY=test-key
 	if cfg.AI.GeminiThinkingLevel != "high" {
 		t.Fatalf("thinking level = %q, want high", cfg.AI.GeminiThinkingLevel)
 	}
-	if cfg.AI.MaxOutputTokens != 1024 {
-		t.Fatalf("max output tokens = %d, want 1024", cfg.AI.MaxOutputTokens)
+	if cfg.AI.MaxOutputTokens != 2048 {
+		t.Fatalf("max output tokens = %d, want 2048", cfg.AI.MaxOutputTokens)
 	}
 	if cfg.AI.MaxRetries != 3 {
 		t.Fatalf("max retries = %d, want 3", cfg.AI.MaxRetries)

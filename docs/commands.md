@@ -58,8 +58,9 @@ They are governed by:
 
 Shared voice and safety rules live in [personality.md](personality.md). Command-specific prompts should stay small and should not redefine Lupus Aria's identity.
 
-Recent chat is sent to the model as structured room state. The current message is excluded from that history, low-signal bot commands are filtered out, and older retained chat is compacted before the freshest timeline. For `!lurk`, Lupus retries once if a generic send-off ignores available chat/game context.
+Recent chat is sent to the model as structured room state. The current message is excluded from that history, low-signal bot commands are filtered out, and older retained chat is compacted before the freshest timeline. Enabled command announcements are summarized in AI context so Lupus can answer questions about active channel commands such as `!donate`. For `!lurk`, Lupus retries once if a generic send-off ignores available chat/game context.
 When `ENABLE_EMOTE_CONTEXT=true`, native Twitch emotes are treated as channel context and added to AI prompts. LupusAria loads the channel's emote catalog from Twitch when possible, describes unknown native emotes from their Twitch CDN image when the AI provider supports image analysis, then caches descriptions at `EMOTE_CACHE_PATH`. Third-party-looking emote tokens are marked as possible emotes with unknown meaning instead of treated as normal words.
+AI usage logs include provider finish reasons when available. `MAX_TOKENS`, length, or empty-text finishes are treated as incomplete and retried instead of being sent as clipped chat replies.
 
 Streamer identity and pronouns come from `STREAMER_NAME` and `STREAMER_PRONOUNS`. Stable channel facts come from the local knowledge file, which LupusAria creates from the starter template when needed.
 Chat transcripts are appended locally to `CHAT_LOG_PATH`, which defaults to `.lupusaria-chat.jsonl`.
@@ -104,11 +105,11 @@ AD_ALERT_END_MESSAGE=Welcome back. Ads should be done now.
 
 `AD_ALERT_WARNING_MESSAGE` should include one `%s` placeholder, such as `5 minutes`.
 
-Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally during long runs. If the ads token was generated from a different Twitch application than the bot token, set `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET` too. Temporary Twitch ad schedule polling failures are logged and retried. If the EventSub ad-break subscription is unavailable, Lupus keeps using the schedule poller for start alerts.
+Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally during long runs. If the ads token was generated from a different Twitch application than the bot token, set `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET` too. Temporary Twitch ad schedule polling failures are logged and retried. If the EventSub ad-break subscription is unavailable, Lupus remembers the warned ad and uses the schedule poller to synthesize start and expected-end alerts.
 
 ## Announcements
 
-Announcements are static messages managed in the desktop app. They do not call AI. The app shows Timer Announcements and Command Announcements as separate expandable summary tables.
+Announcements are static messages managed in the desktop app. They do not call AI. Enabled command announcements are summarized into AI prompt context so Lupus can answer questions about configured channel commands. The app shows Timer Announcements and Command Announcements as separate expandable summary tables.
 
 Types:
 

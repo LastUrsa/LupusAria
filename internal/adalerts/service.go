@@ -75,10 +75,14 @@ type Service struct {
 
 	mu           sync.Mutex
 	warnedAdKey  string
+	warnedStart  time.Time
+	warnedEnd    time.Time
+	warnedDur    time.Duration
 	startedAdKey string
 	endedAdKey   string
 	activeAdKey  string
 	activeEndAt  time.Time
+	activeDur    time.Duration
 }
 
 func New(cfg Config, chat Chat, helix ScheduleProvider, logger *slog.Logger) *Service {
@@ -182,13 +186,23 @@ func (s *Service) HandleAdBreakBegin(ctx context.Context, event AdBreakBegin) {
 	s.startedAdKey = key
 	s.activeAdKey = key
 	s.activeEndAt = startedAt.Add(event.Duration)
+	s.activeDur = event.Duration
 	s.logger.Info("ad alert started from EventSub", "started_at", formatLogTime(startedAt), "duration", event.Duration, "automatic", event.Automatic)
 }
 
 func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 	now := s.now()
 	if !s.activeEndAt.IsZero() && !now.Before(s.activeEndAt) {
-		s.sendEnd(ctx, schedule.Duration)
+		duration := schedule.Duration
+		if s.activeDur > 0 {
+			duration = s.activeDur
+		}
+		s.sendEnd(ctx, duration)
+	}
+	s.synthesizeWarnedAd(ctx, now)
+	if s.activeAdKey != "" && now.Before(s.activeEndAt) {
+		s.logger.Info("ad alert schedule ignored; ad alert already active", "active_end_at", formatLogTime(s.activeEndAt))
+		return
 	}
 	if schedule.NextAdAt.IsZero() || schedule.Duration <= 0 {
 		s.logger.Info("ad alert schedule has no upcoming ad", "next_ad_at", formatLogTime(schedule.NextAdAt), "duration", schedule.Duration)
@@ -210,6 +224,9 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 			}
 			s.say(ctx, Event{Kind: EventWarning, Lead: lead, Duration: schedule.Duration}, fmt.Sprintf(s.cfg.WarningMessage, formatLead(lead)))
 			s.warnedAdKey = key
+			s.warnedStart = startAt
+			s.warnedEnd = endAt
+			s.warnedDur = schedule.Duration
 		} else {
 			s.logger.Info("ad alert waiting for warning window",
 				"starts_at", formatLogTime(startAt),
@@ -224,12 +241,38 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 		s.startedAdKey = key
 		s.activeAdKey = key
 		s.activeEndAt = endAt
+		s.activeDur = schedule.Duration
 		return
 	}
 	if !now.Before(endAt) && s.startedAdKey == key && s.endedAdKey != key {
 		s.activeAdKey = key
 		s.activeEndAt = endAt
+		s.activeDur = schedule.Duration
 		s.sendEnd(ctx, schedule.Duration)
+	}
+}
+
+func (s *Service) synthesizeWarnedAd(ctx context.Context, now time.Time) {
+	if s.warnedAdKey == "" || s.warnedStart.IsZero() || s.warnedEnd.IsZero() {
+		return
+	}
+	if now.Before(s.warnedStart) {
+		return
+	}
+	if s.startedAdKey != s.warnedAdKey && now.Before(s.warnedEnd) {
+		s.say(ctx, Event{Kind: EventStart, Duration: s.warnedDur}, s.cfg.StartMessage)
+		s.startedAdKey = s.warnedAdKey
+		s.activeAdKey = s.warnedAdKey
+		s.activeEndAt = s.warnedEnd
+		s.activeDur = s.warnedDur
+		s.logger.Info("ad alert start synthesized from warned schedule", "started_at", formatLogTime(s.warnedStart), "duration", s.warnedDur)
+		return
+	}
+	if !now.Before(s.warnedEnd) && s.startedAdKey == s.warnedAdKey && s.endedAdKey != s.warnedAdKey {
+		s.activeAdKey = s.warnedAdKey
+		s.activeEndAt = s.warnedEnd
+		s.activeDur = s.warnedDur
+		s.sendEnd(ctx, s.warnedDur)
 	}
 }
 
@@ -248,6 +291,7 @@ func (s *Service) sendEnd(ctx context.Context, duration time.Duration) {
 	s.endedAdKey = s.activeAdKey
 	s.activeAdKey = ""
 	s.activeEndAt = time.Time{}
+	s.activeDur = 0
 }
 
 func (s *Service) say(ctx context.Context, event Event, fallback string) {

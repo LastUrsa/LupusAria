@@ -112,11 +112,11 @@ The ads token must be used with the same Twitch application that generated it. I
 
 Use an ads refresh token when possible. LupusAria refreshes the ads access token during long runs and retries temporary Twitch ad schedule polling failures instead of disabling ad alerts for the rest of the session.
 
-Ad warnings still come from Twitch's ad schedule. When EventSub can create the `channel.ad_break.begin` subscription with the ads token, ad-start alerts use that live event; otherwise LupusAria falls back to schedule polling for starts too.
+Ad warnings still come from Twitch's ad schedule. When EventSub can create the `channel.ad_break.begin` subscription with the ads token, ad-start alerts use that live event. Otherwise LupusAria remembers the warned ad and uses schedule polling to synthesize start and expected-end alerts.
 
 ## Cost Controls
 
-AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, filtered recent chat, compacted older chat context, and cached stream context. A small in-memory queue absorbs short bursts of AI commands; when the queue is full, new AI requests are skipped silently in chat and logged locally.
+AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages. LupusAria keeps prompts small with targeted knowledge sections, configured command announcements, filtered recent chat, compacted older chat context, and cached stream context. A small in-memory queue absorbs short bursts of AI commands; when the queue is full, new AI requests are skipped silently in chat and logged locally.
 
 Relevant settings:
 
@@ -141,9 +141,11 @@ Relevant settings:
 - `GAME_SNAPSHOT_CROP_HEIGHT`
 
 The knowledge base is tag-matched. If no section matches a viewer request, the prompt explicitly says no known facts matched so the model should avoid guessing.
+Enabled command announcements are also summarized in AI context so Lupus can answer questions about channel commands such as `!donate` without inventing or denying active configured commands.
 The default knowledge path is `.lupusaria-knowledge.md`, which is local and gitignored. A neutral starter template is tracked at `docs/knowledge/example.md`; streamer-specific knowledge files should stay local.
 Chat transcripts are written locally to `CHAT_LOG_PATH`, which defaults to `.lupusaria-chat.jsonl`.
 When `ENABLE_EMOTE_CONTEXT=true`, Twitch emotes are treated as part of channel context. LupusAria loads the channel's native emote catalog from Twitch when available, annotates matching emote names in AI prompts, and can visually describe native emotes with the configured image-capable AI provider. Descriptions are cached locally at `EMOTE_CACHE_PATH`, which defaults to `.lupusaria-emotes.json`.
+AI usage logs include provider finish reasons when available. Max-token or length finishes are treated as incomplete and retried instead of sending clipped partial replies.
 
 ## Security Notes
 

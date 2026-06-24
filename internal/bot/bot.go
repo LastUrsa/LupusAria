@@ -322,6 +322,7 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 	b.logger.Info("ai usage recorded",
 		"input_tokens", receipt.InputTokens,
 		"output_tokens", receipt.OutputTokens,
+		"finish_reason", response.FinishReason,
 		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
 		"estimated", receipt.Estimated,
 		"daily_spend_usd", fmt.Sprintf("%.6f", receipt.DailySpendUSD),
@@ -329,8 +330,7 @@ func (b *Bot) reply(ctx context.Context, msg twitch.Message, request aiRequest) 
 	)
 
 	reply := response.Text
-	reply = cleanReply(reply)
-	reply = cleanAddressedReply(reply, msg.DisplayName)
+	reply = cleanCompleteChatReply(reply, msg.DisplayName)
 	if reply == "" {
 		return
 	}
@@ -404,10 +404,11 @@ func (b *Bot) retryAIReply(ctx context.Context, msg twitch.Message, messages []a
 	b.logger.Info("ai retry usage recorded",
 		"input_tokens", retryReceipt.InputTokens,
 		"output_tokens", retryReceipt.OutputTokens,
+		"finish_reason", retryResponse.FinishReason,
 		"cost_usd", fmt.Sprintf("%.6f", retryReceipt.CostUSD),
 		"estimated", retryReceipt.Estimated,
 	)
-	return cleanAddressedReply(cleanReply(retryResponse.Text), msg.DisplayName), true
+	return cleanCompleteChatReply(retryResponse.Text, msg.DisplayName), true
 }
 
 func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool {
@@ -661,6 +662,7 @@ func (b *Bot) searchGameAnswer(ctx context.Context, msg twitch.Message, prompt s
 		"user", msg.Username,
 		"input_tokens", receipt.InputTokens,
 		"output_tokens", receipt.OutputTokens,
+		"finish_reason", response.FinishReason,
 		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
 		"estimated", receipt.Estimated,
 	)
@@ -728,7 +730,10 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 	if msg.ReplyParentText != "" {
 		knowledgeQuery += "\n" + msg.ReplyParentText
 	}
-	knowledgeContext := knowledge.Format(b.know.Relevant(knowledgeQuery, 3))
+	knowledgeContext := joinContextLines(
+		knowledge.Format(b.know.Relevant(knowledgeQuery, 3)),
+		b.announcementCommandContext(),
+	)
 
 	return []ai.Message{
 		{Role: "system", Content: personality.SystemInstruction(personality.Config{
@@ -739,6 +744,13 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 		})},
 		{Role: "user", Content: personality.UserPrompt(request.Kind, streamContext, knowledgeContext, replyContext, chatContext, msg.DisplayName, request.Prompt)},
 	}
+}
+
+func (b *Bot) announcementCommandContext() string {
+	if b == nil || b.ann == nil {
+		return ""
+	}
+	return b.ann.CommandContext()
 }
 
 func (b *Bot) formatEmoteContext(ctx context.Context, msg twitch.Message, allowDescribe bool) string {
@@ -789,6 +801,7 @@ Rules:
 			"emote_name", emote.Name,
 			"input_tokens", receipt.InputTokens,
 			"output_tokens", receipt.OutputTokens,
+			"finish_reason", response.FinishReason,
 			"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
 			"estimated", receipt.Estimated,
 		)
@@ -840,6 +853,7 @@ func (b *Bot) ComposeAdAlert(ctx context.Context, event adalerts.Event) (string,
 		"event", event.Kind,
 		"input_tokens", receipt.InputTokens,
 		"output_tokens", receipt.OutputTokens,
+		"finish_reason", response.FinishReason,
 		"cost_usd", fmt.Sprintf("%.6f", receipt.CostUSD),
 		"estimated", receipt.Estimated,
 	)
@@ -1079,6 +1093,11 @@ func formatDurationForPrompt(d time.Duration) string {
 }
 
 func cleanReply(reply string) string {
+	reply = cleanReplyBody(reply)
+	return ensureTerminalPunctuation(reply)
+}
+
+func cleanReplyBody(reply string) string {
 	reply = strings.TrimSpace(reply)
 	reply = strings.Trim(reply, `"'`)
 	reply = stripMetaThoughts(reply)
@@ -1090,10 +1109,21 @@ func cleanReply(reply string) string {
 	reply = removeMalformedURLs(reply)
 	reply = normalizeTerminalPunctuation(reply)
 	reply = strings.TrimRight(reply, " ,;:")
+	return reply
+}
+
+func ensureTerminalPunctuation(reply string) string {
 	if reply == "" || endsWithTerminalPunctuation(reply) {
 		return reply
 	}
 	return reply + "."
+}
+
+func cleanCompleteChatReply(reply, displayName string) string {
+	reply = cleanReplyBody(reply)
+	reply = cleanAddressedReply(reply, displayName)
+	reply = trimDanglingFinalSentence(reply)
+	return ensureTerminalPunctuation(reply)
 }
 
 func cleanCommandReply(reply string, maxLength int) string {
@@ -1556,6 +1586,27 @@ func smartTruncate(text string, maxLength int) string {
 	return strings.TrimSpace(text[:maxLength-1]) + "."
 }
 
+func trimDanglingFinalSentence(reply string) string {
+	reply = strings.TrimSpace(reply)
+	if reply == "" || endsWithTerminalPunctuation(reply) {
+		return reply
+	}
+	best := -1
+	for index, r := range reply {
+		if strings.ContainsRune(".!?。！？", r) {
+			best = index + len(string(r))
+		}
+	}
+	if best <= 0 || best >= len(reply) {
+		return reply
+	}
+	tail := strings.TrimSpace(reply[best:])
+	if tail == "" {
+		return reply
+	}
+	return strings.TrimSpace(reply[:best])
+}
+
 func looksIncompleteReply(reply string) bool {
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
@@ -1577,7 +1628,7 @@ func looksIncompleteReply(reply string) bool {
 
 	last := strings.ToLower(strings.Trim(fields[len(fields)-1], `"'()[]{}:;,`))
 	switch last {
-	case "a", "an", "the", "to", "for", "from", "with", "without", "of", "in", "on", "at", "by", "as", "and", "or", "but", "because", "about", "into", "through":
+	case "a", "an", "the", "to", "for", "from", "with", "without", "of", "in", "on", "at", "by", "as", "and", "or", "but", "because", "about", "into", "through", "he", "she", "they", "we", "i", "it":
 		return true
 	default:
 		return false
@@ -1593,6 +1644,8 @@ var incompletePhraseSuffixes = []string{
 	"let's see if he can make",
 	"if it is some cryptic code",
 	"it is a unique combination, even",
+	"they are",
+	"but even he",
 	"maybe next time",
 	"maybe later",
 	"most players burn their mp too",

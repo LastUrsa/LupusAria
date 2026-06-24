@@ -29,12 +29,13 @@ type Usage struct {
 }
 
 type Response struct {
-	Text  string
-	Usage Usage
+	Text         string
+	Usage        Usage
+	FinishReason string
 }
 
 const (
-	defaultMaxOutputTokens = 1024
+	defaultMaxOutputTokens = 2048
 	defaultMaxRetries      = 3
 )
 
@@ -297,14 +298,14 @@ func (c *GeminiClient) generateOnce(ctx context.Context, options geminiGenerateO
 	}
 
 	text := result.Text()
+	finishReason := result.FinishReason()
+	if finishReason == "MAX_TOKENS" {
+		return Response{}, retryableError{errors.New("gemini response stopped because it reached max output tokens")}
+	}
+	if finishReason == "SAFETY" {
+		return Response{}, errors.New("gemini response blocked by safety filters")
+	}
 	if strings.TrimSpace(text) == "" {
-		finishReason := result.FinishReason()
-		if finishReason == "MAX_TOKENS" {
-			return Response{}, retryableError{errors.New("gemini response stopped because it reached max output tokens without text")}
-		}
-		if finishReason == "SAFETY" {
-			return Response{}, errors.New("gemini response blocked by safety filters")
-		}
 		return Response{}, retryableError{errors.New("gemini response did not include text")}
 	}
 
@@ -316,7 +317,7 @@ func (c *GeminiClient) generateOnce(ctx context.Context, options geminiGenerateO
 		usage.CostUSD = estimateCostUSD(usage.InputTokens, usage.OutputTokens, c.inputPrice, c.outputPrice)
 	}
 
-	return Response{Text: strings.TrimSpace(text), Usage: usage}, nil
+	return Response{Text: strings.TrimSpace(text), Usage: usage, FinishReason: finishReason}, nil
 }
 
 type MockClient struct{}
@@ -421,6 +422,10 @@ func (c *OpenAICompatibleClient) completeOnce(ctx context.Context, messages []Me
 	if len(result.Choices) == 0 {
 		return Response{}, errors.New("ai response did not include choices")
 	}
+	finishReason := strings.ToLower(strings.TrimSpace(result.Choices[0].FinishReason))
+	if finishReason == "length" || finishReason == "max_tokens" {
+		return Response{}, retryableError{errors.New("ai response stopped because it reached max output tokens")}
+	}
 	usage := Usage{
 		InputTokens:  result.Usage.PromptTokens,
 		OutputTokens: result.Usage.CompletionTokens,
@@ -433,8 +438,9 @@ func (c *OpenAICompatibleClient) completeOnce(ctx context.Context, messages []Me
 		return Response{}, retryableError{errors.New("ai response did not include text")}
 	}
 	return Response{
-		Text:  text,
-		Usage: usage,
+		Text:         text,
+		Usage:        usage,
+		FinishReason: finishReason,
 	}, nil
 }
 
@@ -447,7 +453,8 @@ type chatCompletionRequest struct {
 
 type chatCompletionResponse struct {
 	Choices []struct {
-		Message Message `json:"message"`
+		Message      Message `json:"message"`
+		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
