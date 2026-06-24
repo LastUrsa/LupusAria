@@ -81,6 +81,36 @@ func TestHandleScheduleWarnsStartsAndEndsOnce(t *testing.T) {
 	}
 }
 
+func TestHandleScheduleSynthesizesStartAndEndWhenScheduleAdvances(t *testing.T) {
+	chat := &fakeChat{}
+	service := New(Config{
+		Channel:      "lastursa",
+		Enabled:      true,
+		WarningLead:  5 * time.Minute,
+		PollInterval: time.Minute,
+	}, chat, nil, nil)
+
+	start := time.Date(2026, 6, 16, 12, 10, 0, 0, time.UTC)
+	next := start.Add(time.Hour)
+	service.now = func() time.Time { return start.Add(-3 * time.Minute) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 90 * time.Second})
+
+	service.now = func() time.Time { return start.Add(10 * time.Second) }
+	service.HandleSchedule(Schedule{NextAdAt: next, Duration: 90 * time.Second})
+
+	service.now = func() time.Time { return start.Add(91 * time.Second) }
+	service.HandleSchedule(Schedule{NextAdAt: next, Duration: 90 * time.Second})
+
+	want := []string{
+		"Heads up: ads are scheduled in about 3 minutes.",
+		"Ad break starting now. Good moment to stretch, hydrate, and rest your eyes.",
+		"Welcome back. Ads should be done now.",
+	}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
 func TestPollRetriesAfterTemporaryScheduleError(t *testing.T) {
 	chat := &fakeChat{}
 	start := time.Date(2026, 6, 16, 12, 10, 0, 0, time.UTC)

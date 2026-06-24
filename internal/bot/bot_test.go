@@ -889,6 +889,46 @@ Tags: project
 	}
 }
 
+func TestBuildAIMessagesIncludesAnnouncementCommandContext(t *testing.T) {
+	chat := &fakeChat{}
+	ann := announcements.New(announcements.Config{
+		Enabled: true,
+		Items: []announcements.Announcement{{
+			Enabled: true,
+			Kind:    announcements.KindCommand,
+			Command: "!donate",
+			Message: "Donate to the Starsong 2026 Pride Charity Campaign.",
+		}},
+	}, chat, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b := New(Config{
+		Name:               "LupusAria",
+		Personality:        "test",
+		EnableMentions:     true,
+		EnableAsk:          true,
+		EnableLurk:         true,
+		EnableCommands:     true,
+		EnableReset:        true,
+		MaxContextMessages: 30,
+	}, chat, fakeAI{}, nil, nil, ann, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	messages := b.buildAIMessages(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "@LupusAria charity?",
+	}, aiRequest{Kind: "mention", Prompt: "charity?"})
+
+	userPrompt := messages[1].Content
+	for _, want := range []string{
+		"Known channel command announcements:",
+		"!donate: Donate to the Starsong 2026 Pride Charity Campaign.",
+	} {
+		if !strings.Contains(userPrompt, want) {
+			t.Fatalf("prompt missing %q: %s", want, userPrompt)
+		}
+	}
+}
+
 func TestBuildAIMessagesUsesReplyContextForKnowledge(t *testing.T) {
 	chat := &fakeChat{}
 	b := New(Config{
@@ -1648,6 +1688,18 @@ func TestCleanReplyNormalizesAwkwardTerminalPunctuation(t *testing.T) {
 	}
 }
 
+func TestCleanCompleteChatReplyTrimsDanglingFinalSentence(t *testing.T) {
+	got := cleanCompleteChatReply("The first sentence is complete. The second sentence wanders off because", "Viewer")
+	if got != "The first sentence is complete." {
+		t.Fatalf("cleanCompleteChatReply = %q", got)
+	}
+
+	got = cleanCompleteChatReply("That seems fair", "Viewer")
+	if got != "That seems fair." {
+		t.Fatalf("cleanCompleteChatReply should keep single complete clauses, got %q", got)
+	}
+}
+
 func TestCleanAddressedReplyRemovesRedundantDisplayNameOpening(t *testing.T) {
 	tests := []struct {
 		reply string
@@ -1696,6 +1748,9 @@ func TestLooksIncompleteReply(t *testing.T) {
 		{reply: "You might want to check the panels below the stream or ask.", want: true},
 		{reply: "Let's see if he can make.", want: true},
 		{reply: "It is a unique combination, even.", want: true},
+		{reply: "Between the capes and jazz hands, he.", want: true},
+		{reply: "They are.", want: true},
+		{reply: "Ursa has a high threshold for chaos, but even he.", want: true},
 		{reply: "Maybe next time.", want: true},
 		{reply: "Maybe later.", want: true},
 		{reply: "That seems legal.", want: false},

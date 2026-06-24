@@ -9,6 +9,8 @@
 - Adds a Setup tab Twitch permissions check for saved app, bot, and ads credentials.
 - Refreshes Twitch app and ads token state handling, documents the EventSub/chat badge setup, and expands tests around Twitch auth, Helix, EventSub, ad alerts, and permission reporting.
 - Tunes LupusAria's personality prompts and reply cleanup to reduce repeated names, incomplete endings, and overly technical phrasing.
+- Raises the default AI output-token limit, logs provider finish reasons, retries max-token finishes, and includes configured command announcements in AI context.
+- Synthesizes ad start and expected-end alerts from schedule polling when Twitch advances to the next scheduled ad before EventSub reports the break.
 - Lowers the AutoSO and SO roulette shoutout delay floor from five seconds to one second so shorter saved delays persist.
 - Cleans up the sticky save bar and adds an in-place save toast so saving settings is easier to confirm without scrolling.
 

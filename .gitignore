@@ -11,6 +11,7 @@
 .lupusaria-chat.jsonl
 .lupusaria-emotes.json
 examples/knowledge/ursa.md
+exports/
 /bin/
 /build/*
 !/build/appicon.png
