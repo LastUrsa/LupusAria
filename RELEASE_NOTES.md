@@ -1,5 +1,17 @@
 # LupusAria Release Notes
 
+## v0.6.0
+
+- Adds channel point Media Actions for random local images, GIFs, and sounds triggered by Twitch custom rewards.
+- Adds a transparent OBS browser overlay at `http://127.0.0.1:47831/` for live redeem playback without taking over the desktop app.
+- Adds per-GIF playback controls for normal playback, audio-matched slow playback, same-GIF looping, and shuffled loop-to-another-GIF rotation.
+- Adds GIF duration detection, per-GIF rotation inclusion, and no-repeat shuffled rotation before eligible GIFs are reused.
+- Splits Twitch EventSub WebSocket sessions so bot chat subscriptions and broadcaster redeem/ad subscriptions use the correct Twitch user tokens.
+- Adds broadcaster-token permission checks for `channel:read:redemptions`, plus custom reward loading through Helix.
+- Raises the default AI output-token limit, logs provider finish reasons, retries max-token finishes, and includes configured command announcements in AI context.
+- Synthesizes ad start and expected-end alerts from schedule polling when Twitch advances to the next scheduled ad before EventSub reports the break.
+- Documents Media Actions setup, OBS overlay setup, required Twitch scopes, local media security notes, and updated command/ad behavior.
+
 ## v0.5.0
 
 - Migrates Twitch chat from IRC-first handling to EventSub WebSockets with an IRC fallback for incomplete setup.
@@ -9,8 +21,6 @@
 - Adds a Setup tab Twitch permissions check for saved app, bot, and ads credentials.
 - Refreshes Twitch app and ads token state handling, documents the EventSub/chat badge setup, and expands tests around Twitch auth, Helix, EventSub, ad alerts, and permission reporting.
 - Tunes LupusAria's personality prompts and reply cleanup to reduce repeated names, incomplete endings, and overly technical phrasing.
-- Raises the default AI output-token limit, logs provider finish reasons, retries max-token finishes, and includes configured command announcements in AI context.
-- Synthesizes ad start and expected-end alerts from schedule polling when Twitch advances to the next scheduled ad before EventSub reports the break.
 - Lowers the AutoSO and SO roulette shoutout delay floor from five seconds to one second so shorter saved delays persist.
 - Cleans up the sticky save bar and adds an in-place save toast so saving settings is easier to confirm without scrolling.
 
