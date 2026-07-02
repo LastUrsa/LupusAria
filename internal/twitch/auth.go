@@ -13,10 +13,11 @@ import (
 )
 
 type AuthConfig struct {
-	ClientID     string
-	ClientSecret string
-	RefreshToken string
-	StatePath    string
+	ClientID                     string
+	ClientSecret                 string
+	RefreshToken                 string
+	StatePath                    string
+	PreferConfiguredRefreshToken bool
 }
 
 type TokenSet struct {
@@ -94,11 +95,14 @@ func (m *AuthManager) AppAccessToken(ctx context.Context) (TokenSet, error) {
 }
 
 func (m *AuthManager) Refresh(ctx context.Context) (TokenSet, error) {
-	refreshToken := strings.TrimSpace(m.cfg.RefreshToken)
+	refreshToken := ""
+	if m.cfg.PreferConfiguredRefreshToken {
+		refreshToken = strings.TrimSpace(m.cfg.RefreshToken)
+	} else if cached, err := m.load(); err == nil {
+		refreshToken = strings.TrimSpace(cached.RefreshToken)
+	}
 	if refreshToken == "" {
-		if cached, err := m.load(); err == nil {
-			refreshToken = cached.RefreshToken
-		}
+		refreshToken = strings.TrimSpace(m.cfg.RefreshToken)
 	}
 	if refreshToken == "" {
 		return TokenSet{}, errors.New("missing Twitch refresh token")
