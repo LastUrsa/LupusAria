@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckTwitchPermissions, GetAnnouncements, GetKnowledge, GetLogs, GetSettings, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
+import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
+import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
 import lupusAriaIcon from './assets/images/LupusAriaIcon.png'
 import './App.css'
@@ -8,7 +9,59 @@ type Settings = main.ControlSettings
 type Announcement = main.AnnouncementSettings
 type Knowledge = main.KnowledgeSettings
 type TwitchPermissionCheck = main.TwitchPermissionCheck
-type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'knowledge'
+type MediaAsset = {
+  id: string
+  filename: string
+  path: string
+  durationMs?: number
+  mediaPlaybackMode?: string
+  excludeFromGifRotation?: boolean
+}
+type MediaAction = {
+  id: string
+  name: string
+  enabled: boolean
+  trigger: string
+  rewardId: string
+  rewardTitle: string
+  media: MediaAsset[]
+  sounds: MediaAsset[]
+  duration: number
+  position: string
+  scale: number
+  animation: string
+}
+type ChannelPointReward = {
+  id: string
+  title: string
+  prompt: string
+  enabled: boolean
+}
+type MediaActionPlayback = {
+  actionId: string
+  name: string
+  media?: MediaAsset
+  sound?: MediaAsset
+  mediaDataUrl: string
+  soundDataUrl: string
+  duration: number
+  position: string
+  scale: number
+  animation: string
+  mediaDurationMs?: number
+  mediaFrameDataUrls?: string[]
+  mediaFrameDelaysMs?: number[]
+  mediaPlaybackMode?: string
+  mediaClips?: MediaPlaybackClip[]
+}
+type MediaPlaybackClip = {
+  media: MediaAsset
+  mediaDataUrl: string
+  mediaDurationMs?: number
+  mediaFrameDataUrls?: string[]
+  mediaFrameDelaysMs?: number[]
+}
+type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'mediaActions' | 'knowledge'
 type AnnouncementKind = 'command' | 'timer'
 type IndexedAnnouncement = { item: Announcement; index: number }
 type AnnouncementUpdate = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => void
@@ -18,6 +71,7 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'setup', label: 'Setup' },
   { id: 'aiBudget', label: 'AI & Budget' },
   { id: 'features', label: 'Features' },
+  { id: 'mediaActions', label: 'Media Actions' },
   { id: 'knowledge', label: 'Knowledge' }
 ]
 
@@ -36,6 +90,32 @@ const permissionOptions = [
   { value: 'everyone', label: 'Everyone' },
   { value: 'mods', label: 'Mods + broadcaster' },
   { value: 'broadcaster', label: 'Broadcaster only' }
+]
+
+const triggerOptions = [
+  { value: 'channel_point_redeem', label: 'Channel Point Redeem' }
+]
+
+const positionOptions = [
+  { value: 'center', label: 'Center' },
+  { value: 'top-left', label: 'Top Left' },
+  { value: 'top-right', label: 'Top Right' },
+  { value: 'bottom-left', label: 'Bottom Left' },
+  { value: 'bottom-right', label: 'Bottom Right' }
+]
+
+const animationOptions = [
+  { value: 'none', label: 'None' },
+  { value: 'fade-in', label: 'Fade In' },
+  { value: 'fade-out', label: 'Fade Out' },
+  { value: 'fade-in-out', label: 'Fade In + Fade Out' }
+]
+
+const mediaPlaybackModeOptions = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'match_audio', label: 'Slow to Audio' },
+  { value: 'loop', label: 'Loop' },
+  { value: 'loop_next', label: 'Loop to Another GIF' }
 ]
 
 const emptySettings: Settings = {
@@ -118,11 +198,33 @@ const emptyKnowledge: Knowledge = {
   content: ''
 }
 
+function createEmptyMediaAction(index: number): MediaAction {
+  return {
+    id: `media-action-${Date.now()}-${index}`,
+    name: `Media Action ${index}`,
+    enabled: true,
+    trigger: 'channel_point_redeem',
+    rewardId: '',
+    rewardTitle: '',
+    media: [],
+    sounds: [],
+    duration: 5,
+    position: 'center',
+    scale: 100,
+    animation: 'fade-in-out'
+  } as MediaAction
+}
+
 export default function App() {
   const [settings, setSettings] = useState<Settings>(emptySettings)
   const [knowledge, setKnowledge] = useState<Knowledge>(emptyKnowledge)
   const [logs, setLogs] = useState<string[]>([])
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [mediaActions, setMediaActions] = useState<MediaAction[]>([])
+  const [selectedMediaActionId, setSelectedMediaActionId] = useState('')
+  const [channelPointRewards, setChannelPointRewards] = useState<ChannelPointReward[]>([])
+  const [activePlayback, setActivePlayback] = useState<MediaActionPlayback | null>(null)
+  const [mediaOverlayUrl, setMediaOverlayUrl] = useState('')
   const [permissionCheck, setPermissionCheck] = useState<TwitchPermissionCheck | null>(null)
   const [notice, setNotice] = useState('')
   const [toast, setToast] = useState('')
@@ -131,6 +233,7 @@ export default function App() {
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
   const toastTimerRef = useRef<number | null>(null)
+  const playbackTimerRef = useRef<number | null>(null)
 
   async function refresh(replaceSettings = false) {
     try {
@@ -138,7 +241,11 @@ export default function App() {
       if (replaceSettings || !dirtyRef.current) {
         setSettings(next)
         setAnnouncements((await GetAnnouncements()) ?? [])
+        const nextMediaActions = (await GetMediaActions()) ?? []
+        setMediaActions(nextMediaActions)
+        setSelectedMediaActionId((current) => current || nextMediaActions[0]?.id || '')
         setKnowledge((await GetKnowledge()) ?? emptyKnowledge)
+        setMediaOverlayUrl(await GetMediaOverlayURL())
       } else {
         setSettings((current) => ({
           ...current,
@@ -161,7 +268,29 @@ export default function App() {
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current)
       }
+      if (playbackTimerRef.current) {
+        window.clearTimeout(playbackTimerRef.current)
+      }
+      EventsOff('media-action-playback')
     }
+  }, [])
+
+  useEffect(() => {
+    EventsOn('media-action-playback', (playback: MediaActionPlayback) => {
+      setActivePlayback(playback)
+      if (playback.soundDataUrl) {
+        const audio = new Audio(playback.soundDataUrl)
+        audio.play().catch(() => undefined)
+      }
+      if (playbackTimerRef.current) {
+        window.clearTimeout(playbackTimerRef.current)
+      }
+      playbackTimerRef.current = window.setTimeout(() => {
+        setActivePlayback(null)
+        playbackTimerRef.current = null
+      }, Math.max(1, playback.duration || 5) * 1000)
+    })
+    return () => EventsOff('media-action-playback')
   }, [])
 
   function showToast(message: string) {
@@ -180,6 +309,7 @@ export default function App() {
     try {
       await SaveSettings(settings)
       await SaveAnnouncements(announcements)
+      await SaveMediaActions(mediaActions as any)
       await SaveKnowledge(knowledge)
       dirtyRef.current = false
       setDirty(false)
@@ -258,6 +388,19 @@ export default function App() {
     }
   }
 
+  async function loadChannelPointRewards() {
+    setBusy(true)
+    try {
+      const rewards = (await GetChannelPointRewards()) ?? []
+      setChannelPointRewards(rewards)
+      setNotice(`Loaded ${rewards.length} channel point rewards.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     dirtyRef.current = true
     setDirty(true)
@@ -301,12 +444,83 @@ export default function App() {
     setAnnouncements((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
+  const addMediaAction = () => {
+    dirtyRef.current = true
+    setDirty(true)
+    const action = createEmptyMediaAction(mediaActions.length + 1)
+    setMediaActions((current) => [...current, action])
+    setSelectedMediaActionId(action.id)
+  }
+
+  const updateMediaAction = <K extends keyof MediaAction>(id: string, key: K, value: MediaAction[K]) => {
+    dirtyRef.current = true
+    setDirty(true)
+    setMediaActions((current) => current.map((item) => (item.id === id ? { ...item, [key]: value } : item)))
+  }
+
+  const removeMediaAction = (id: string) => {
+    dirtyRef.current = true
+    setDirty(true)
+    setMediaActions((current) => {
+      const next = current.filter((item) => item.id !== id)
+      setSelectedMediaActionId(next[0]?.id || '')
+      return next
+    })
+  }
+
+  const importMediaActionAssets = async (action: MediaAction, kind: 'media' | 'sound') => {
+    setBusy(true)
+    try {
+      const imported = (await ImportMediaActionAssets(action as any, kind)) ?? []
+      if (imported.length > 0) {
+        dirtyRef.current = true
+        setDirty(true)
+        setMediaActions((current) => current.map((item) => {
+          if (item.id !== action.id) {
+            return item
+          }
+          return kind === 'media'
+            ? { ...item, media: [...(item.media ?? []), ...imported] }
+            : { ...item, sounds: [...(item.sounds ?? []), ...imported] }
+        }))
+        showToast(`Imported ${imported.length} ${kind === 'media' ? 'media' : 'sound'} file${imported.length === 1 ? '' : 's'}.`)
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const updateMediaActionAssets = (actionId: string, kind: 'media' | 'sound', assets: MediaAsset[]) => {
+    dirtyRef.current = true
+    setDirty(true)
+    setMediaActions((current) => current.map((item) => {
+      if (item.id !== actionId) {
+        return item
+      }
+      return kind === 'media' ? { ...item, media: assets } : { ...item, sounds: assets }
+    }))
+  }
+
+  const previewMediaAction = async (action: MediaAction) => {
+    setBusy(true)
+    try {
+      await PreviewMediaAction(action as any)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const commandAnnouncements = announcements
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.kind === 'command')
   const timerAnnouncements = announcements
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.kind === 'timer')
+  const selectedMediaAction = mediaActions.find((item) => item.id === selectedMediaActionId) ?? mediaActions[0] ?? null
   const currentSection = sections.find((item) => item.id === section) ?? sections[0]
   const setupMissing = [
     settings.channel,
@@ -325,6 +539,7 @@ export default function App() {
     setup: 'Twitch account, streamer identity, and credentials.',
     aiBudget: 'Provider, models, keys, context, and cost rails.',
     features: 'Chat behavior, AutoSO, ad alerts, and announcements.',
+    mediaActions: 'Random media and sounds for channel point redeems.',
     knowledge: 'Stable channel facts for AI replies.'
   }
 
@@ -373,6 +588,7 @@ export default function App() {
         {notice && <div className="notice">{notice}</div>}
         {settings.error && <div className="notice error">{settings.error}</div>}
         {toast && <div className="toast" role="status">{toast}</div>}
+        <MediaActionOverlay playback={activePlayback} />
 
         <section className="panel">
           {section === 'overview' && (
@@ -386,6 +602,7 @@ export default function App() {
                 <StatusChip label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
                 <StatusChip label="Ads" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
                 <StatusChip label="Announcements" value={settings.announcementsEnabled ? `${announcements.length} set` : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
+                <StatusChip label="Media Actions" value={mediaActions.length > 0 ? `${mediaActions.length} set` : 'None'} tone={mediaActions.some((item) => item.enabled) ? 'good' : 'muted'} />
               </section>
               <Card title="Activity" wide>
                 <div className="log-view full">
@@ -481,6 +698,24 @@ export default function App() {
                 <button className="secondary" type="button" onClick={resetKnowledge} disabled={busy}>Reset to template</button>
               </div>
             </Card>
+          )}
+
+          {section === 'mediaActions' && (
+            <MediaActionsPanel
+              actions={mediaActions}
+              selectedAction={selectedMediaAction}
+              rewards={channelPointRewards}
+              busy={busy}
+              onAdd={addMediaAction}
+              onSelect={setSelectedMediaActionId}
+              onUpdate={updateMediaAction}
+              onRemove={removeMediaAction}
+              onLoadRewards={loadChannelPointRewards}
+              onImportAssets={importMediaActionAssets}
+              onUpdateAssets={updateMediaActionAssets}
+              onPreview={previewMediaAction}
+              overlayUrl={mediaOverlayUrl}
+            />
           )}
 
           {section === 'features' && (
@@ -598,6 +833,388 @@ export default function App() {
       </div>
     </main>
   )
+}
+
+function MediaActionsPanel({
+  actions,
+  selectedAction,
+  rewards,
+  busy,
+  onAdd,
+  onSelect,
+  onUpdate,
+  onRemove,
+  onLoadRewards,
+  onImportAssets,
+  onUpdateAssets,
+  onPreview,
+  overlayUrl
+}: {
+  actions: MediaAction[]
+  selectedAction: MediaAction | null
+  rewards: ChannelPointReward[]
+  busy: boolean
+  onAdd: () => void
+  onSelect: (id: string) => void
+  onUpdate: <K extends keyof MediaAction>(id: string, key: K, value: MediaAction[K]) => void
+  onRemove: (id: string) => void
+  onLoadRewards: () => void
+  onImportAssets: (action: MediaAction, kind: 'media' | 'sound') => void
+  onUpdateAssets: (actionId: string, kind: 'media' | 'sound', assets: MediaAsset[]) => void
+  onPreview: (action: MediaAction) => void
+  overlayUrl: string
+}) {
+  const rewardOptions = [
+    { value: '', label: rewards.length === 0 ? 'Load rewards' : 'Choose redeem' },
+    ...rewards.map((reward) => ({ value: reward.id, label: reward.enabled ? reward.title : `${reward.title} disabled` }))
+  ]
+
+  return (
+    <div className="media-actions-layout">
+      <section className="media-action-list">
+        <div className="media-action-toolbar">
+          <h3>Actions</h3>
+          <button type="button" onClick={onAdd}>Add</button>
+        </div>
+        {actions.length === 0 ? (
+          <p className="muted">No media actions configured.</p>
+        ) : (
+          <div className="media-action-cards">
+            {actions.map((action) => (
+              <button
+                className={`media-action-card ${selectedAction?.id === action.id ? 'active' : ''}`}
+                key={action.id}
+                type="button"
+                onClick={() => onSelect(action.id)}
+              >
+                <strong>{action.name || 'Untitled'}</strong>
+                <span>{action.rewardTitle || 'Channel Point Redeem'}</span>
+                <small>{action.media?.length ?? 0} media · {action.sounds?.length ?? 0} sounds · {action.duration || 5}s</small>
+                <em>{action.enabled ? 'Enabled' : 'Disabled'}</em>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {selectedAction ? (
+        <section className="media-action-editor">
+          <div className="overlay-url-panel">
+            <div>
+              <strong>OBS Browser Source</strong>
+              <span>{overlayUrl || 'Overlay starting...'}</span>
+            </div>
+            <button className="secondary" type="button" onClick={() => navigator.clipboard?.writeText(overlayUrl)} disabled={!overlayUrl}>Copy</button>
+          </div>
+
+          <div className="media-editor-header">
+            <div>
+              <h3>{selectedAction.name || 'Untitled'}</h3>
+              <span>{selectedAction.enabled ? 'Enabled' : 'Disabled'}</span>
+            </div>
+            <div className="media-editor-actions">
+              <button type="button" onClick={() => onPreview(selectedAction)} disabled={busy}>Preview</button>
+              <button className="danger" type="button" onClick={() => onRemove(selectedAction.id)}>Delete</button>
+            </div>
+          </div>
+
+          <div className="media-editor-grid">
+            <Card title="Setup">
+              <TextField label="Name" value={selectedAction.name} onChange={(value) => onUpdate(selectedAction.id, 'name', value)} />
+              <Toggle label="Enabled" checked={selectedAction.enabled} onChange={(value) => onUpdate(selectedAction.id, 'enabled', value)} />
+              <SelectField label="Trigger" value={selectedAction.trigger} options={triggerOptions} onChange={(value) => onUpdate(selectedAction.id, 'trigger', value)} />
+              <div className="reward-row">
+                <SelectField
+                  label="Redeem"
+                  value={selectedAction.rewardId}
+                  options={rewardOptions}
+                  onChange={(value) => {
+                    const reward = rewards.find((item) => item.id === value)
+                    onUpdate(selectedAction.id, 'rewardId', value)
+                    onUpdate(selectedAction.id, 'rewardTitle', reward?.title ?? selectedAction.rewardTitle)
+                  }}
+                />
+                <button className="secondary" type="button" onClick={onLoadRewards} disabled={busy}>Refresh</button>
+              </div>
+            </Card>
+
+            <Card title="Display">
+              <NumberField label="Duration seconds" value={selectedAction.duration} min={1} max={60} onChange={(value) => onUpdate(selectedAction.id, 'duration', value)} />
+              <SelectField label="Position" value={selectedAction.position} options={positionOptions} onChange={(value) => onUpdate(selectedAction.id, 'position', value)} />
+              <label className="field">
+                <span>Scale {selectedAction.scale}%</span>
+                <input type="range" min={25} max={200} value={selectedAction.scale} onChange={(event) => onUpdate(selectedAction.id, 'scale', Number(event.target.value))} />
+              </label>
+              <SelectField label="Animation" value={selectedAction.animation} options={animationOptions} onChange={(value) => onUpdate(selectedAction.id, 'animation', value)} />
+            </Card>
+          </div>
+
+          <div className="media-asset-grid">
+            <AssetSection
+              title="Media"
+              kind="media"
+              action={selectedAction}
+              assets={selectedAction.media ?? []}
+              onImport={() => onImportAssets(selectedAction, 'media')}
+              onChange={(assets) => onUpdateAssets(selectedAction.id, 'media', assets)}
+            />
+            <AssetSection
+              title="Sounds"
+              kind="sound"
+              action={selectedAction}
+              assets={selectedAction.sounds ?? []}
+              onImport={() => onImportAssets(selectedAction, 'sound')}
+              onChange={(assets) => onUpdateAssets(selectedAction.id, 'sound', assets)}
+            />
+          </div>
+        </section>
+      ) : (
+        <Card title="Media Actions" wide>
+          <p className="muted">Create an action to connect a redeem to random media or sound.</p>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function AssetSection({
+  title,
+  kind,
+  assets,
+  onImport,
+  onChange
+}: {
+  title: string
+  kind: 'media' | 'sound'
+  action: MediaAction
+  assets: MediaAsset[]
+  onImport: () => void
+  onChange: (assets: MediaAsset[]) => void
+}) {
+  const move = (index: number, offset: number) => {
+    const nextIndex = index + offset
+    if (nextIndex < 0 || nextIndex >= assets.length) {
+      return
+    }
+    const next = [...assets]
+    const [item] = next.splice(index, 1)
+    next.splice(nextIndex, 0, item)
+    onChange(next)
+  }
+
+  const updateAsset = (id: string, patch: Partial<MediaAsset>) => {
+    onChange(assets.map((asset) => (asset.id === id ? { ...asset, ...patch } : asset)))
+  }
+
+  return (
+    <section className="asset-section">
+      <div className="asset-section-header">
+        <h3>{title}</h3>
+        <button type="button" onClick={onImport}>Add</button>
+      </div>
+      {assets.length === 0 ? (
+        <p className="muted">No {kind === 'media' ? 'media' : 'sounds'} added.</p>
+      ) : (
+        <div className="asset-list">
+          {assets.map((asset, index) => (
+            <div className="asset-row" key={asset.id}>
+              <span className="drag-handle" aria-hidden="true">::</span>
+              {kind === 'media' ? (
+                <AssetThumbnail asset={asset} />
+              ) : (
+                <button className="secondary compact-button" type="button" onClick={() => playAsset(asset)}>Play</button>
+              )}
+              <div className="asset-name">
+                <strong>{asset.filename}</strong>
+                {kind === 'media' && (asset.durationMs || 0) > 0 ? <small>{formatAssetDuration(asset.durationMs || 0)}</small> : null}
+                {kind === 'media' && isGifAsset(asset) ? (
+                  <div className="gif-options">
+                    <SelectField
+                      label="GIF Playback"
+                      value={asset.mediaPlaybackMode || 'normal'}
+                      options={mediaPlaybackModeOptions}
+                      onChange={(value) => updateAsset(asset.id, { mediaPlaybackMode: value })}
+                      compact
+                    />
+                    <Toggle
+                      label="Loop rotation"
+                      checked={asset.excludeFromGifRotation !== true}
+                      onChange={(value) => updateAsset(asset.id, { excludeFromGifRotation: !value })}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <div className="asset-row-actions">
+                <button className="secondary compact-button" type="button" onClick={() => move(index, -1)} disabled={index === 0}>Up</button>
+                <button className="secondary compact-button" type="button" onClick={() => move(index, 1)} disabled={index === assets.length - 1}>Down</button>
+                <button className="danger compact-button" type="button" onClick={() => onChange(assets.filter((item) => item.id !== asset.id))}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AssetThumbnail({ asset }: { asset: MediaAsset }) {
+  const [src, setSrc] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    GetMediaAssetDataURL(asset.path).then((value) => {
+      if (alive) {
+        setSrc(value)
+      }
+    }).catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [asset.path])
+
+  return <div className="asset-thumb">{src ? <img src={src} alt="" /> : <span />}</div>
+}
+
+function playAsset(asset: MediaAsset) {
+  GetMediaAssetDataURL(asset.path).then((value) => {
+    const audio = new Audio(value)
+    audio.play().catch(() => undefined)
+  }).catch(() => undefined)
+}
+
+function formatAssetDuration(durationMs: number) {
+  if (!durationMs || durationMs <= 0) {
+    return ''
+  }
+  return `${(durationMs / 1000).toFixed(durationMs >= 10000 ? 0 : 1)}s GIF`
+}
+
+function isGifAsset(asset: MediaAsset) {
+  return asset.filename.toLowerCase().endsWith('.gif') || asset.path.toLowerCase().endsWith('.gif')
+}
+
+function MediaActionOverlay({ playback }: { playback: MediaActionPlayback | null }) {
+  if (!playback || !playback.mediaDataUrl) {
+    return null
+  }
+  return (
+    <div className={`media-overlay ${playback.position} ${playback.animation}`}>
+      <AnimatedMediaImage playback={playback} />
+    </div>
+  )
+}
+
+function AnimatedMediaImage({ playback }: { playback: MediaActionPlayback }) {
+  const frameSrc = useAnimatedMediaFrame(playback)
+  return <img src={frameSrc || playback.mediaDataUrl} alt="" style={{ transform: `scale(${(playback.scale || 100) / 100})` }} />
+}
+
+function useAnimatedMediaFrame(playback: MediaActionPlayback) {
+  const [src, setSrc] = useState(playback.mediaDataUrl)
+
+  useEffect(() => {
+    const cacheBusted = (url: string, token: number) => url ? `${url}#clip-${token}-${Date.now()}` : ''
+    if (playback.mediaPlaybackMode === 'loop_next' && playback.mediaClips?.length) {
+      let disposed = false
+      let timer = 0
+      const startedAt = Date.now()
+      const durationMs = Math.max(1000, (playback.duration || 5) * 1000)
+      let clipIndex = 0
+      const playClip = () => {
+        if (disposed) {
+          return
+        }
+        const clip = playback.mediaClips?.[clipIndex] || playback.mediaClips?.[0]
+        setSrc(cacheBusted(clip?.mediaDataUrl || playback.mediaDataUrl, clipIndex))
+        const delay = Math.max(100, clip?.mediaDurationMs || 1000)
+        clipIndex = (clipIndex + 1) % (playback.mediaClips?.length || 1)
+        if (Date.now() - startedAt + delay >= durationMs) {
+          return
+        }
+        timer = window.setTimeout(playClip, delay)
+      }
+      playClip()
+      return () => {
+        disposed = true
+        if (timer) {
+          window.clearTimeout(timer)
+        }
+      }
+    }
+    if (playback.mediaPlaybackMode !== 'match_audio') {
+      setSrc(cacheBusted(playback.mediaDataUrl, 0))
+      return
+    }
+    const clips = [{
+      media: playback.media || { id: '', filename: '', path: '' },
+      mediaDataUrl: playback.mediaDataUrl,
+      mediaDurationMs: playback.mediaDurationMs,
+      mediaFrameDataUrls: playback.mediaFrameDataUrls,
+      mediaFrameDelaysMs: playback.mediaFrameDelaysMs
+    }]
+    let disposed = false
+    let timer = 0
+    const startedAt = Date.now()
+    const durationMs = Math.max(1000, (playback.duration || 5) * 1000)
+    const firstClipDuration = clipDurationMs(clips[0])
+    const audio = playback.soundDataUrl ? new Audio(playback.soundDataUrl) : null
+    const cleanup = () => {
+      disposed = true
+      if (timer) {
+        window.clearTimeout(timer)
+      }
+    }
+    const start = (targetDuration: number) => {
+      const scale = playback.mediaPlaybackMode === 'match_audio' ? Math.max(0.1, targetDuration / Math.max(1, firstClipDuration)) : 1
+      let clipIndex = 0
+      let frameIndex = 0
+      const tick = () => {
+        if (disposed) {
+          return
+        }
+        const clip = clips[clipIndex] || clips[0]
+        const frames = clip.mediaFrameDataUrls || []
+        const delays = clip.mediaFrameDelaysMs || []
+        setSrc(frames[frameIndex] || clip.mediaDataUrl || playback.mediaDataUrl)
+        const nextDelay = Math.max(10, delays[frameIndex] || 100) * scale
+        frameIndex += 1
+        if (frameIndex >= Math.max(1, frames.length)) {
+          if (playback.mediaPlaybackMode === 'loop_next') {
+            clipIndex = (clipIndex + 1) % clips.length
+            frameIndex = 0
+            if (Date.now() - startedAt >= durationMs) {
+              return
+            }
+          } else if (playback.mediaPlaybackMode === 'loop') {
+            frameIndex = 0
+            if (Date.now() - startedAt >= durationMs) {
+              return
+            }
+          } else {
+            return
+          }
+        }
+        timer = window.setTimeout(tick, nextDelay)
+      }
+      tick()
+    }
+    if (playback.mediaPlaybackMode === 'match_audio' && audio) {
+      audio.addEventListener('loadedmetadata', () => start(Math.max(100, audio.duration * 1000)), { once: true })
+      audio.load()
+    } else {
+      start(firstClipDuration)
+    }
+    return cleanup
+  }, [playback])
+
+  return src
+}
+
+function clipDurationMs(clip?: MediaPlaybackClip) {
+  if (!clip) {
+    return 1
+  }
+  return Math.max(1, clip.mediaDurationMs || (clip.mediaFrameDelaysMs || []).reduce((total, delay) => total + Math.max(10, delay || 100), 0))
 }
 
 function AnnouncementSummarySection({

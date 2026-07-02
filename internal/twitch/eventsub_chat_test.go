@@ -1,6 +1,18 @@
 package twitch
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+type eventSubRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f eventSubRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestNewEventSubChatClientUsesSendTokenForChatMessages(t *testing.T) {
 	client := NewEventSubChatClient(EventSubConfig{
@@ -16,6 +28,26 @@ func TestNewEventSubChatClientUsesSendTokenForChatMessages(t *testing.T) {
 	}
 	if client.sender.accessToken != "app-token" {
 		t.Fatalf("send token = %q", client.sender.accessToken)
+	}
+}
+
+func TestSubscribeToRedeemsRequiresBroadcasterToken(t *testing.T) {
+	redeems := make(chan ChannelPointRedeemEvent)
+	client := NewEventSubChatClient(EventSubConfig{
+		ClientID:      "client-id",
+		Token:         "bot-token",
+		AdToken:       "ad-token",
+		BroadcasterID: "broadcaster",
+		UserID:        "bot",
+		Redeems:       redeems,
+	}, nil)
+	client.helix.httpClient = &http.Client{Transport: eventSubRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("unexpected request")
+	})}
+
+	err := client.subscribeToRedeems(context.Background(), "session")
+	if err == nil || !strings.Contains(err.Error(), "missing Twitch broadcaster access token") {
+		t.Fatalf("err = %v, want missing broadcaster token", err)
 	}
 }
 

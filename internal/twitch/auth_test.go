@@ -106,6 +106,91 @@ func TestAuthManagerAppAccessTokenRequestsAndCachesClientCredentialsToken(t *tes
 	}
 }
 
+func TestAuthManagerRefreshPrefersCachedRotatedRefreshToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	manager := NewAuthManager(AuthConfig{
+		ClientID:     "client-id",
+		ClientSecret: "client-secret",
+		RefreshToken: "stale-refresh",
+		StatePath:    path,
+	})
+	manager.save(TokenSet{
+		AccessToken:  "old-access",
+		RefreshToken: "rotated-refresh",
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	})
+	manager.httpClient = &http.Client{Transport: authRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if values.Get("refresh_token") != "rotated-refresh" {
+			t.Fatalf("refresh_token = %q, want cached rotated-refresh", values.Get("refresh_token"))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}`)),
+		}, nil
+	})}
+
+	tokenSet, err := manager.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenSet.AccessToken != "new-access" || tokenSet.RefreshToken != "new-refresh" {
+		t.Fatalf("tokenSet = %#v", tokenSet)
+	}
+}
+
+func TestAuthManagerRefreshCanPreferConfiguredRefreshToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	manager := NewAuthManager(AuthConfig{
+		ClientID:                     "client-id",
+		ClientSecret:                 "client-secret",
+		RefreshToken:                 "new-scope-refresh",
+		StatePath:                    path,
+		PreferConfiguredRefreshToken: true,
+	})
+	manager.save(TokenSet{
+		AccessToken:  "old-access",
+		RefreshToken: "rotated-but-old-scope-refresh",
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	})
+	manager.httpClient = &http.Client{Transport: authRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if values.Get("refresh_token") != "new-scope-refresh" {
+			t.Fatalf("refresh_token = %q, want configured new-scope-refresh", values.Get("refresh_token"))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}`)),
+		}, nil
+	})}
+
+	tokenSet, err := manager.Refresh(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenSet.RefreshToken != "new-refresh" {
+		t.Fatalf("tokenSet = %#v", tokenSet)
+	}
+}
+
 type authRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f authRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {

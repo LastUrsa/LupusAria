@@ -1,11 +1,18 @@
 package main
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"lupusaria/internal/mediaactions"
+	"lupusaria/internal/twitch"
 )
 
 func TestUpdateEnvFileUpdatesPreservesAndAppends(t *testing.T) {
@@ -124,8 +131,8 @@ func TestCheckTwitchPermissionsReportsMissingFirstRunCredentials(t *testing.T) {
 	if check.Items[1].Name != "Bot token" || check.Items[1].Status != "error" {
 		t.Fatalf("bot item = %#v", check.Items[1])
 	}
-	if check.Items[2].Name != "Ads token" || check.Items[2].Status != "warning" {
-		t.Fatalf("ads item = %#v", check.Items[2])
+	if check.Items[2].Name != "Broadcaster token" || check.Items[2].Status != "warning" {
+		t.Fatalf("broadcaster item = %#v", check.Items[2])
 	}
 }
 
@@ -314,6 +321,157 @@ func TestAppendLogCapsHistory(t *testing.T) {
 	}
 }
 
+func TestDefaultMediaOverlayAddressIsStable(t *testing.T) {
+	if got, want := defaultMediaOverlayAddress(), "127.0.0.1:47831"; got != want {
+		t.Fatalf("defaultMediaOverlayAddress = %q, want %q", got, want)
+	}
+}
+
+func TestOverlayServerBroadcastsPlaybackEvents(t *testing.T) {
+	server, err := newOverlayServerAtAddress("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close(context.Background())
+
+	req, err := http.NewRequest(http.MethodGet, server.URL()+"events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req = req.WithContext(ctx)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+
+	lines := make(chan string, 16)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+	waitForLine(t, lines, ": connected")
+	server.Broadcast(MediaActionPlayback{
+		ActionID: "action-1",
+		Name:     "Alert",
+		Duration: 1,
+	})
+	waitForLine(t, lines, "event: playback")
+	data := waitForLinePrefix(t, lines, "data: ")
+	var playback MediaActionPlayback
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(data, "data: ")), &playback); err != nil {
+		t.Fatal(err)
+	}
+	if playback.ActionID != "action-1" || playback.Name != "Alert" {
+		t.Fatalf("playback = %#v", playback)
+	}
+}
+
+func TestMediaActionRedeemHandlerMatchesRewardTitleFallback(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	root := filepath.Join(configHome, "Starsong Tools", "LupusAria", "MediaActions")
+	assetPath := filepath.Join(root, "Its-A-Gundam", "Sounds", "beam.mp3")
+	if err := os.MkdirAll(filepath.Dir(assetPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(assetPath, []byte("fake mp3 data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app := NewApp()
+	handler := app.mediaActionRedeemHandler(ctx, []mediaactions.Action{{
+		ID:          "action-1",
+		Name:        "Its A Gundam",
+		Enabled:     true,
+		Trigger:     mediaactions.TriggerChannelPointRedeem,
+		RewardID:    "saved-reward-id",
+		RewardTitle: "ITS A GUNDAM!",
+		Sounds: []mediaactions.Asset{{
+			ID:       "asset-1",
+			Filename: "beam.mp3",
+			Path:     assetPath,
+		}},
+		Duration: 1,
+	}})
+	if handler == nil {
+		t.Fatal("handler is nil")
+	}
+
+	handler(ctx, twitch.ChannelPointRedeemEvent{
+		RewardID:    "different-reward-id",
+		RewardTitle: "its a gundam!",
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(strings.Join(app.GetLogs(), "\n"), `queued media action "Its A Gundam"`) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("media action was not queued, logs = %#v", app.GetLogs())
+}
+
+func TestMediaActionRedeemHandlerBroadcastsToOverlay(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	root := filepath.Join(configHome, "Starsong Tools", "LupusAria", "MediaActions")
+	assetPath := filepath.Join(root, "Reward", "Sounds", "beam.mp3")
+	if err := os.MkdirAll(filepath.Dir(assetPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(assetPath, []byte("fake mp3 data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := make(chan []byte, 1)
+	app := NewApp()
+	app.overlay = &overlayServer{clients: map[chan []byte]bool{client: true}}
+	handler := app.mediaActionRedeemHandler(ctx, []mediaactions.Action{{
+		ID:       "action-1",
+		Name:     "Reward",
+		Enabled:  true,
+		Trigger:  mediaactions.TriggerChannelPointRedeem,
+		RewardID: "reward-1",
+		Sounds: []mediaactions.Asset{{
+			ID:       "asset-1",
+			Filename: "beam.mp3",
+			Path:     assetPath,
+		}},
+		Duration: 1,
+	}})
+	if handler == nil {
+		t.Fatal("handler is nil")
+	}
+
+	handler(ctx, twitch.ChannelPointRedeemEvent{RewardID: "reward-1", RewardTitle: "Reward"})
+	select {
+	case raw := <-client:
+		var playback MediaActionPlayback
+		if err := json.Unmarshal(raw, &playback); err != nil {
+			t.Fatal(err)
+		}
+		if playback.ActionID != "action-1" || playback.SoundDataURL == "" {
+			t.Fatalf("playback = %#v", playback)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for overlay playback, logs = %#v", app.GetLogs())
+	}
+}
+
 func TestDisplayMinutesRoundsUp(t *testing.T) {
 	tests := map[time.Duration]int{
 		0:                           0,
@@ -325,6 +483,42 @@ func TestDisplayMinutesRoundsUp(t *testing.T) {
 	for duration, want := range tests {
 		if got := displayMinutes(duration); got != want {
 			t.Fatalf("displayMinutes(%s) = %d, want %d", duration, got, want)
+		}
+	}
+}
+
+func waitForLine(t *testing.T, lines <-chan string, want string) string {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("stream closed before %q", want)
+			}
+			if line == want {
+				return line
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for %q", want)
+		}
+	}
+}
+
+func waitForLinePrefix(t *testing.T, lines <-chan string, prefix string) string {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatalf("stream closed before prefix %q", prefix)
+			}
+			if strings.HasPrefix(line, prefix) {
+				return line
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for prefix %q", prefix)
 		}
 	}
 }

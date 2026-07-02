@@ -388,6 +388,28 @@ BOT_KNOWLEDGE_PATH=custom-knowledge.md
 	}
 }
 
+func TestLoadNormalizesOverEscapedWindowsPathsOnLinux(t *testing.T) {
+	if filepath.Separator == '\\' {
+		t.Skip("windows keeps drive paths as windows paths")
+	}
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+BOT_KNOWLEDGE_PATH="C:\\\\\\\\Users\\\\\\\\Don\\\\\\\\AppData\\\\\\\\Roaming\\\\\\\\Starsong Tools\\\\\\\\LupusAria\\\\\\\\.lupusaria-knowledge.md"
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/mnt/c/Users/Don/AppData/Roaming/Starsong Tools/LupusAria/.lupusaria-knowledge.md"
+	if cfg.Bot.KnowledgePath != want {
+		t.Fatalf("knowledge path = %q, want %q", cfg.Bot.KnowledgePath, want)
+	}
+}
+
 func writeTestEnv(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {

@@ -20,7 +20,15 @@ import (
 	"lupusaria/internal/twitch"
 )
 
+type Options struct {
+	MediaActionRedeem func(context.Context, twitch.ChannelPointRedeemEvent)
+}
+
 func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
+	return RunWithOptions(ctx, envPath, logger, Options{})
+}
+
+func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, options Options) error {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -47,10 +55,11 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 
 	if cfg.Twitch.RefreshToken != "" {
 		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
-			ClientID:     cfg.Twitch.ClientID,
-			ClientSecret: cfg.Twitch.ClientSecret,
-			RefreshToken: cfg.Twitch.RefreshToken,
-			StatePath:    cfg.Twitch.TokenStatePath,
+			ClientID:                     cfg.Twitch.ClientID,
+			ClientSecret:                 cfg.Twitch.ClientSecret,
+			RefreshToken:                 cfg.Twitch.RefreshToken,
+			StatePath:                    cfg.Twitch.TokenStatePath,
+			PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.TokenStatePath),
 		}).Refresh(ctx)
 		if err != nil {
 			logger.Warn("failed to refresh twitch token; using configured access token", "error", err)
@@ -60,19 +69,20 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		}
 	}
 
-	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsRefreshToken != "" {
+	if (cfg.AdAlerts.Enabled || options.MediaActionRedeem != nil) && cfg.Twitch.AdsRefreshToken != "" {
 		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
-			ClientID:     cfg.Twitch.AdsClientID,
-			ClientSecret: cfg.Twitch.AdsClientSecret,
-			RefreshToken: cfg.Twitch.AdsRefreshToken,
-			StatePath:    cfg.Twitch.AdsTokenStatePath,
+			ClientID:                     cfg.Twitch.AdsClientID,
+			ClientSecret:                 cfg.Twitch.AdsClientSecret,
+			RefreshToken:                 cfg.Twitch.AdsRefreshToken,
+			StatePath:                    cfg.Twitch.AdsTokenStatePath,
+			PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.AdsTokenStatePath),
 		}).Refresh(ctx)
 		if err != nil {
 			logger.Warn("failed to refresh twitch ads token; using configured ads access token if available", "error", err)
 		} else {
 			cfg.Twitch.AdsOAuthToken = "oauth:" + tokenSet.AccessToken
 			cfg.Twitch.AdsRefreshToken = tokenSet.RefreshToken
-			logger.Info("refreshed twitch ads access token", "expires_at", tokenSet.ExpiresAt.Format(time.RFC3339))
+			logger.Info("refreshed twitch broadcaster access token", "expires_at", tokenSet.ExpiresAt.Format(time.RFC3339))
 		}
 	}
 	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsOAuthToken == "" {
@@ -89,6 +99,7 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	var chatSendToken string
 	var channelEmotes []twitch.Emote
 	var adBreaks chan twitch.AdBreakEvent
+	var redeems chan twitch.ChannelPointRedeemEvent
 	if cfg.Twitch.ClientID != "" {
 		helix = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
 		streamProvider = helix
@@ -108,8 +119,11 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsOAuthToken != "" {
 		adBreaks = make(chan twitch.AdBreakEvent, 16)
 	}
+	if options.MediaActionRedeem != nil {
+		redeems = make(chan twitch.ChannelPointRedeemEvent, 32)
+	}
 
-	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
+	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, redeems, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
 
 	if helix != nil && cfg.RecentStreamers.Enabled {
 		recentService = recentstreamers.New(recentstreamers.Config{
@@ -187,10 +201,11 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 		var adsAuth adTokenRefresher
 		if cfg.Twitch.AdsRefreshToken != "" {
 			adsAuth = twitch.NewAuthManager(twitch.AuthConfig{
-				ClientID:     cfg.Twitch.AdsClientID,
-				ClientSecret: cfg.Twitch.AdsClientSecret,
-				RefreshToken: cfg.Twitch.AdsRefreshToken,
-				StatePath:    cfg.Twitch.AdsTokenStatePath,
+				ClientID:                     cfg.Twitch.AdsClientID,
+				ClientSecret:                 cfg.Twitch.AdsClientSecret,
+				RefreshToken:                 cfg.Twitch.AdsRefreshToken,
+				StatePath:                    cfg.Twitch.AdsTokenStatePath,
+				PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.AdsTokenStatePath),
 			})
 		}
 		adService = adalerts.New(adalerts.Config{
@@ -225,6 +240,19 @@ func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
 						Duration:  event.Duration,
 						Automatic: event.Automatic,
 					})
+				}
+			}
+		}()
+	}
+	if redeems != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event := <-redeems:
+					logger.Info("dispatching media action redeem", "reward", event.RewardTitle, "user", event.UserLogin)
+					options.MediaActionRedeem(ctx, event)
 				}
 			}
 		}()
@@ -264,18 +292,28 @@ func appAccessToken(ctx context.Context, cfg config.Config, logger *slog.Logger)
 	return tokenSet.AccessToken
 }
 
-func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, adBreaks chan<- twitch.AdBreakEvent, logger *slog.Logger) bot.Chat {
+func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, adBreaks chan<- twitch.AdBreakEvent, redeems chan<- twitch.ChannelPointRedeemEvent, logger *slog.Logger) bot.Chat {
 	if cfg.Twitch.ClientID != "" && cfg.Twitch.OAuthToken != "" && broadcasterID != "" && botUserID != "" {
+		if logger != nil {
+			logger.Info("configuring EventSub chat transport",
+				"redeems_enabled", redeems != nil,
+				"has_redeem_token", cfg.Twitch.AdsOAuthToken != "",
+				"has_redeem_client_id", cfg.Twitch.AdsClientID != "",
+			)
+		}
 		return twitch.NewEventSubChatClient(twitch.EventSubConfig{
-			ClientID:      cfg.Twitch.ClientID,
-			Token:         cfg.Twitch.OAuthToken,
-			SendToken:     sendToken,
-			AdClientID:    cfg.Twitch.AdsClientID,
-			AdToken:       cfg.Twitch.AdsOAuthToken,
-			Channel:       cfg.Twitch.Channel,
-			BroadcasterID: broadcasterID,
-			UserID:        botUserID,
-			AdBreaks:      adBreaks,
+			ClientID:       cfg.Twitch.ClientID,
+			Token:          cfg.Twitch.OAuthToken,
+			SendToken:      sendToken,
+			AdClientID:     cfg.Twitch.AdsClientID,
+			AdToken:        cfg.Twitch.AdsOAuthToken,
+			RedeemClientID: cfg.Twitch.AdsClientID,
+			RedeemToken:    cfg.Twitch.AdsOAuthToken,
+			Channel:        cfg.Twitch.Channel,
+			BroadcasterID:  broadcasterID,
+			UserID:         botUserID,
+			AdBreaks:       adBreaks,
+			Redeems:        redeems,
 		}, logger)
 	}
 	if logger != nil {
@@ -376,6 +414,21 @@ func adsTokenExpiresAt(path string) time.Time {
 		return time.Time{}
 	}
 	return tokenSet.ExpiresAt
+}
+
+func preferConfiguredRefreshToken(configPath, statePath string) bool {
+	if strings.TrimSpace(configPath) == "" || strings.TrimSpace(statePath) == "" {
+		return false
+	}
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		return false
+	}
+	stateInfo, err := os.Stat(statePath)
+	if err != nil {
+		return true
+	}
+	return configInfo.ModTime().After(stateInfo.ModTime())
 }
 
 func convertAdSchedule(schedule twitch.AdSchedule) adalerts.Schedule {

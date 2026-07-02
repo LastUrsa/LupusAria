@@ -10,6 +10,10 @@ export function GetAnnouncements() {
   return window['go']['main']['App']['GetAnnouncements']();
 }
 
+export function GetChannelPointRewards() {
+  return window['go']['main']['App']['GetChannelPointRewards']();
+}
+
 export function GetKnowledge() {
   return window['go']['main']['App']['GetKnowledge']();
 }
@@ -18,8 +22,28 @@ export function GetLogs() {
   return window['go']['main']['App']['GetLogs']();
 }
 
+export function GetMediaActions() {
+  return window['go']['main']['App']['GetMediaActions']();
+}
+
+export function GetMediaAssetDataURL(arg1) {
+  return window['go']['main']['App']['GetMediaAssetDataURL'](arg1);
+}
+
+export function GetMediaOverlayURL() {
+  return window['go']['main']['App']['GetMediaOverlayURL']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
+}
+
+export function ImportMediaActionAssets(arg1, arg2) {
+  return window['go']['main']['App']['ImportMediaActionAssets'](arg1, arg2);
+}
+
+export function PreviewMediaAction(arg1) {
+  return window['go']['main']['App']['PreviewMediaAction'](arg1);
 }
 
 export function ResetKnowledgeTemplate() {
@@ -32,6 +56,10 @@ export function SaveAnnouncements(arg1) {
 
 export function SaveKnowledge(arg1) {
   return window['go']['main']['App']['SaveKnowledge'](arg1);
+}
+
+export function SaveMediaActions(arg1) {
+  return window['go']['main']['App']['SaveMediaActions'](arg1);
 }
 
 export function SaveSettings(arg1) {

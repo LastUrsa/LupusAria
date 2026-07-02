@@ -16,6 +16,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` shoutout pools.
 - Configurable command and stream-timer announcements, including per-command announcement permissions.
 - Optional ad alerts with Twitch ad schedule support.
+- Channel point Media Actions that play random local images, GIFs, and sounds through an OBS browser overlay.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
 - Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
 - Local Wails control panel for non-secret configuration and runtime controls.
@@ -82,6 +83,35 @@ Twitch and AI secrets can be entered from the app; saved secret values are hidde
 The Setup tab includes streamer name, streamer pronouns, and a Twitch permissions check for saved app, bot, and ads credentials. The Knowledge tab creates, edits, reloads, and resets the local streamer knowledge content.
 Announcement settings are grouped into Timer Announcements and Command Announcements. Each row shows a compact summary and expands to edit the message, type, schedule, command, or command permission.
 
+### Media Actions and OBS Overlay
+
+The Media Actions tab maps Twitch channel point redeems to local media and sound alerts. Each action can:
+
+- select a custom reward from the channel
+- import supported media files: `.gif`, `.png`, `.jpg`, `.jpeg`, `.webp`
+- import supported sound files: `.wav`, `.mp3`, `.ogg`, `.flac`
+- choose alert duration, screen position, scale, and animation
+- preview inside the app while also sending the alert to OBS
+
+Live channel point redeems are sent only to the OBS overlay, so they do not cover the app while the bot is running.
+
+Use this stable OBS Browser Source URL:
+
+```text
+http://127.0.0.1:47831/
+```
+
+Set the OBS source background to transparent and keep the source local to the streaming PC. The overlay serves only on loopback and uses Server-Sent Events to receive playback payloads from the desktop app.
+
+GIF playback is configurable per GIF:
+
+- `Normal` plays the GIF normally.
+- `Slow to Audio` decodes frames and stretches playback to match the selected sound.
+- `Loop` restarts the same GIF for the alert duration.
+- `Loop to Another GIF` uses eligible GIFs as a shuffled rotation, avoiding repeats until the rotation pool is exhausted.
+
+Uncheck `Loop rotation` on longer GIFs that should be available as the first selected media item but should not be used as follow-up clips in `Loop to Another GIF`.
+
 ## Twitch Tokens
 
 For chat, use a bot-account token with chat read/write scopes:
@@ -102,13 +132,19 @@ Set the bot username, channel, streamer identity, Twitch client ID, client secre
 
 When the Twitch client secret is saved, LupusAria uses an app access token for Twitch API chat sends. This is the Twitch Chat Bot Badge path when the bot account has authorized `user:bot` and `user:write:chat`, the bot is not the broadcaster account, and the bot is a moderator in the channel or the broadcaster has granted `channel:bot` to the app.
 
-Ad alerts require a broadcaster token with `channel:read:ads`:
+Media Actions require a broadcaster token with `channel:read:redemptions`. Ad alerts require `channel:read:ads`. If both are enabled, generate one broadcaster token with both scopes:
 
 ```bash
-twitch token -u --dcf -s 'channel:read:ads'
+twitch token -u --dcf -s 'channel:read:redemptions channel:read:ads'
 ```
 
-The ads token must be used with the same Twitch application that generated it. If ads use a separate Twitch app, set the ads client ID and secret separately from the bot client ID and secret.
+If you only need Media Actions, use:
+
+```bash
+twitch token -u --dcf -s 'channel:read:redemptions'
+```
+
+The broadcaster token must be used with the same Twitch application that generated it. If broadcaster features use a separate Twitch app, set the ads/broadcaster client ID and secret separately from the bot client ID and secret.
 
 Use an ads refresh token when possible. LupusAria refreshes the ads access token during long runs and retries temporary Twitch ad schedule polling failures instead of disabling ad alerts for the rest of the session.
 
@@ -154,6 +190,8 @@ AI usage logs include provider finish reasons when available. Max-token or lengt
 - Keep `.lupusaria-knowledge.md` local if it contains streamer-specific private or semi-private details.
 - Installed app secrets live under `%APPDATA%\Starsong Tools\LupusAria`.
 - The app writes local secret/state files with owner-only permissions.
+- Media Action imported assets are copied into the local app config folder.
+- The media overlay binds only to `127.0.0.1:47831`; do not proxy or expose it to the network.
 - Use least-privilege Twitch tokens.
 - Do not expose the desktop control panel over a network.
 - Public chat commands must not reveal tokens, secrets, logs, file paths, budget state, or spend details.

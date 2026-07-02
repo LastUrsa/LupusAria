@@ -6,17 +6,31 @@ export function CheckTwitchPermissions():Promise<main.TwitchPermissionCheck>;
 
 export function GetAnnouncements():Promise<Array<main.AnnouncementSettings>>;
 
+export function GetChannelPointRewards():Promise<Array<main.ChannelPointRewardSettings>>;
+
 export function GetKnowledge():Promise<main.KnowledgeSettings>;
 
 export function GetLogs():Promise<Array<string>>;
 
+export function GetMediaActions():Promise<Array<main.MediaActionSettings>>;
+
+export function GetMediaAssetDataURL(arg1:string):Promise<string>;
+
+export function GetMediaOverlayURL():Promise<string>;
+
 export function GetSettings():Promise<main.ControlSettings>;
+
+export function ImportMediaActionAssets(arg1:main.MediaActionSettings,arg2:string):Promise<Array<main.MediaAssetSettings>>;
+
+export function PreviewMediaAction(arg1:main.MediaActionSettings):Promise<void>;
 
 export function ResetKnowledgeTemplate():Promise<main.KnowledgeSettings>;
 
 export function SaveAnnouncements(arg1:Array<main.AnnouncementSettings>):Promise<void>;
 
 export function SaveKnowledge(arg1:main.KnowledgeSettings):Promise<void>;
+
+export function SaveMediaActions(arg1:Array<main.MediaActionSettings>):Promise<void>;
 
 export function SaveSettings(arg1:main.ControlSettings):Promise<void>;
 

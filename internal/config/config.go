@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -381,10 +382,38 @@ func validateRanges(cfg Config) error {
 
 func resolveLocalPath(baseDir, value string) string {
 	value = strings.TrimSpace(value)
+	if normalized := normalizeWindowsPathForHost(value); normalized != "" {
+		value = normalized
+	}
 	if value == "" || filepath.IsAbs(value) {
 		return value
 	}
 	return filepath.Join(baseDir, value)
+}
+
+func normalizeWindowsPathForHost(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) < 3 || value[1] != ':' {
+		return ""
+	}
+	drive := value[0]
+	if !((drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')) {
+		return ""
+	}
+	rest := strings.TrimLeft(value[2:], `\/`)
+	if rest == "" {
+		if runtime.GOOS == "windows" {
+			return string([]byte{drive, ':'}) + `\`
+		}
+		return "/mnt/" + strings.ToLower(string(drive))
+	}
+	parts := strings.FieldsFunc(rest, func(r rune) bool {
+		return r == '\\' || r == '/'
+	})
+	if runtime.GOOS == "windows" {
+		return string([]byte{drive, ':'}) + `\` + strings.Join(parts, `\`)
+	}
+	return "/mnt/" + strings.ToLower(string(drive)) + "/" + filepath.Join(parts...)
 }
 
 func commandPermission(values map[string]string, key, fallback string) string {

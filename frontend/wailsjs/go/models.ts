@@ -26,6 +26,24 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class ChannelPointRewardSettings {
+	    id: string;
+	    title: string;
+	    prompt: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ChannelPointRewardSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.prompt = source["prompt"];
+	        this.enabled = source["enabled"];
+	    }
+	}
 	export class ControlSettings {
 	    running: boolean;
 	    status: string;
@@ -194,6 +212,81 @@ export namespace main {
 	        this.content = source["content"];
 	    }
 	}
+	export class MediaAssetSettings {
+	    id: string;
+	    filename: string;
+	    path: string;
+	    durationMs: number;
+	    mediaPlaybackMode: string;
+
+	    static createFrom(source: any = {}) {
+	        return new MediaAssetSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.filename = source["filename"];
+	        this.path = source["path"];
+	        this.durationMs = source["durationMs"];
+	        this.mediaPlaybackMode = source["mediaPlaybackMode"];
+	    }
+	}
+	export class MediaActionSettings {
+	    id: string;
+	    name: string;
+	    enabled: boolean;
+	    trigger: string;
+	    rewardId: string;
+	    rewardTitle: string;
+	    media: MediaAssetSettings[];
+	    sounds: MediaAssetSettings[];
+	    duration: number;
+	    position: string;
+	    scale: number;
+	    animation: string;
+	    mediaPlaybackMode: string;
+
+	    static createFrom(source: any = {}) {
+	        return new MediaActionSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.enabled = source["enabled"];
+	        this.trigger = source["trigger"];
+	        this.rewardId = source["rewardId"];
+	        this.rewardTitle = source["rewardTitle"];
+	        this.media = this.convertValues(source["media"], MediaAssetSettings);
+	        this.sounds = this.convertValues(source["sounds"], MediaAssetSettings);
+	        this.duration = source["duration"];
+	        this.position = source["position"];
+	        this.scale = source["scale"];
+	        this.animation = source["animation"];
+	        this.mediaPlaybackMode = source["mediaPlaybackMode"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
 	export class TwitchPermissionItem {
 	    name: string;
 	    status: string;
@@ -246,4 +339,5 @@ export namespace main {
 		    return a;
 		}
 	}
+
 }

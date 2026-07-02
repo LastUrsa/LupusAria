@@ -41,6 +41,13 @@ type ChannelEmote struct {
 	Name string
 }
 
+type CustomReward struct {
+	ID      string
+	Title   string
+	Prompt  string
+	Enabled bool
+}
+
 type AdSchedule struct {
 	NextAdAt        time.Time
 	LastAdAt        time.Time
@@ -249,6 +256,38 @@ func (c *HelixClient) GetChannelEmotes(ctx context.Context, broadcasterID string
 		emotes = append(emotes, ChannelEmote{ID: item.ID, Name: item.Name})
 	}
 	return emotes, nil
+}
+
+func (c *HelixClient) GetCustomRewards(ctx context.Context, broadcasterID string) ([]CustomReward, error) {
+	values := url.Values{}
+	values.Set("broadcaster_id", strings.TrimSpace(broadcasterID))
+	values.Set("only_manageable_rewards", "false")
+
+	endpoint := "https://api.twitch.tv/helix/channel_points/custom_rewards?" + values.Encode()
+	var result struct {
+		Data []struct {
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			Prompt    string `json:"prompt"`
+			IsEnabled bool   `json:"is_enabled"`
+		} `json:"data"`
+	}
+	if err := c.getJSON(ctx, endpoint, &result); err != nil {
+		return nil, err
+	}
+	rewards := make([]CustomReward, 0, len(result.Data))
+	for _, item := range result.Data {
+		if item.ID == "" || item.Title == "" {
+			continue
+		}
+		rewards = append(rewards, CustomReward{
+			ID:      item.ID,
+			Title:   item.Title,
+			Prompt:  item.Prompt,
+			Enabled: item.IsEnabled,
+		})
+	}
+	return rewards, nil
 }
 
 func (c *HelixClient) GetAdSchedule(ctx context.Context, broadcasterID string) (AdSchedule, error) {

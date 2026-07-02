@@ -2,11 +2,20 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/draw"
+	"image/gif"
+	"image/png"
 	"log/slog"
+	"math/rand"
+	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,10 +28,16 @@ import (
 	"lupusaria/internal/botrunner"
 	"lupusaria/internal/config"
 	"lupusaria/internal/knowledge"
+	"lupusaria/internal/mediaactions"
 	"lupusaria/internal/twitch"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const envPathOverride = "LUPUSARIA_ENV_PATH"
+const (
+	envPathOverride         = "LUPUSARIA_ENV_PATH"
+	defaultMediaOverlayPort = 47831
+)
 
 type App struct {
 	ctx context.Context
@@ -32,6 +47,8 @@ type App struct {
 	running   bool
 	lastError string
 	logs      []string
+
+	overlay *overlayServer
 }
 
 type ControlSettings struct {
@@ -130,6 +147,71 @@ type AnnouncementSettings struct {
 	Message       string `json:"message"`
 }
 
+type MediaActionSettings struct {
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	Enabled           bool                 `json:"enabled"`
+	Trigger           string               `json:"trigger"`
+	RewardID          string               `json:"rewardId"`
+	RewardTitle       string               `json:"rewardTitle"`
+	Media             []MediaAssetSettings `json:"media"`
+	Sounds            []MediaAssetSettings `json:"sounds"`
+	Duration          int                  `json:"duration"`
+	Position          string               `json:"position"`
+	Scale             int                  `json:"scale"`
+	Animation         string               `json:"animation"`
+	MediaPlaybackMode string               `json:"mediaPlaybackMode"`
+}
+
+type MediaAssetSettings struct {
+	ID                     string `json:"id"`
+	Filename               string `json:"filename"`
+	Path                   string `json:"path"`
+	DurationMS             int    `json:"durationMs"`
+	MediaPlaybackMode      string `json:"mediaPlaybackMode"`
+	ExcludeFromGifRotation bool   `json:"excludeFromGifRotation"`
+}
+
+type ChannelPointRewardSettings struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Prompt  string `json:"prompt"`
+	Enabled bool   `json:"enabled"`
+}
+
+type MediaActionPlayback struct {
+	ActionID           string              `json:"actionId"`
+	Name               string              `json:"name"`
+	Media              *MediaAssetSettings `json:"media,omitempty"`
+	Sound              *MediaAssetSettings `json:"sound,omitempty"`
+	MediaDataURL       string              `json:"mediaDataUrl"`
+	SoundDataURL       string              `json:"soundDataUrl"`
+	Duration           int                 `json:"duration"`
+	Position           string              `json:"position"`
+	Scale              int                 `json:"scale"`
+	Animation          string              `json:"animation"`
+	MediaDurationMS    int                 `json:"mediaDurationMs"`
+	MediaFrameDataURLs []string            `json:"mediaFrameDataUrls"`
+	MediaFrameDelaysMS []int               `json:"mediaFrameDelaysMs"`
+	MediaPlaybackMode  string              `json:"mediaPlaybackMode"`
+	MediaClips         []MediaPlaybackClip `json:"mediaClips"`
+}
+
+type overlayServer struct {
+	server  *http.Server
+	url     string
+	mu      sync.Mutex
+	clients map[chan []byte]bool
+}
+
+type MediaPlaybackClip struct {
+	Media              MediaAssetSettings `json:"media"`
+	MediaDataURL       string             `json:"mediaDataUrl"`
+	MediaDurationMS    int                `json:"mediaDurationMs"`
+	MediaFrameDataURLs []string           `json:"mediaFrameDataUrls"`
+	MediaFrameDelaysMS []int              `json:"mediaFrameDelaysMs"`
+}
+
 type KnowledgeSettings struct {
 	Path    string `json:"path"`
 	Exists  bool   `json:"exists"`
@@ -163,10 +245,20 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	overlay, err := newOverlayServer()
+	if err != nil {
+		a.appendLog("media overlay unavailable: " + err.Error())
+		return
+	}
+	a.overlay = overlay
+	a.appendLog("media overlay listening at " + overlay.URL())
 }
 
 func (a *App) shutdown(ctx context.Context) {
 	_ = a.StopBot()
+	if a.overlay != nil {
+		_ = a.overlay.Close(ctx)
+	}
 }
 
 func (a *App) GetSettings() (ControlSettings, error) {
@@ -358,7 +450,7 @@ func (a *App) CheckTwitchPermissions() (TwitchPermissionCheck, error) {
 		Overall:   "ok",
 	}
 	check.Items = append(check.Items, checkTwitchAppCredentials(ctx, cfg))
-	check.Items = append(check.Items, checkTwitchUserToken(ctx, "Bot token", cfg.Twitch.ClientID, cfg.Twitch.ClientSecret, cfg.Twitch.OAuthToken, cfg.Twitch.RefreshToken, cfg.Twitch.TokenStatePath, cfg.Twitch.BotUsername, []string{
+	check.Items = append(check.Items, checkTwitchUserToken(ctx, "Bot token", cfg.Twitch.ClientID, cfg.Twitch.ClientSecret, cfg.Twitch.OAuthToken, cfg.Twitch.RefreshToken, cfg.Twitch.TokenStatePath, preferConfiguredRefreshToken(envPath, cfg.Twitch.TokenStatePath), cfg.Twitch.BotUsername, []string{
 		"user:read:chat",
 		"user:write:chat",
 		"user:bot",
@@ -366,14 +458,16 @@ func (a *App) CheckTwitchPermissions() (TwitchPermissionCheck, error) {
 		"moderator:read:followers",
 	}))
 	if cfg.AdAlerts.Enabled || cfg.Twitch.AdsOAuthToken != "" || cfg.Twitch.AdsRefreshToken != "" {
-		check.Items = append(check.Items, checkTwitchUserToken(ctx, "Ads token", cfg.Twitch.AdsClientID, cfg.Twitch.AdsClientSecret, cfg.Twitch.AdsOAuthToken, cfg.Twitch.AdsRefreshToken, cfg.Twitch.AdsTokenStatePath, cfg.Twitch.Channel, []string{
-			"channel:read:ads",
-		}))
+		broadcasterScopes := []string{"channel:read:redemptions"}
+		if cfg.AdAlerts.Enabled {
+			broadcasterScopes = append(broadcasterScopes, "channel:read:ads")
+		}
+		check.Items = append(check.Items, checkTwitchUserToken(ctx, "Broadcaster token", cfg.Twitch.AdsClientID, cfg.Twitch.AdsClientSecret, cfg.Twitch.AdsOAuthToken, cfg.Twitch.AdsRefreshToken, cfg.Twitch.AdsTokenStatePath, preferConfiguredRefreshToken(envPath, cfg.Twitch.AdsTokenStatePath), cfg.Twitch.Channel, broadcasterScopes))
 	} else {
 		check.Items = append(check.Items, TwitchPermissionItem{
-			Name:   "Ads token",
+			Name:   "Broadcaster token",
 			Status: "warning",
-			Detail: "Ad alerts are disabled and no ads token is saved.",
+			Detail: "No broadcaster token is saved. Media Actions need a channel token with channel:read:redemptions.",
 		})
 	}
 	check.Overall = overallPermissionStatus(check.Items)
@@ -466,15 +560,16 @@ func checkTwitchAppCredentials(ctx context.Context, cfg config.Config) TwitchPer
 	return TwitchPermissionItem{Name: "Twitch app", Status: "ok", Detail: "Client ID and secret can mint an app access token for chat sends."}
 }
 
-func checkTwitchUserToken(ctx context.Context, name, clientID, clientSecret, accessToken, refreshToken, statePath, expectedLogin string, requiredScopes []string) TwitchPermissionItem {
+func checkTwitchUserToken(ctx context.Context, name, clientID, clientSecret, accessToken, refreshToken, statePath string, preferConfiguredRefresh bool, expectedLogin string, requiredScopes []string) TwitchPermissionItem {
 	token := strings.TrimSpace(strings.TrimPrefix(accessToken, "oauth:"))
 	refreshed := false
 	if strings.TrimSpace(refreshToken) != "" && strings.TrimSpace(clientID) != "" && strings.TrimSpace(clientSecret) != "" {
 		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			RefreshToken: refreshToken,
-			StatePath:    statePath,
+			ClientID:                     clientID,
+			ClientSecret:                 clientSecret,
+			RefreshToken:                 refreshToken,
+			StatePath:                    statePath,
+			PreferConfiguredRefreshToken: preferConfiguredRefresh,
 		}).Refresh(ctx)
 		if err == nil {
 			token = tokenSet.AccessToken
@@ -519,6 +614,66 @@ func checkTwitchUserToken(ctx context.Context, name, clientID, clientSecret, acc
 		Status: "ok",
 		Detail: fmt.Sprintf("Validated %s for %s with all required scopes.", source, displayLogin(validation.Login)),
 	}
+}
+
+func preferConfiguredRefreshToken(configPath, statePath string) bool {
+	if strings.TrimSpace(configPath) == "" || strings.TrimSpace(statePath) == "" {
+		return false
+	}
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		return false
+	}
+	stateInfo, err := os.Stat(statePath)
+	if err != nil {
+		return true
+	}
+	return configInfo.ModTime().After(stateInfo.ModTime())
+}
+
+func mediaActionsTwitchToken(ctx context.Context, envPath string, cfg config.Config) (string, string, error) {
+	clientID := firstNonEmptyString(cfg.Twitch.AdsClientID, cfg.Twitch.ClientID)
+	clientSecret := firstNonEmptyString(cfg.Twitch.AdsClientSecret, cfg.Twitch.ClientSecret)
+	token := strings.TrimSpace(cfg.Twitch.AdsOAuthToken)
+	if cfg.Twitch.AdsRefreshToken != "" {
+		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
+			ClientID:                     clientID,
+			ClientSecret:                 clientSecret,
+			RefreshToken:                 cfg.Twitch.AdsRefreshToken,
+			StatePath:                    cfg.Twitch.AdsTokenStatePath,
+			PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.AdsTokenStatePath),
+		}).Refresh(ctx)
+		if err == nil {
+			return clientID, "oauth:" + tokenSet.AccessToken, nil
+		}
+		if token == "" {
+			return "", "", fmt.Errorf("refresh broadcaster token: %w", err)
+		}
+	}
+	if token != "" {
+		return clientID, token, nil
+	}
+
+	token = strings.TrimSpace(cfg.Twitch.OAuthToken)
+	if cfg.Twitch.RefreshToken != "" {
+		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
+			ClientID:                     cfg.Twitch.ClientID,
+			ClientSecret:                 cfg.Twitch.ClientSecret,
+			RefreshToken:                 cfg.Twitch.RefreshToken,
+			StatePath:                    cfg.Twitch.TokenStatePath,
+			PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.TokenStatePath),
+		}).Refresh(ctx)
+		if err == nil {
+			return cfg.Twitch.ClientID, "oauth:" + tokenSet.AccessToken, nil
+		}
+		if token == "" {
+			return "", "", fmt.Errorf("refresh twitch token: %w", err)
+		}
+	}
+	if token == "" {
+		return "", "", errors.New("missing broadcaster access token or refresh token")
+	}
+	return cfg.Twitch.ClientID, token, nil
 }
 
 func validateTwitchToken(ctx context.Context, client *http.Client, token string) (twitchTokenValidation, error) {
@@ -661,6 +816,129 @@ func (a *App) SaveAnnouncements(settings []AnnouncementSettings) error {
 	return nil
 }
 
+func (a *App) GetMediaActions() ([]MediaActionSettings, error) {
+	path, err := mediaActionsPath()
+	if err != nil {
+		return nil, err
+	}
+	actions, err := mediaactions.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	return mediaActionSettingsFromActions(actions), nil
+}
+
+func (a *App) SaveMediaActions(settings []MediaActionSettings) error {
+	path, err := mediaActionsPath()
+	if err != nil {
+		return err
+	}
+	actions := mediaActionsFromSettings(settings)
+	if err := mediaactions.Save(path, actions); err != nil {
+		return err
+	}
+	a.appendLog("media actions saved")
+	return nil
+}
+
+func (a *App) ImportMediaActionAssets(action MediaActionSettings, kind string) ([]MediaAssetSettings, error) {
+	if a.ctx == nil {
+		return nil, errors.New("app is not ready")
+	}
+	extensions := mediaactions.SupportedExtensions(kind)
+	patterns := make([]string, 0, len(extensions))
+	for _, ext := range extensions {
+		patterns = append(patterns, "*"+ext)
+	}
+	paths, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Add " + kind,
+		Filters: []runtime.FileFilter{{
+			DisplayName: strings.Title(kind) + " files",
+			Pattern:     strings.Join(patterns, ";"),
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	root, err := mediaActionsRoot()
+	if err != nil {
+		return nil, err
+	}
+	imported, err := mediaactions.ImportAssets(root, mediaActionFromSettings(action), kind, paths)
+	if err != nil {
+		return nil, err
+	}
+	return mediaAssetSettingsFromAssets(imported), nil
+}
+
+func (a *App) GetChannelPointRewards() ([]ChannelPointRewardSettings, error) {
+	envPath, err := appEnvPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.LoadPartial(envPath)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(cfg.Twitch.ClientID) == "" {
+		return nil, errors.New("missing Twitch client ID")
+	}
+	clientID, token, err := mediaActionsTwitchToken(context.Background(), envPath, cfg)
+	if err != nil {
+		return nil, err
+	}
+	helix := twitch.NewHelixClient(clientID, token)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	users, err := helix.GetUsersByLogin(ctx, []string{cfg.Twitch.Channel})
+	if err != nil {
+		return nil, err
+	}
+	if len(users) == 0 {
+		return nil, errors.New("could not find Twitch channel")
+	}
+	rewards, err := helix.GetCustomRewards(ctx, users[0].ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChannelPointRewardSettings, 0, len(rewards))
+	for _, reward := range rewards {
+		out = append(out, ChannelPointRewardSettings{
+			ID:      reward.ID,
+			Title:   reward.Title,
+			Prompt:  reward.Prompt,
+			Enabled: reward.Enabled,
+		})
+	}
+	return out, nil
+}
+
+func (a *App) GetMediaAssetDataURL(path string) (string, error) {
+	root, err := mediaActionsRoot()
+	if err != nil {
+		return "", err
+	}
+	return mediaAssetDataURL(root, path)
+}
+
+func (a *App) PreviewMediaAction(action MediaActionSettings) error {
+	root, err := mediaActionsRoot()
+	if err != nil {
+		return err
+	}
+	playback, ok := mediaactions.SelectPlayback(mediaActionFromSettings(action), nil)
+	if !ok {
+		return errors.New("add at least one media or sound asset before previewing")
+	}
+	payload, err := mediaPlaybackFromPlayback(root, playback)
+	if err != nil {
+		return err
+	}
+	a.emitMediaActionPreview(payload)
+	a.appendLog("previewed media action: " + action.Name)
+	return nil
+}
+
 func (a *App) StartBot() error {
 	a.mu.Lock()
 	if a.running {
@@ -685,8 +963,16 @@ func (a *App) StartBot() error {
 		a.mu.Unlock()
 		return err
 	}
+	mediaOptions := botrunner.Options{}
+	actions, actionErr := loadEnabledMediaActions()
+	if actionErr != nil {
+		a.appendLog("media actions disabled: " + actionErr.Error())
+	} else if len(actions) > 0 {
+		mediaOptions.MediaActionRedeem = a.mediaActionRedeemHandler(ctx, actions)
+		a.appendLog(fmt.Sprintf("loaded media actions: %d; redeem listener enabled", len(actions)))
+	}
 	go func() {
-		err := botrunner.Run(ctx, envPath, logger)
+		err := botrunner.RunWithOptions(ctx, envPath, logger, mediaOptions)
 		a.mu.Lock()
 		a.running = false
 		a.cancelBot = nil
@@ -723,6 +1009,97 @@ func (a *App) GetLogs() []string {
 	return append([]string{}, a.logs...)
 }
 
+func (a *App) GetMediaOverlayURL() string {
+	if a.overlay == nil {
+		return ""
+	}
+	return a.overlay.URL()
+}
+
+func (a *App) emitMediaActionPreview(playback MediaActionPlayback) {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "media-action-playback", playback)
+	}
+	a.broadcastMediaActionPlayback(playback)
+}
+
+func (a *App) broadcastMediaActionPlayback(playback MediaActionPlayback) {
+	if a.overlay != nil {
+		a.overlay.Broadcast(playback)
+	}
+}
+
+func (a *App) mediaActionRedeemHandler(ctx context.Context, actions []mediaactions.Action) func(context.Context, twitch.ChannelPointRedeemEvent) {
+	root, err := mediaActionsRoot()
+	if err != nil {
+		a.appendLog("media action storage unavailable: " + err.Error())
+		return nil
+	}
+	byReward := map[string]mediaactions.Action{}
+	byRewardTitle := map[string]mediaactions.Action{}
+	for _, action := range actions {
+		if action.Enabled && action.RewardID != "" {
+			byReward[action.RewardID] = action
+		}
+		if action.Enabled && action.RewardTitle != "" {
+			byRewardTitle[normalizeMediaActionRewardTitle(action.RewardTitle)] = action
+		}
+	}
+	queue := make(chan MediaActionPlayback, 32)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case playback := <-queue:
+				a.broadcastMediaActionPlayback(playback)
+				wait := time.Duration(playback.Duration) * time.Second
+				if wait <= 0 {
+					wait = 5 * time.Second
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(wait):
+				}
+			}
+		}
+	}()
+	return func(ctx context.Context, event twitch.ChannelPointRedeemEvent) {
+		a.appendLog(fmt.Sprintf("received channel point redeem: %q", firstNonEmptyString(event.RewardTitle, event.RewardID)))
+		action, ok := byReward[event.RewardID]
+		if !ok && event.RewardTitle != "" {
+			action, ok = byRewardTitle[normalizeMediaActionRewardTitle(event.RewardTitle)]
+		}
+		if !ok {
+			a.appendLog(fmt.Sprintf("received redeem %q but no enabled media action matched it", firstNonEmptyString(event.RewardTitle, event.RewardID)))
+			return
+		}
+		playback, ok := mediaactions.SelectPlayback(action, rng)
+		if !ok {
+			a.appendLog(fmt.Sprintf("media action %q has no playable assets", action.Name))
+			return
+		}
+		payload, err := mediaPlaybackFromPlayback(root, playback)
+		if err != nil {
+			a.appendLog("media action failed: " + err.Error())
+			return
+		}
+		select {
+		case queue <- payload:
+			a.appendLog(fmt.Sprintf("queued media action %q for redeem %q", action.Name, firstNonEmptyString(event.RewardTitle, action.RewardTitle)))
+		case <-ctx.Done():
+		default:
+			a.appendLog("media action queue is full; redeem skipped")
+		}
+	}
+}
+
+func normalizeMediaActionRewardTitle(title string) string {
+	return strings.ToLower(strings.TrimSpace(title))
+}
+
 func (a *App) appendLog(line string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -734,6 +1111,540 @@ func (a *App) appendLog(line string) {
 	if len(a.logs) > 200 {
 		a.logs = a.logs[len(a.logs)-200:]
 	}
+}
+
+func newOverlayServer() (*overlayServer, error) {
+	return newOverlayServerAtAddress(defaultMediaOverlayAddress())
+}
+
+func defaultMediaOverlayAddress() string {
+	return fmt.Sprintf("127.0.0.1:%d", defaultMediaOverlayPort)
+}
+
+func newOverlayServerAtAddress(address string) (*overlayServer, error) {
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, err
+	}
+	address = listener.Addr().String()
+	overlay := &overlayServer{
+		url:     "http://" + address + "/",
+		clients: map[chan []byte]bool{},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", overlay.handleIndex)
+	mux.HandleFunc("/events", overlay.handleEvents)
+	overlay.server = &http.Server{Handler: mux}
+	go func() {
+		if err := overlay.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Default().Warn("media overlay server stopped", "error", err)
+		}
+	}()
+	return overlay, nil
+}
+
+func (s *overlayServer) URL() string {
+	return s.url
+}
+
+func (s *overlayServer) Close(ctx context.Context) error {
+	return s.server.Shutdown(ctx)
+}
+
+func (s *overlayServer) Broadcast(playback MediaActionPlayback) {
+	data, err := json.Marshal(playback)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for client := range s.clients {
+		select {
+		case client <- data:
+		default:
+		}
+	}
+}
+
+func (s *overlayServer) handleIndex(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(mediaOverlayHTML))
+}
+
+func (s *overlayServer) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	client := make(chan []byte, 4)
+	s.mu.Lock()
+	s.clients[client] = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.clients, client)
+		s.mu.Unlock()
+		close(client)
+	}()
+
+	_, _ = fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case data := <-client:
+			_, _ = fmt.Fprintf(w, "event: playback\ndata: %s\n\n", data)
+			flusher.Flush()
+		}
+	}
+}
+
+const mediaOverlayHTML = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LupusAria Media Overlay</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+    body {
+      display: grid;
+      font-family: system-ui, sans-serif;
+    }
+    #stage {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      display: grid;
+      padding: 32px;
+      opacity: 0;
+      transition: opacity 160ms ease-out;
+    }
+    #stage.visible {
+      opacity: 1;
+    }
+    #stage.center { place-items: center; }
+    #stage.top-left { place-items: start; }
+    #stage.top-right { place-items: start end; }
+    #stage.bottom-left { place-items: end start; }
+    #stage.bottom-right { place-items: end; }
+    img {
+      max-width: min(82vw, 1200px);
+      max-height: min(82vh, 900px);
+      object-fit: contain;
+      transform-origin: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage" class="center"><img id="media" alt=""></div>
+  <script>
+    const stage = document.getElementById('stage');
+    const media = document.getElementById('media');
+    let hideTimer = null;
+    let frameTimer = null;
+    function clearFrameTimer() {
+      if (frameTimer) {
+        clearTimeout(frameTimer);
+        frameTimer = null;
+      }
+    }
+    function cacheBustedDataUrl(url, token) {
+      if (!url) {
+        return '';
+      }
+      return url + '#clip-' + token + '-' + Date.now();
+    }
+    function animateFrames(event, audio) {
+      clearFrameTimer();
+      if (event.mediaPlaybackMode === 'loop_next' && event.mediaClips && event.mediaClips.length) {
+        const actionDuration = Math.max(1, event.duration || 5) * 1000;
+        const startedAt = Date.now();
+        let clipIndex = 0;
+        const playClip = () => {
+          const clip = event.mediaClips[clipIndex] || event.mediaClips[0];
+          media.src = cacheBustedDataUrl(clip.mediaDataUrl || event.mediaDataUrl, clipIndex);
+          const delay = Math.max(100, clip.mediaDurationMs || 1000);
+          clipIndex = (clipIndex + 1) % event.mediaClips.length;
+          if (Date.now() - startedAt + delay >= actionDuration) {
+            return;
+          }
+          frameTimer = setTimeout(playClip, delay);
+        };
+        playClip();
+        return;
+      }
+      if (event.mediaPlaybackMode !== 'match_audio') {
+        media.src = cacheBustedDataUrl(event.mediaDataUrl || '', 0);
+        return;
+      }
+      const clips = event.mediaPlaybackMode === 'loop_next' && event.mediaClips && event.mediaClips.length
+        ? event.mediaClips
+        : [{
+            mediaDataUrl: event.mediaDataUrl,
+            mediaDurationMs: event.mediaDurationMs,
+            mediaFrameDataUrls: event.mediaFrameDataUrls,
+            mediaFrameDelaysMs: event.mediaFrameDelaysMs
+          }];
+      const firstClip = clips[0] || {};
+      const firstDelays = firstClip.mediaFrameDelaysMs || [];
+      const baseDuration = Math.max(1, firstClip.mediaDurationMs || firstDelays.reduce((total, delay) => total + Math.max(10, delay || 100), 0));
+      const actionDuration = Math.max(1, event.duration || 5) * 1000;
+      const startedAt = Date.now();
+      const start = (targetDuration) => {
+        const scale = event.mediaPlaybackMode === 'match_audio' ? Math.max(0.1, targetDuration / baseDuration) : 1;
+        let clipIndex = 0;
+        let frameIndex = 0;
+        const tick = () => {
+          const clip = clips[clipIndex] || firstClip;
+          const frames = clip.mediaFrameDataUrls || [];
+          const delays = clip.mediaFrameDelaysMs || [];
+          media.src = frames[frameIndex] || clip.mediaDataUrl || event.mediaDataUrl || '';
+          const delay = Math.max(10, delays[frameIndex] || 100) * scale;
+          frameIndex += 1;
+          if (frameIndex >= Math.max(1, frames.length)) {
+            if (event.mediaPlaybackMode === 'loop_next') {
+              clipIndex = (clipIndex + 1) % clips.length;
+              frameIndex = 0;
+              if (Date.now() - startedAt >= actionDuration) {
+                return;
+              }
+            } else if (event.mediaPlaybackMode === 'loop') {
+              frameIndex = 0;
+              if (Date.now() - startedAt >= actionDuration) {
+                return;
+              }
+            } else {
+              return;
+            }
+          }
+          frameTimer = setTimeout(tick, delay);
+        };
+        tick();
+      };
+      if (event.mediaPlaybackMode === 'match_audio' && audio) {
+        if (Number.isFinite(audio.duration) && audio.duration > 0) {
+          start(audio.duration * 1000);
+        } else {
+          audio.addEventListener('loadedmetadata', () => start(Math.max(100, audio.duration * 1000)), { once: true });
+        }
+      } else {
+        start(baseDuration);
+      }
+    }
+    function play(event) {
+      clearTimeout(hideTimer);
+      clearFrameTimer();
+      stage.className = event.position || 'center';
+      let audio = null;
+      if (event.soundDataUrl) {
+        audio = new Audio(event.soundDataUrl);
+      }
+      if (event.mediaDataUrl) {
+        media.style.transform = 'scale(' + ((event.scale || 100) / 100) + ')';
+        animateFrames(event, audio);
+        stage.classList.add('visible');
+      } else {
+        media.removeAttribute('src');
+        stage.classList.remove('visible');
+      }
+      if (audio) {
+        audio.play().catch(() => {});
+      }
+      const hideAfter = event.mediaPlaybackMode === 'match_audio' && audio && Number.isFinite(audio.duration) && audio.duration > 0
+        ? Math.max(Math.max(1, event.duration || 5) * 1000, audio.duration * 1000)
+        : Math.max(1, event.duration || 5) * 1000;
+      hideTimer = setTimeout(() => {
+        clearFrameTimer();
+        stage.classList.remove('visible');
+      }, hideAfter);
+      if (event.mediaPlaybackMode === 'match_audio' && audio) {
+        audio.addEventListener('loadedmetadata', () => {
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => {
+              clearFrameTimer();
+              stage.classList.remove('visible');
+            }, Math.max(Math.max(1, event.duration || 5) * 1000, audio.duration * 1000));
+          }
+        }, { once: true });
+      }
+    }
+    const source = new EventSource('/events');
+    source.addEventListener('playback', (message) => {
+      try {
+        play(JSON.parse(message.data));
+      } catch (_) {}
+    });
+  </script>
+</body>
+</html>`
+
+func loadEnabledMediaActions() ([]mediaactions.Action, error) {
+	path, err := mediaActionsPath()
+	if err != nil {
+		return nil, err
+	}
+	actions, err := mediaactions.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mediaactions.Action, 0, len(actions))
+	for _, action := range actions {
+		if action.Enabled {
+			out = append(out, action)
+		}
+	}
+	return out, nil
+}
+
+func mediaActionsPath() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "Starsong Tools", "LupusAria", "media-actions.json"), nil
+}
+
+func mediaActionsRoot() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "Starsong Tools", "LupusAria", "MediaActions"), nil
+}
+
+func mediaActionSettingsFromActions(actions []mediaactions.Action) []MediaActionSettings {
+	out := make([]MediaActionSettings, 0, len(actions))
+	for _, action := range actions {
+		out = append(out, mediaActionSettingsFromAction(action))
+	}
+	return out
+}
+
+func mediaActionSettingsFromAction(action mediaactions.Action) MediaActionSettings {
+	action = mediaactions.Normalize(action)
+	return MediaActionSettings{
+		ID:                action.ID,
+		Name:              action.Name,
+		Enabled:           action.Enabled,
+		Trigger:           action.Trigger,
+		RewardID:          action.RewardID,
+		RewardTitle:       action.RewardTitle,
+		Media:             mediaAssetSettingsFromAssets(action.Media),
+		Sounds:            mediaAssetSettingsFromAssets(action.Sounds),
+		Duration:          action.Duration,
+		Position:          action.Position,
+		Scale:             action.Scale,
+		Animation:         action.Animation,
+		MediaPlaybackMode: action.MediaPlaybackMode,
+	}
+}
+
+func mediaActionsFromSettings(settings []MediaActionSettings) []mediaactions.Action {
+	out := make([]mediaactions.Action, 0, len(settings))
+	for _, action := range settings {
+		out = append(out, mediaActionFromSettings(action))
+	}
+	return out
+}
+
+func mediaActionFromSettings(action MediaActionSettings) mediaactions.Action {
+	return mediaactions.Normalize(mediaactions.Action{
+		ID:                action.ID,
+		Name:              action.Name,
+		Enabled:           action.Enabled,
+		Trigger:           action.Trigger,
+		RewardID:          action.RewardID,
+		RewardTitle:       action.RewardTitle,
+		Media:             mediaAssetsFromSettings(action.Media),
+		Sounds:            mediaAssetsFromSettings(action.Sounds),
+		Duration:          action.Duration,
+		Position:          action.Position,
+		Scale:             action.Scale,
+		Animation:         action.Animation,
+		MediaPlaybackMode: action.MediaPlaybackMode,
+	})
+}
+
+func mediaAssetSettingsFromAssets(assets []mediaactions.Asset) []MediaAssetSettings {
+	out := make([]MediaAssetSettings, 0, len(assets))
+	for _, asset := range assets {
+		durationMS := asset.DurationMS
+		if durationMS == 0 && strings.EqualFold(filepath.Ext(asset.Path), ".gif") {
+			if detected, err := mediaactions.GIFDurationMS(asset.Path); err == nil {
+				durationMS = detected
+			}
+		}
+		out = append(out, MediaAssetSettings{
+			ID:                     asset.ID,
+			Filename:               asset.Filename,
+			Path:                   asset.Path,
+			DurationMS:             durationMS,
+			MediaPlaybackMode:      asset.MediaPlaybackMode,
+			ExcludeFromGifRotation: asset.ExcludeFromGifRotation,
+		})
+	}
+	return out
+}
+
+func mediaAssetsFromSettings(settings []MediaAssetSettings) []mediaactions.Asset {
+	out := make([]mediaactions.Asset, 0, len(settings))
+	for _, asset := range settings {
+		out = append(out, mediaactions.Asset{
+			ID:                     asset.ID,
+			Filename:               asset.Filename,
+			Path:                   asset.Path,
+			DurationMS:             asset.DurationMS,
+			MediaPlaybackMode:      asset.MediaPlaybackMode,
+			ExcludeFromGifRotation: asset.ExcludeFromGifRotation,
+		})
+	}
+	return out
+}
+
+func mediaPlaybackFromPlayback(root string, playback mediaactions.Playback) (MediaActionPlayback, error) {
+	payload := MediaActionPlayback{
+		ActionID:          playback.ActionID,
+		Name:              playback.Name,
+		Duration:          playback.Duration,
+		Position:          playback.Position,
+		Scale:             playback.Scale,
+		Animation:         playback.Animation,
+		MediaPlaybackMode: playback.MediaPlaybackMode,
+	}
+	if playback.Media != nil {
+		clip, err := mediaPlaybackClipFromAsset(root, *playback.Media, playback.MediaPlaybackMode == mediaactions.PlaybackMatchAudio)
+		if err != nil {
+			return MediaActionPlayback{}, err
+		}
+		payload.Media = &clip.Media
+		payload.MediaDataURL = clip.MediaDataURL
+		payload.MediaDurationMS = clip.MediaDurationMS
+		payload.MediaFrameDataURLs = clip.MediaFrameDataURLs
+		payload.MediaFrameDelaysMS = clip.MediaFrameDelaysMS
+	}
+	if len(playback.MediaSequence) > 0 {
+		payload.MediaClips = make([]MediaPlaybackClip, 0, len(playback.MediaSequence))
+		for _, media := range playback.MediaSequence {
+			clip, err := mediaPlaybackClipFromAsset(root, media, false)
+			if err != nil {
+				return MediaActionPlayback{}, err
+			}
+			payload.MediaClips = append(payload.MediaClips, clip)
+		}
+	}
+	if playback.Sound != nil {
+		asset := MediaAssetSettings{ID: playback.Sound.ID, Filename: playback.Sound.Filename, Path: playback.Sound.Path, DurationMS: playback.Sound.DurationMS, MediaPlaybackMode: playback.Sound.MediaPlaybackMode, ExcludeFromGifRotation: playback.Sound.ExcludeFromGifRotation}
+		payload.Sound = &asset
+		dataURL, err := mediaAssetDataURL(root, playback.Sound.Path)
+		if err != nil {
+			return MediaActionPlayback{}, err
+		}
+		payload.SoundDataURL = dataURL
+	}
+	return payload, nil
+}
+
+func mediaPlaybackClipFromAsset(root string, media mediaactions.Asset, includeFrames bool) (MediaPlaybackClip, error) {
+	asset := MediaAssetSettings{ID: media.ID, Filename: media.Filename, Path: media.Path, DurationMS: media.DurationMS, MediaPlaybackMode: media.MediaPlaybackMode, ExcludeFromGifRotation: media.ExcludeFromGifRotation}
+	dataURL, err := mediaAssetDataURL(root, media.Path)
+	if err != nil {
+		return MediaPlaybackClip{}, err
+	}
+	clip := MediaPlaybackClip{
+		Media:           asset,
+		MediaDataURL:    dataURL,
+		MediaDurationMS: media.DurationMS,
+	}
+	if includeFrames && strings.EqualFold(filepath.Ext(media.Path), ".gif") {
+		frames, delays, duration, err := mediaGIFFramesDataURLs(root, media.Path)
+		if err != nil {
+			return MediaPlaybackClip{}, err
+		}
+		clip.MediaFrameDataURLs = frames
+		clip.MediaFrameDelaysMS = delays
+		clip.MediaDurationMS = duration
+		clip.Media.DurationMS = duration
+	}
+	return clip, nil
+}
+
+func mediaGIFFramesDataURLs(root, path string) ([]string, []int, int, error) {
+	if !mediaactions.IsAssetUnderRoot(root, path) {
+		return nil, nil, 0, errors.New("asset is outside the media actions folder")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer file.Close()
+	decoded, err := gif.DecodeAll(file)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if len(decoded.Image) == 0 {
+		return nil, nil, 0, errors.New("gif has no frames")
+	}
+
+	bounds := image.Rect(0, 0, decoded.Config.Width, decoded.Config.Height)
+	canvas := image.NewRGBA(bounds)
+	frames := make([]string, 0, len(decoded.Image))
+	delays := make([]int, 0, len(decoded.Image))
+	duration := 0
+	for index, frame := range decoded.Image {
+		draw.Draw(canvas, frame.Bounds(), frame, image.Point{}, draw.Over)
+		var buffer bytes.Buffer
+		if err := png.Encode(&buffer, canvas); err != nil {
+			return nil, nil, 0, err
+		}
+		delay := 100
+		if index < len(decoded.Delay) && decoded.Delay[index] > 0 {
+			delay = decoded.Delay[index] * 10
+		}
+		frames = append(frames, "data:image/png;base64,"+base64.StdEncoding.EncodeToString(buffer.Bytes()))
+		delays = append(delays, delay)
+		duration += delay
+	}
+	return frames, delays, duration, nil
+}
+
+func mediaAssetDataURL(root, path string) (string, error) {
+	if !mediaactions.IsAssetUnderRoot(root, path) {
+		return "", errors.New("asset is outside the media actions folder")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path)))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type logWriter struct {
