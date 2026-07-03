@@ -1726,6 +1726,18 @@ func TestCleanAddressedReplyRemovesRedundantDisplayNameOpening(t *testing.T) {
 	}
 }
 
+func TestCleanReplyRemovesAwooButKeepsOtherWolfFlavor(t *testing.T) {
+	got := cleanReply("Awoo. I can howl softly while the ads run.")
+	if got != "I can howl softly while the ads run." {
+		t.Fatalf("cleanReply = %q", got)
+	}
+
+	got = cleanCompleteChatReply("@LastUrsa Tiny awoo, but the growl stays.", "LastUrsa")
+	if got != "Tiny but the growl stays." {
+		t.Fatalf("cleanCompleteChatReply = %q", got)
+	}
+}
+
 func TestSmartTruncateAvoidsMidSentenceCuts(t *testing.T) {
 	got := smartTruncate("First sentence is good. Second sentence is going to run past the tiny limit.", 28)
 	if got != "First sentence is good." {

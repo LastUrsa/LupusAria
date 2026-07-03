@@ -47,8 +47,9 @@ func TestSystemInstructionAllowsInvitedPersonaBits(t *testing.T) {
 
 	assertContainsAll(t, instruction, []string{
 		"wolf and space flavor are seasoning",
-		"viewer invites a harmless bit",
-		`small "awoo" is fine`,
+		"harmless invited bits",
+		"Growls and howls",
+		`Never say "awoo"`,
 		"Skip fake technical excuses",
 	})
 }
@@ -113,6 +114,9 @@ func TestSystemInstructionStaysLean(t *testing.T) {
 		if strings.Contains(instruction, forbidden) {
 			t.Fatalf("system instruction should omit verbose or stale phrase %q:\n%s", forbidden, instruction)
 		}
+	}
+	if strings.Contains(instruction, `small "awoo" is fine`) {
+		t.Fatalf("system instruction should not allow awoo:\n%s", instruction)
 	}
 	if words := len(strings.Fields(instruction)); words > 270 {
 		t.Fatalf("system instruction has %d words, want 270 or fewer:\n%s", words, instruction)

@@ -88,7 +88,7 @@ Shoutout command dispatch is shared across AutoSO and SO roulette. It is spaced 
 
 ## Ad Alerts
 
-When enabled, Lupus polls Twitch's ad schedule for upcoming ad warnings. If EventSub ad-break events are available, the start alert uses Twitch's live `channel.ad_break.begin` event; otherwise the schedule poller announces the start. The expected end is announced after the break duration.
+When enabled, Lupus polls Twitch's ad schedule for upcoming ad warnings. If EventSub ad-break events are available, the start alert uses Twitch's live `channel.ad_break.begin` event; otherwise the schedule poller announces the start. Near-duplicate start alerts from schedule polling and EventSub are suppressed. The expected end is announced after the break duration.
 
 AI-powered ad messages are the default when AI is available. Fallback messages are used when the AI provider is unavailable or local AI limits are active.
 

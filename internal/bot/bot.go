@@ -1106,6 +1106,7 @@ func cleanReplyBody(reply string) string {
 	reply = removeEmoji(reply)
 	reply = strings.ReplaceAll(reply, "\n", " ")
 	reply = strings.Join(strings.Fields(reply), " ")
+	reply = removeAwoo(reply)
 	reply = removeMalformedURLs(reply)
 	reply = normalizeTerminalPunctuation(reply)
 	reply = strings.TrimRight(reply, " ,;:")
@@ -1178,6 +1179,19 @@ func normalizeTerminalPunctuation(text string) string {
 		text = strings.ReplaceAll(text, item.old, item.new)
 	}
 	return text
+}
+
+func removeAwoo(text string) string {
+	fields := strings.Fields(text)
+	kept := fields[:0]
+	for _, field := range fields {
+		cleaned := strings.Trim(field, `"'()[]{}<>.,;:!?`)
+		if strings.EqualFold(cleaned, "awoo") {
+			continue
+		}
+		kept = append(kept, field)
+	}
+	return strings.Join(kept, " ")
 }
 
 func removeMalformedURLs(text string) string {
