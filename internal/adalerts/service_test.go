@@ -182,6 +182,33 @@ func TestHandleAdBreakBeginIgnoredWhileAdActive(t *testing.T) {
 	}
 }
 
+func TestStartAlertSuppressesNearDuplicateFromDifferentSource(t *testing.T) {
+	chat := &fakeChat{}
+	start := time.Date(2026, 6, 16, 12, 10, 0, 0, time.UTC)
+	service := New(Config{
+		Channel:     "lastursa",
+		Enabled:     true,
+		WarningLead: 5 * time.Minute,
+	}, chat, nil, nil)
+
+	service.now = func() time.Time { return start.Add(-3 * time.Minute) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 90 * time.Second})
+
+	service.now = func() time.Time { return start.Add(2 * time.Second) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 90 * time.Second})
+
+	service.now = func() time.Time { return start.Add(9 * time.Second) }
+	service.HandleAdBreakBegin(context.Background(), AdBreakBegin{StartedAt: start.Add(9 * time.Second), Duration: 90 * time.Second, Automatic: true})
+
+	want := []string{
+		"Heads up: ads are scheduled in about 3 minutes.",
+		"Ad break starting now. Good moment to stretch, hydrate, and rest your eyes.",
+	}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+}
+
 func TestHandleScheduleUsesComposerWhenAvailable(t *testing.T) {
 	chat := &fakeChat{}
 	composer := &fakeComposer{text: "Composed in character."}

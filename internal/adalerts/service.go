@@ -83,6 +83,7 @@ type Service struct {
 	activeAdKey  string
 	activeEndAt  time.Time
 	activeDur    time.Duration
+	lastStartAt  time.Time
 }
 
 func New(cfg Config, chat Chat, helix ScheduleProvider, logger *slog.Logger) *Service {
@@ -179,11 +180,12 @@ func (s *Service) HandleAdBreakBegin(ctx context.Context, event AdBreakBegin) {
 		s.logger.Info("ad break begin event ignored; ad alert already active", "started_at", formatLogTime(startedAt), "duration", event.Duration)
 		return
 	}
-	if s.startedAdKey == key {
+	if s.suppressDuplicateStart(key, now) {
 		return
 	}
 	s.say(ctx, Event{Kind: EventStart, Duration: event.Duration}, s.cfg.StartMessage)
 	s.startedAdKey = key
+	s.lastStartAt = now
 	s.activeAdKey = key
 	s.activeEndAt = startedAt.Add(event.Duration)
 	s.activeDur = event.Duration
@@ -236,9 +238,10 @@ func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
 		}
 		return
 	}
-	if now.Before(endAt) && s.startedAdKey != key {
+	if now.Before(endAt) && !s.suppressDuplicateStart(key, now) {
 		s.say(ctx, Event{Kind: EventStart, Duration: schedule.Duration}, s.cfg.StartMessage)
 		s.startedAdKey = key
+		s.lastStartAt = now
 		s.activeAdKey = key
 		s.activeEndAt = endAt
 		s.activeDur = schedule.Duration
@@ -259,9 +262,10 @@ func (s *Service) synthesizeWarnedAd(ctx context.Context, now time.Time) {
 	if now.Before(s.warnedStart) {
 		return
 	}
-	if s.startedAdKey != s.warnedAdKey && now.Before(s.warnedEnd) {
+	if !s.suppressDuplicateStart(s.warnedAdKey, now) && now.Before(s.warnedEnd) {
 		s.say(ctx, Event{Kind: EventStart, Duration: s.warnedDur}, s.cfg.StartMessage)
 		s.startedAdKey = s.warnedAdKey
+		s.lastStartAt = now
 		s.activeAdKey = s.warnedAdKey
 		s.activeEndAt = s.warnedEnd
 		s.activeDur = s.warnedDur
@@ -274,6 +278,17 @@ func (s *Service) synthesizeWarnedAd(ctx context.Context, now time.Time) {
 		s.activeDur = s.warnedDur
 		s.sendEnd(ctx, s.warnedDur)
 	}
+}
+
+func (s *Service) suppressDuplicateStart(key string, now time.Time) bool {
+	if key != "" && s.startedAdKey == key {
+		return true
+	}
+	if !s.lastStartAt.IsZero() && !now.Before(s.lastStartAt) && now.Sub(s.lastStartAt) < 2*time.Minute {
+		s.logger.Info("ad alert start suppressed; recent start already sent", "started_at", formatLogTime(s.lastStartAt))
+		return true
+	}
+	return false
 }
 
 func formatLogTime(value time.Time) string {
