@@ -1,5 +1,12 @@
 # LupusAria Release Notes
 
+## v0.6.1
+
+- Suppresses near-duplicate ad-start alerts when Twitch schedule polling and EventSub both report the same ad break.
+- Refines LupusAria's voice guidance to keep harmless wolf flavor while avoiding the specific textual `awoo`.
+- Strips `awoo` from generated chat replies as an extra cleanup guard.
+- Moves longer setup, token, security, quality-gate, and release-process documentation into `docs/setup.md` while keeping the README focused.
+
 ## v0.6.0
 
 - Adds channel point Media Actions for random local images, GIFs, and sounds triggered by Twitch custom rewards.
