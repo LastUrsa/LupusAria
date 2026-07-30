@@ -39,9 +39,11 @@ The Media Actions tab maps Twitch channel point redeems to local media and sound
 - import supported media files: `.gif`, `.png`, `.jpg`, `.jpeg`, `.webp`
 - import supported sound files: `.wav`, `.mp3`, `.ogg`, `.flac`
 - choose alert duration, screen position, scale, and animation
+- view the selected reward's Twitch global cooldown
 - preview inside the app while also sending the alert to OBS
 
 Live channel point redeems are sent only to the OBS overlay, so they do not cover the app while the bot is running.
+Twitch's cooldown applies to the reward globally, so one redemption temporarily blocks everyone from redeeming it. The value is read-only in LupusAria; change it in the Twitch dashboard.
 
 Use this stable OBS Browser Source URL:
 

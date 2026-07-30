@@ -11,7 +11,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Structured rolling chat context, cached Twitch stream context, local transcript logging, and editable streamer knowledge.
 - Twitch emote context enrichment with local cached visual descriptions.
 - AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` pools.
-- Configurable command and stream-timer announcements with direct link recall, deduplicated ad-pod alerts, and channel point Media Actions for OBS overlays.
+- Configurable command and stream-timer announcements with direct link recall, deduplicated ad-pod alerts, and channel point Media Actions with Twitch cooldown visibility for OBS overlays.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
 - Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
 - Local Wails control panel for setup, secrets entry, feature configuration, knowledge editing, media actions, and runtime controls.

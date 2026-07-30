@@ -118,6 +118,32 @@ func TestIsChannelFollowerReturnsFalseForEmptyResult(t *testing.T) {
 	}
 }
 
+func TestGetCustomRewardsParsesGlobalCooldown(t *testing.T) {
+	client := newTestHelixClient(t, func(req *http.Request) string {
+		if req.URL.Path != "/helix/channel_points/custom_rewards" {
+			t.Fatalf("path = %q", req.URL.Path)
+		}
+		if req.URL.Query().Get("broadcaster_id") != "broadcaster" || req.URL.Query().Get("only_manageable_rewards") != "false" {
+			t.Fatalf("query = %s", req.URL.RawQuery)
+		}
+		return `{"data":[{
+			"id":"reward-1",
+			"title":"Play a sound",
+			"prompt":"",
+			"is_enabled":true,
+			"global_cooldown_setting":{"is_enabled":true,"global_cooldown_seconds":90}
+		}]}`
+	})
+
+	rewards, err := client.GetCustomRewards(context.Background(), "broadcaster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rewards) != 1 || !rewards[0].GlobalCooldownEnabled || rewards[0].GlobalCooldownSeconds != 90 {
+		t.Fatalf("rewards = %#v", rewards)
+	}
+}
+
 func TestGetChattersHandlesPagination(t *testing.T) {
 	calls := 0
 	client := newTestHelixClient(t, func(req *http.Request) string {

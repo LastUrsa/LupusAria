@@ -31,6 +31,8 @@ export namespace main {
 	    title: string;
 	    prompt: string;
 	    enabled: boolean;
+	    globalCooldownEnabled: boolean;
+	    globalCooldownSeconds: number;
 
 	    static createFrom(source: any = {}) {
 	        return new ChannelPointRewardSettings(source);
@@ -42,6 +44,8 @@ export namespace main {
 	        this.title = source["title"];
 	        this.prompt = source["prompt"];
 	        this.enabled = source["enabled"];
+	        this.globalCooldownEnabled = source["globalCooldownEnabled"];
+	        this.globalCooldownSeconds = source["globalCooldownSeconds"];
 	    }
 	}
 	export class ControlSettings {

@@ -819,6 +819,26 @@ h3 {
   min-height: 40px;
 }
 
+.reward-cooldown {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(146, 148, 152, 0.18);
+  border-radius: var(--radius-md);
+  background: rgba(21, 23, 27, 0.24);
+}
+
+.reward-cooldown span {
+  color: var(--color-neutral-200);
+  font-weight: 800;
+}
+
+.reward-cooldown p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .asset-section {
   display: grid;
   gap: 10px;

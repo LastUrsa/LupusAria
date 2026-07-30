@@ -36,6 +36,8 @@ type ChannelPointReward = {
   title: string
   prompt: string
   enabled: boolean
+  globalCooldownEnabled: boolean
+  globalCooldownSeconds: number
 }
 type MediaActionPlayback = {
   actionId: string
@@ -868,6 +870,7 @@ function MediaActionsPanel({
     { value: '', label: rewards.length === 0 ? 'Load rewards' : 'Choose redeem' },
     ...rewards.map((reward) => ({ value: reward.id, label: reward.enabled ? reward.title : `${reward.title} disabled` }))
   ]
+  const selectedReward = rewards.find((reward) => reward.id === selectedAction?.rewardId)
 
   return (
     <div className="media-actions-layout">
@@ -936,6 +939,13 @@ function MediaActionsPanel({
                 />
                 <button className="secondary" type="button" onClick={onLoadRewards} disabled={busy}>Refresh</button>
               </div>
+              {selectedReward && (
+                <div className="reward-cooldown">
+                  <strong>Twitch global cooldown</strong>
+                  <span>{selectedReward.globalCooldownEnabled ? `${selectedReward.globalCooldownSeconds} seconds` : 'Disabled'}</span>
+                  <p className="muted">Read only. Change this reward-wide cooldown in the Twitch dashboard.</p>
+                </div>
+              )}
             </Card>
 
             <Card title="Display">
