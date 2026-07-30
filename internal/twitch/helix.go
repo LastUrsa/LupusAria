@@ -42,10 +42,12 @@ type ChannelEmote struct {
 }
 
 type CustomReward struct {
-	ID      string
-	Title   string
-	Prompt  string
-	Enabled bool
+	ID                    string
+	Title                 string
+	Prompt                string
+	Enabled               bool
+	GlobalCooldownEnabled bool
+	GlobalCooldownSeconds int
 }
 
 type AdSchedule struct {
@@ -266,10 +268,14 @@ func (c *HelixClient) GetCustomRewards(ctx context.Context, broadcasterID string
 	endpoint := "https://api.twitch.tv/helix/channel_points/custom_rewards?" + values.Encode()
 	var result struct {
 		Data []struct {
-			ID        string `json:"id"`
-			Title     string `json:"title"`
-			Prompt    string `json:"prompt"`
-			IsEnabled bool   `json:"is_enabled"`
+			ID                    string `json:"id"`
+			Title                 string `json:"title"`
+			Prompt                string `json:"prompt"`
+			IsEnabled             bool   `json:"is_enabled"`
+			GlobalCooldownSetting struct {
+				IsEnabled             bool `json:"is_enabled"`
+				GlobalCooldownSeconds int  `json:"global_cooldown_seconds"`
+			} `json:"global_cooldown_setting"`
 		} `json:"data"`
 	}
 	if err := c.getJSON(ctx, endpoint, &result); err != nil {
@@ -281,10 +287,12 @@ func (c *HelixClient) GetCustomRewards(ctx context.Context, broadcasterID string
 			continue
 		}
 		rewards = append(rewards, CustomReward{
-			ID:      item.ID,
-			Title:   item.Title,
-			Prompt:  item.Prompt,
-			Enabled: item.IsEnabled,
+			ID:                    item.ID,
+			Title:                 item.Title,
+			Prompt:                item.Prompt,
+			Enabled:               item.IsEnabled,
+			GlobalCooldownEnabled: item.GlobalCooldownSetting.IsEnabled,
+			GlobalCooldownSeconds: item.GlobalCooldownSetting.GlobalCooldownSeconds,
 		})
 	}
 	return rewards, nil

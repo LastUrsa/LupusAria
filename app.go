@@ -173,10 +173,12 @@ type MediaAssetSettings struct {
 }
 
 type ChannelPointRewardSettings struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Prompt  string `json:"prompt"`
-	Enabled bool   `json:"enabled"`
+	ID                    string `json:"id"`
+	Title                 string `json:"title"`
+	Prompt                string `json:"prompt"`
+	Enabled               bool   `json:"enabled"`
+	GlobalCooldownEnabled bool   `json:"globalCooldownEnabled"`
+	GlobalCooldownSeconds int    `json:"globalCooldownSeconds"`
 }
 
 type MediaActionPlayback struct {
@@ -904,10 +906,12 @@ func (a *App) GetChannelPointRewards() ([]ChannelPointRewardSettings, error) {
 	out := make([]ChannelPointRewardSettings, 0, len(rewards))
 	for _, reward := range rewards {
 		out = append(out, ChannelPointRewardSettings{
-			ID:      reward.ID,
-			Title:   reward.Title,
-			Prompt:  reward.Prompt,
-			Enabled: reward.Enabled,
+			ID:                    reward.ID,
+			Title:                 reward.Title,
+			Prompt:                reward.Prompt,
+			Enabled:               reward.Enabled,
+			GlobalCooldownEnabled: reward.GlobalCooldownEnabled,
+			GlobalCooldownSeconds: reward.GlobalCooldownSeconds,
 		})
 	}
 	return out, nil

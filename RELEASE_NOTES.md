@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Shows each selected channel point reward's Twitch global cooldown in the Media Actions UI.
 - Merges delayed Twitch EventSub ad segments into an already-announced scheduled ad pod, preventing a second start message while preserving the later expected end time.
 - Replaces the fixed two-minute ad-start suppression interval with a duration-aware window and polling tolerance.
 - Makes enabled timer and command announcements available as AI context, including configured promotional links.
