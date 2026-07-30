@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -167,16 +168,20 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 	return false
 }
 
-func (s *Service) CommandContext() string {
+func (s *Service) Context() string {
 	if s == nil || !s.cfg.Enabled {
 		return ""
 	}
 	lines := make([]string, 0, len(s.cfg.Items))
 	for _, item := range s.cfg.Items {
-		if !item.Enabled || item.Kind != KindCommand || item.Command == "" || item.Message == "" {
+		if !item.Enabled || item.Message == "" {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("- %s: %s", item.Command, compactMessage(item.Message, 220)))
+		label := item.ID
+		if item.Kind == KindCommand && item.Command != "" {
+			label = item.Command
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", label, compactMessage(item.Message, 300)))
 		if len(lines) >= 8 {
 			break
 		}
@@ -184,7 +189,85 @@ func (s *Service) CommandContext() string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return "Known channel command announcements:\n" + strings.Join(lines, "\n")
+	return "Configured channel announcements and links:\n" + strings.Join(lines, "\n")
+}
+
+func (s *Service) ResolveLink(query string) (string, bool) {
+	if s == nil || !s.cfg.Enabled || !looksLikeLinkRequest(query) {
+		return "", false
+	}
+	queryTokens := searchableTokens(query)
+	bestURL := ""
+	bestScore := 0
+	urlCount := 0
+	soleURL := ""
+	for _, item := range s.cfg.Items {
+		if !item.Enabled || item.Message == "" {
+			continue
+		}
+		itemURL := firstHTTPURL(item.Message)
+		if itemURL == "" {
+			continue
+		}
+		urlCount++
+		soleURL = itemURL
+		itemTokens := searchableTokens(item.ID + " " + item.Command + " " + item.Message)
+		score := 0
+		for token := range queryTokens {
+			if itemTokens[token] {
+				score++
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			bestURL = itemURL
+		}
+	}
+	if bestScore > 0 || urlCount == 1 {
+		if bestURL == "" {
+			bestURL = soleURL
+		}
+		return bestURL, bestURL != ""
+	}
+	return "", false
+}
+
+func looksLikeLinkRequest(query string) bool {
+	for _, token := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return r < 'a' || r > 'z'
+	}) {
+		if token == "link" || token == "url" || token == "website" {
+			return true
+		}
+	}
+	return false
+}
+
+func searchableTokens(value string) map[string]bool {
+	stop := map[string]bool{
+		"a": true, "an": true, "and": true, "for": true, "link": true, "me": true,
+		"of": true, "please": true, "the": true, "to": true, "url": true, "website": true,
+	}
+	tokens := map[string]bool{}
+	for _, token := range strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		if len(token) > 1 && !stop[token] {
+			tokens[token] = true
+		}
+	}
+	return tokens
+}
+
+func firstHTTPURL(message string) string {
+	for _, field := range strings.Fields(message) {
+		candidate := strings.TrimRight(field, ".,!?;:)]}")
+		parsed, err := url.Parse(candidate)
+		if err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func (s *Service) run(ctx context.Context) {

@@ -209,6 +209,48 @@ func TestStartAlertSuppressesNearDuplicateFromDifferentSource(t *testing.T) {
 	}
 }
 
+func TestLateEventSubSegmentMergesWithScheduledAdPod(t *testing.T) {
+	chat := &fakeChat{}
+	start := time.Date(2026, 7, 30, 0, 51, 33, 0, time.UTC)
+	service := New(Config{
+		Channel:      "lastursa",
+		Enabled:      true,
+		WarningLead:  5 * time.Minute,
+		PollInterval: time.Minute,
+	}, chat, nil, nil)
+
+	service.now = func() time.Time { return start.Add(-3 * time.Minute) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 2 * time.Minute})
+
+	service.now = func() time.Time { return start }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 2 * time.Minute})
+
+	segmentStart := start.Add(2*time.Minute + 5*time.Second)
+	service.now = func() time.Time { return segmentStart }
+	service.HandleAdBreakBegin(context.Background(), AdBreakBegin{
+		StartedAt: segmentStart,
+		Duration:  time.Minute,
+		Automatic: true,
+	})
+
+	service.now = func() time.Time { return segmentStart.Add(59 * time.Second) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 2 * time.Minute})
+	service.now = func() time.Time { return segmentStart.Add(time.Minute) }
+	service.HandleSchedule(Schedule{NextAdAt: start, Duration: 2 * time.Minute})
+
+	want := []string{
+		"Heads up: ads are scheduled in about 3 minutes.",
+		"Ad break starting now. Good moment to stretch, hydrate, and rest your eyes.",
+		"Welcome back. Ads should be done now.",
+	}
+	if !slices.Equal(chat.sent, want) {
+		t.Fatalf("sent = %#v, want %#v", chat.sent, want)
+	}
+	if service.activeEndAt != (time.Time{}) {
+		t.Fatalf("activeEndAt = %s, want cleared after merged ad pod ended", service.activeEndAt)
+	}
+}
+
 func TestHandleScheduleUsesComposerWhenAvailable(t *testing.T) {
 	chat := &fakeChat{}
 	composer := &fakeComposer{text: "Composed in character."}

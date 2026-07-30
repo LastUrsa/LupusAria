@@ -1,5 +1,12 @@
 # LupusAria Release Notes
 
+## Unreleased
+
+- Merges delayed Twitch EventSub ad segments into an already-announced scheduled ad pod, preventing a second start message while preserving the later expected end time.
+- Replaces the fixed two-minute ad-start suppression interval with a duration-aware window and polling tolerance.
+- Makes enabled timer and command announcements available as AI context, including configured promotional links.
+- Answers direct announcement-link requests such as `EP link please` from local configuration without spending AI budget.
+
 ## v0.6.1
 
 - Suppresses near-duplicate ad-start alerts when Twitch schedule polling and EventSub both report the same ad break.

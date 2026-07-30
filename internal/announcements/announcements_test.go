@@ -130,20 +130,35 @@ func TestHandleCommandUsesPerAnnouncementPermission(t *testing.T) {
 	}
 }
 
-func TestCommandContextSummarizesEnabledCommandAnnouncements(t *testing.T) {
+func TestContextSummarizesEnabledAnnouncements(t *testing.T) {
 	service := New(Config{
 		Enabled: true,
 		Items: []Announcement{
 			{Enabled: true, Kind: KindCommand, Command: "!donate", Message: "Donate to the Starsong Pride campaign."},
 			{Enabled: false, Kind: KindCommand, Command: "!secret", Message: "Hidden."},
-			{Enabled: true, Kind: KindTimer, Message: "Timer only."},
+			{ID: "release", Enabled: true, Kind: KindTimer, Message: "Crystal Voices EP: https://example.com/ep"},
 		},
 	}, &fakeChat{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	got := service.CommandContext()
-	want := "Known channel command announcements:\n- !donate: Donate to the Starsong Pride campaign."
+	got := service.Context()
+	want := "Configured channel announcements and links:\n- !donate: Donate to the Starsong Pride campaign.\n- release: Crystal Voices EP: https://example.com/ep"
 	if got != want {
-		t.Fatalf("CommandContext = %q, want %q", got, want)
+		t.Fatalf("Context = %q, want %q", got, want)
+	}
+}
+
+func TestResolveLinkMatchesTimerAnnouncementContent(t *testing.T) {
+	service := New(Config{
+		Enabled: true,
+		Items: []Announcement{
+			{ID: "Release", Enabled: true, Kind: KindTimer, Message: "My latest release, Crystal Voices EP: https://ursastarsong.bandcamp.com/album/crystal-voices-ep"},
+			{ID: "Community", Enabled: true, Kind: KindTimer, Message: "Join Discord: https://example.com/discord"},
+		},
+	}, &fakeChat{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	got, ok := service.ResolveLink("EP link please")
+	if !ok || got != "https://ursastarsong.bandcamp.com/album/crystal-voices-ep" {
+		t.Fatalf("ResolveLink = %q, %v", got, ok)
 	}
 }
 
