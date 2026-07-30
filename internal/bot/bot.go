@@ -225,6 +225,10 @@ func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
 		b.say(msg.Channel, fmt.Sprintf("@%s I cannot run chat commands from prompts. Ask a mod or the broadcaster.", msg.DisplayName))
 		return
 	}
+	if link, ok := b.announcementLink(request.Prompt); ok {
+		b.say(msg.Channel, fmt.Sprintf("@%s %s", msg.DisplayName, link))
+		return
+	}
 
 	b.enqueueAIRequest(msg, request)
 }
@@ -732,7 +736,7 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 	}
 	knowledgeContext := joinContextLines(
 		knowledge.Format(b.know.Relevant(knowledgeQuery, 3)),
-		b.announcementCommandContext(),
+		b.announcementContext(),
 	)
 
 	return []ai.Message{
@@ -746,11 +750,18 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 	}
 }
 
-func (b *Bot) announcementCommandContext() string {
+func (b *Bot) announcementContext() string {
 	if b == nil || b.ann == nil {
 		return ""
 	}
-	return b.ann.CommandContext()
+	return b.ann.Context()
+}
+
+func (b *Bot) announcementLink(query string) (string, bool) {
+	if b == nil || b.ann == nil {
+		return "", false
+	}
+	return b.ann.ResolveLink(query)
 }
 
 func (b *Bot) formatEmoteContext(ctx context.Context, msg twitch.Message, allowDescribe bool) string {

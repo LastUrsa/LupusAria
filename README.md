@@ -11,7 +11,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Structured rolling chat context, cached Twitch stream context, local transcript logging, and editable streamer knowledge.
 - Twitch emote context enrichment with local cached visual descriptions.
 - AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` pools.
-- Configurable command announcements, stream-timer announcements, ad alerts, and channel point Media Actions for OBS overlays.
+- Configurable command and stream-timer announcements with direct link recall, deduplicated ad-pod alerts, and channel point Media Actions for OBS overlays.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
 - Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
 - Local Wails control panel for setup, secrets entry, feature configuration, knowledge editing, media actions, and runtime controls.
@@ -59,7 +59,7 @@ The app can start and stop the bot, manage account setup and saved secrets, edit
 - **AI cost controls:** AI calls only happen for enabled AI behaviors and are guarded by cooldowns, request limits, and optional daily/monthly budget caps.
 - **Local state:** `.env`, token states, budgets, announcements, media assets, emote caches, knowledge, and chat transcripts are local and gitignored.
 - **Media Actions:** channel point redeems can play random local images, GIFs, and sounds through the local OBS Browser Source at `http://127.0.0.1:47831/`.
-- **Ad alerts:** Twitch ad schedule polling provides warnings; EventSub ad-break events provide live starts when available; schedule polling can synthesize starts and expected ends as a fallback.
+- **Ad alerts:** Twitch ad schedule polling provides warnings; EventSub ad-break events provide live starts when available; delayed segments are merged into the current pod to avoid duplicate announcements.
 
 See [Setup and Operations](docs/setup.md) for token scopes, desktop build notes, Media Actions details, cost-control settings, security notes, quality gates, and release steps.
 

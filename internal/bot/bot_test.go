@@ -889,7 +889,7 @@ Tags: project
 	}
 }
 
-func TestBuildAIMessagesIncludesAnnouncementCommandContext(t *testing.T) {
+func TestBuildAIMessagesIncludesAnnouncementContext(t *testing.T) {
 	chat := &fakeChat{}
 	ann := announcements.New(announcements.Config{
 		Enabled: true,
@@ -920,12 +920,45 @@ func TestBuildAIMessagesIncludesAnnouncementCommandContext(t *testing.T) {
 
 	userPrompt := messages[1].Content
 	for _, want := range []string{
-		"Known channel command announcements:",
+		"Configured channel announcements and links:",
 		"!donate: Donate to the Starsong 2026 Pride Charity Campaign.",
 	} {
 		if !strings.Contains(userPrompt, want) {
 			t.Fatalf("prompt missing %q: %s", want, userPrompt)
 		}
+	}
+}
+
+func TestMentionLinkRequestUsesConfiguredTimerAnnouncement(t *testing.T) {
+	chat := &fakeChat{}
+	ann := announcements.New(announcements.Config{
+		Enabled: true,
+		Items: []announcements.Announcement{{
+			ID:      "Release",
+			Enabled: true,
+			Kind:    announcements.KindTimer,
+			Message: "My latest release, Crystal Voices EP: https://ursastarsong.bandcamp.com/album/crystal-voices-ep",
+		}},
+	}, chat, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b := New(Config{
+		Name:              "LupusAria",
+		EnableMentions:    true,
+		MentionPermission: "everyone",
+	}, chat, fakeAI{}, nil, nil, ann, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	b.handleMessage(context.Background(), twitch.Message{
+		Channel:     "lastursa",
+		Username:    "viewer",
+		DisplayName: "Viewer",
+		Text:        "@LupusAria EP link please",
+	})
+
+	want := "@Viewer https://ursastarsong.bandcamp.com/album/crystal-voices-ep"
+	if len(chat.sent) != 1 || chat.sent[0] != want {
+		t.Fatalf("sent = %#v, want %q", chat.sent, want)
+	}
+	if len(b.aiQueue) != 0 {
+		t.Fatalf("AI queue depth = %d, want 0 for deterministic link response", len(b.aiQueue))
 	}
 }
 

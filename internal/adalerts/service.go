@@ -176,6 +176,9 @@ func (s *Service) HandleAdBreakBegin(ctx context.Context, event AdBreakBegin) {
 	}
 	key := startedAt.UTC().Format(time.RFC3339)
 	now := s.now()
+	if s.mergeRecentAdBreakBegin(startedAt, event.Duration, now) {
+		return
+	}
 	if s.activeAdKey != "" && now.Before(s.activeEndAt) {
 		s.logger.Info("ad break begin event ignored; ad alert already active", "started_at", formatLogTime(startedAt), "duration", event.Duration)
 		return
@@ -190,6 +193,28 @@ func (s *Service) HandleAdBreakBegin(ctx context.Context, event AdBreakBegin) {
 	s.activeEndAt = startedAt.Add(event.Duration)
 	s.activeDur = event.Duration
 	s.logger.Info("ad alert started from EventSub", "started_at", formatLogTime(startedAt), "duration", event.Duration, "automatic", event.Automatic)
+}
+
+func (s *Service) mergeRecentAdBreakBegin(startedAt time.Time, duration time.Duration, now time.Time) bool {
+	if s.startedAdKey == "" || s.lastStartAt.IsZero() || now.Before(s.lastStartAt) || now.Sub(s.lastStartAt) >= s.duplicateStartWindow(duration) {
+		return false
+	}
+	eventEndAt := startedAt.Add(duration)
+	if eventEndAt.After(s.activeEndAt) {
+		s.activeEndAt = eventEndAt
+	}
+	if s.activeAdKey == "" {
+		s.activeAdKey = s.startedAdKey
+	}
+	if remaining := s.activeEndAt.Sub(s.lastStartAt); remaining > s.activeDur {
+		s.activeDur = remaining
+	}
+	s.logger.Info("ad break begin event merged with recent ad alert",
+		"started_at", formatLogTime(startedAt),
+		"duration", duration,
+		"active_end_at", formatLogTime(s.activeEndAt),
+	)
+	return true
 }
 
 func (s *Service) handleSchedule(ctx context.Context, schedule Schedule) {
@@ -284,11 +309,20 @@ func (s *Service) suppressDuplicateStart(key string, now time.Time) bool {
 	if key != "" && s.startedAdKey == key {
 		return true
 	}
-	if !s.lastStartAt.IsZero() && !now.Before(s.lastStartAt) && now.Sub(s.lastStartAt) < 2*time.Minute {
+	if !s.lastStartAt.IsZero() && !now.Before(s.lastStartAt) && now.Sub(s.lastStartAt) < s.duplicateStartWindow(0) {
 		s.logger.Info("ad alert start suppressed; recent start already sent", "started_at", formatLogTime(s.lastStartAt))
 		return true
 	}
 	return false
+}
+
+func (s *Service) duplicateStartWindow(reportedDuration time.Duration) time.Duration {
+	duration := max(s.activeDur, s.warnedDur, reportedDuration)
+	window := duration + s.cfg.PollInterval + 30*time.Second
+	if window < 5*time.Minute {
+		return 5 * time.Minute
+	}
+	return window
 }
 
 func formatLogTime(value time.Time) string {

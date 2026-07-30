@@ -58,7 +58,7 @@ They are governed by:
 
 Shared voice and safety rules live in [personality.md](personality.md). Command-specific prompts should stay small and should not redefine Lupus Aria's identity.
 
-Recent chat is sent to the model as structured room state. The current message is excluded from that history, low-signal bot commands are filtered out, and older retained chat is compacted before the freshest timeline. Enabled command announcements are summarized in AI context so Lupus can answer questions about active channel commands such as `!donate`. For `!lurk`, Lupus retries once if a generic send-off ignores available chat/game context.
+Recent chat is sent to the model as structured room state. The current message is excluded from that history, low-signal bot commands are filtered out, and older retained chat is compacted before the freshest timeline. Enabled command and timer announcements are summarized in AI context so Lupus can answer questions about active channel commands and promotions. Direct requests for a configured announcement link, such as `@LupusAria EP link please`, return the matching local URL without an AI call. For `!lurk`, Lupus retries once if a generic send-off ignores available chat/game context.
 When `ENABLE_EMOTE_CONTEXT=true`, native Twitch emotes are treated as channel context and added to AI prompts. LupusAria loads the channel's emote catalog from Twitch when possible, describes unknown native emotes from their Twitch CDN image when the AI provider supports image analysis, then caches descriptions at `EMOTE_CACHE_PATH`. Third-party-looking emote tokens are marked as possible emotes with unknown meaning instead of treated as normal words.
 AI usage logs include provider finish reasons when available. `MAX_TOKENS`, length, or empty-text finishes are treated as incomplete and retried instead of being sent as clipped chat replies.
 
@@ -88,7 +88,7 @@ Shoutout command dispatch is shared across AutoSO and SO roulette. It is spaced 
 
 ## Ad Alerts
 
-When enabled, Lupus polls Twitch's ad schedule for upcoming ad warnings. If EventSub ad-break events are available, the start alert uses Twitch's live `channel.ad_break.begin` event; otherwise the schedule poller announces the start. Near-duplicate start alerts from schedule polling and EventSub are suppressed. The expected end is announced after the break duration.
+When enabled, Lupus polls Twitch's ad schedule for upcoming ad warnings. If EventSub ad-break events are available, the start alert uses Twitch's live `channel.ad_break.begin` event; otherwise the schedule poller announces the start. When Twitch reports a later EventSub segment after the schedule poller has already announced the ad pod, Lupus merges it into the active pod instead of sending another start message. The merge can extend the expected end time. Other near-duplicate starts are suppressed with a duration-aware window that includes polling tolerance.
 
 AI-powered ad messages are the default when AI is available. Fallback messages are used when the AI provider is unavailable or local AI limits are active.
 
@@ -109,7 +109,7 @@ Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_R
 
 ## Announcements
 
-Announcements are static messages managed in the desktop app. They do not call AI. Enabled command announcements are summarized into AI prompt context so Lupus can answer questions about configured channel commands. The app shows Timer Announcements and Command Announcements as separate expandable summary tables.
+Announcements are static messages managed in the desktop app. Sending an announcement does not call AI. Enabled command and timer announcements are summarized into AI prompt context so Lupus can answer questions about configured commands and promotions. If a viewer directly requests a link and an enabled announcement provides a matching HTTP or HTTPS URL, Lupus responds with that URL deterministically without calling AI. The app shows Timer Announcements and Command Announcements as separate expandable summary tables.
 
 Types:
 
