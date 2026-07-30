@@ -104,7 +104,7 @@ Ad warnings come from Twitch's ad schedule. When EventSub can create the `channe
 
 AI calls only happen for enabled AI behaviors, such as direct mentions, `!ask`, `!lurk`, `!game`, and AI-powered ad alert messages.
 
-LupusAria keeps prompts small with targeted knowledge sections, configured command announcements, filtered recent chat, compacted older chat context, and cached stream context. A small in-memory queue absorbs short bursts of AI commands; when the queue is full, new AI requests are skipped silently in chat and logged locally.
+LupusAria keeps prompts small with targeted knowledge sections, configured command and timer announcements, filtered recent chat, compacted older chat context, and cached stream context. A small in-memory queue absorbs short bursts of AI commands; when the queue is full, new AI requests are skipped silently in chat and logged locally.
 
 Relevant settings:
 

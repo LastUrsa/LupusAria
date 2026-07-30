@@ -1,6 +1,6 @@
 # LupusAria Release Notes
 
-## Unreleased
+## v0.7.0
 
 - Shows each selected channel point reward's Twitch global cooldown in the Media Actions UI.
 - Merges delayed Twitch EventSub ad segments into an already-announced scheduled ad pod, preventing a second start message while preserving the later expected end time.

@@ -222,6 +222,7 @@ export namespace main {
 	    path: string;
 	    durationMs: number;
 	    mediaPlaybackMode: string;
+	    excludeFromGifRotation: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new MediaAssetSettings(source);
@@ -234,6 +235,7 @@ export namespace main {
 	        this.path = source["path"];
 	        this.durationMs = source["durationMs"];
 	        this.mediaPlaybackMode = source["mediaPlaybackMode"];
+	        this.excludeFromGifRotation = source["excludeFromGifRotation"];
 	    }
 	}
 	export class MediaActionSettings {
