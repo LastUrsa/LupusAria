@@ -31,6 +31,15 @@ Installed app settings are stored in the current user's config folder, not besid
 
 Twitch and AI secrets can be entered from the app. Saved secret values are hidden and are only replaced when a new value is typed.
 
+The desktop navigation can be collapsed to an icon rail. LupusAria remembers that preference and defaults to the compact rail on narrower windows. Each icon retains a tooltip and accessible section name.
+
+Media Actions adapts to the available editor width:
+
+- Wide windows show the action list beside the selected action.
+- Narrower windows replace that list with an action selector and an always-visible `New action` button.
+- OBS Browser Source details, Media, and Sounds can be expanded independently.
+- Setup, display, and asset sections move to one column when their own container becomes narrow.
+
 For hosted GPT-5.6 Luna replies, use these AI settings in the desktop app:
 
 ```env
@@ -176,6 +185,7 @@ AI usage logs include provider finish reasons when available. Max-token or lengt
 Run the same core checks used by GitHub Actions:
 
 ```bash
+npm --prefix frontend test
 npm --prefix frontend run build
 go test ./...
 go test -race ./...
