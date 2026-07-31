@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
 import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
@@ -232,6 +233,10 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [section, setSection] = useState<Section>('overview')
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => {
+    const saved = window.localStorage.getItem('lupusaria-navigation-collapsed')
+    return saved === null ? window.innerWidth < 1200 : saved === 'true'
+  })
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
   const toastTimerRef = useRef<number | null>(null)
@@ -276,6 +281,10 @@ export default function App() {
       EventsOff('media-action-playback')
     }
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('lupusaria-navigation-collapsed', String(navigationCollapsed))
+  }, [navigationCollapsed])
 
   useEffect(() => {
     EventsOn('media-action-playback', (playback: MediaActionPlayback) => {
@@ -546,14 +555,23 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${navigationCollapsed ? ' navigation-collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand-block">
           <img className="app-logo" src={lupusAriaIcon} alt="" aria-hidden="true" />
-          <div>
+          <div className="brand-copy">
             <h1>LupusAria</h1>
             <span className="suite-eyebrow">Starsong Tools</span>
           </div>
+          <button
+            className="navigation-toggle"
+            type="button"
+            aria-label={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+            title={navigationCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+            onClick={() => setNavigationCollapsed((current) => !current)}
+          >
+            {navigationCollapsed ? '›' : '‹'}
+          </button>
         </div>
         <nav className="section-nav" aria-label="Settings sections">
           {sections.map((item) => (
@@ -562,8 +580,10 @@ export default function App() {
               className={section === item.id ? 'active' : ''}
               onClick={() => setSection(item.id)}
               type="button"
+              title={navigationCollapsed ? item.label : undefined}
             >
-              {item.label}
+              <NavIcon section={item.id} />
+              <span className="nav-label">{item.label}</span>
             </button>
           ))}
         </nav>
@@ -837,7 +857,68 @@ export default function App() {
   )
 }
 
-function MediaActionsPanel({
+export function NavIcon({ section }: { section: Section }) {
+  const paths: Record<Section, ReactNode> = {
+    overview: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </>
+    ),
+    setup: (
+      <>
+        <path d="M4 6h10" />
+        <path d="M18 6h2" />
+        <circle cx="16" cy="6" r="2" />
+        <path d="M4 12h2" />
+        <path d="M10 12h10" />
+        <circle cx="8" cy="12" r="2" />
+        <path d="M4 18h7" />
+        <path d="M15 18h5" />
+        <circle cx="13" cy="18" r="2" />
+      </>
+    ),
+    aiBudget: (
+      <>
+        <path d="m12 3 1.2 4.1a5.3 5.3 0 0 0 3.7 3.7L21 12l-4.1 1.2a5.3 5.3 0 0 0-3.7 3.7L12 21l-1.2-4.1a5.3 5.3 0 0 0-3.7-3.7L3 12l4.1-1.2a5.3 5.3 0 0 0 3.7-3.7L12 3Z" />
+        <path d="M19 3v4" />
+        <path d="M17 5h4" />
+      </>
+    ),
+    features: (
+      <>
+        <path d="M4 7h7" />
+        <path d="M15 7h5" />
+        <circle cx="13" cy="7" r="2" />
+        <path d="M4 17h3" />
+        <path d="M11 17h9" />
+        <circle cx="9" cy="17" r="2" />
+      </>
+    ),
+    mediaActions: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="m10 9 5 3-5 3V9Z" />
+      </>
+    ),
+    knowledge: (
+      <>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22V5.5Z" />
+        <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5A2.5 2.5 0 0 1 20 22V5.5Z" />
+      </>
+    )
+  }
+
+  return (
+    <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {paths[section]}
+    </svg>
+  )
+}
+
+export function MediaActionsPanel({
   actions,
   selectedAction,
   rewards,
@@ -874,6 +955,24 @@ function MediaActionsPanel({
 
   return (
     <div className="media-actions-layout">
+      <div className="media-action-picker">
+        <label>
+          <span>Action</span>
+          <select
+            value={selectedAction?.id ?? ''}
+            onChange={(event) => onSelect(event.target.value)}
+            disabled={actions.length === 0}
+          >
+            {actions.length === 0 && <option value="">No media actions yet</option>}
+            {actions.map((action) => (
+              <option value={action.id} key={action.id}>
+                {action.name || 'Untitled'} · {action.media?.length ?? 0} media · {action.sounds?.length ?? 0} sounds
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" onClick={onAdd}>New action</button>
+      </div>
       <section className="media-action-list">
         <div className="media-action-toolbar">
           <h3>Actions</h3>
@@ -902,14 +1001,6 @@ function MediaActionsPanel({
 
       {selectedAction ? (
         <section className="media-action-editor">
-          <div className="overlay-url-panel">
-            <div>
-              <strong>OBS Browser Source</strong>
-              <span>{overlayUrl || 'Overlay starting...'}</span>
-            </div>
-            <button className="secondary" type="button" onClick={() => navigator.clipboard?.writeText(overlayUrl)} disabled={!overlayUrl}>Copy</button>
-          </div>
-
           <div className="media-editor-header">
             <div>
               <h3>{selectedAction.name || 'Untitled'}</h3>
@@ -920,6 +1011,19 @@ function MediaActionsPanel({
               <button className="danger" type="button" onClick={() => onRemove(selectedAction.id)}>Delete</button>
             </div>
           </div>
+
+          <details className="overlay-url-panel">
+            <summary>
+              <span>
+                <strong>OBS Browser Source</strong>
+                <small>Local overlay connection</small>
+              </span>
+            </summary>
+            <div className="overlay-url-content">
+              <span>{overlayUrl || 'Overlay starting...'}</span>
+              <button className="secondary" type="button" onClick={() => navigator.clipboard?.writeText(overlayUrl)} disabled={!overlayUrl}>Copy</button>
+            </div>
+          </details>
 
           <div className="media-editor-grid">
             <Card title="Setup">
@@ -1001,6 +1105,8 @@ function AssetSection({
   onImport: () => void
   onChange: (assets: MediaAsset[]) => void
 }) {
+  const [expanded, setExpanded] = useState(kind === 'media')
+
   const move = (index: number, offset: number) => {
     const nextIndex = index + offset
     if (nextIndex < 0 || nextIndex >= assets.length) {
@@ -1017,53 +1123,63 @@ function AssetSection({
   }
 
   return (
-    <section className="asset-section">
-      <div className="asset-section-header">
-        <h3>{title}</h3>
-        <button type="button" onClick={onImport}>Add</button>
-      </div>
-      {assets.length === 0 ? (
-        <p className="muted">No {kind === 'media' ? 'media' : 'sounds'} added.</p>
-      ) : (
-        <div className="asset-list">
-          {assets.map((asset, index) => (
-            <div className="asset-row" key={asset.id}>
-              <span className="drag-handle" aria-hidden="true">::</span>
-              {kind === 'media' ? (
-                <AssetThumbnail asset={asset} />
-              ) : (
-                <button className="secondary compact-button" type="button" onClick={() => playAsset(asset)}>Play</button>
-              )}
-              <div className="asset-name">
-                <strong>{asset.filename}</strong>
-                {kind === 'media' && (asset.durationMs || 0) > 0 ? <small>{formatAssetDuration(asset.durationMs || 0)}</small> : null}
-                {kind === 'media' && isGifAsset(asset) ? (
-                  <div className="gif-options">
-                    <SelectField
-                      label="GIF Playback"
-                      value={asset.mediaPlaybackMode || 'normal'}
-                      options={mediaPlaybackModeOptions}
-                      onChange={(value) => updateAsset(asset.id, { mediaPlaybackMode: value })}
-                      compact
-                    />
-                    <Toggle
-                      label="Loop rotation"
-                      checked={asset.excludeFromGifRotation !== true}
-                      onChange={(value) => updateAsset(asset.id, { excludeFromGifRotation: !value })}
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <div className="asset-row-actions">
-                <button className="secondary compact-button" type="button" onClick={() => move(index, -1)} disabled={index === 0}>Up</button>
-                <button className="secondary compact-button" type="button" onClick={() => move(index, 1)} disabled={index === assets.length - 1}>Down</button>
-                <button className="danger compact-button" type="button" onClick={() => onChange(assets.filter((item) => item.id !== asset.id))}>Delete</button>
-              </div>
-            </div>
-          ))}
+    <details
+      className="asset-section"
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary className="asset-section-summary">
+        <span>{title}</span>
+        <small>{assets.length} {assets.length === 1 ? 'item' : 'items'}</small>
+      </summary>
+      <div className="asset-section-body">
+        <div className="asset-section-header">
+          <span className="muted">{kind === 'media' ? 'Images and GIFs shown by this action.' : 'Audio played by this action.'}</span>
+          <button type="button" onClick={onImport}>Add</button>
         </div>
-      )}
-    </section>
+        {assets.length === 0 ? (
+          <p className="muted">No {kind === 'media' ? 'media' : 'sounds'} added.</p>
+        ) : (
+          <div className="asset-list">
+            {assets.map((asset, index) => (
+              <div className="asset-row" key={asset.id}>
+                <span className="drag-handle" aria-hidden="true">::</span>
+                {kind === 'media' ? (
+                  <AssetThumbnail asset={asset} />
+                ) : (
+                  <button className="secondary compact-button" type="button" onClick={() => playAsset(asset)}>Play</button>
+                )}
+                <div className="asset-name">
+                  <strong title={asset.filename}>{asset.filename}</strong>
+                  {kind === 'media' && (asset.durationMs || 0) > 0 ? <small>{formatAssetDuration(asset.durationMs || 0)}</small> : null}
+                  {kind === 'media' && isGifAsset(asset) ? (
+                    <div className="gif-options">
+                      <SelectField
+                        label="GIF Playback"
+                        value={asset.mediaPlaybackMode || 'normal'}
+                        options={mediaPlaybackModeOptions}
+                        onChange={(value) => updateAsset(asset.id, { mediaPlaybackMode: value })}
+                        compact
+                      />
+                      <Toggle
+                        label="Loop rotation"
+                        checked={asset.excludeFromGifRotation !== true}
+                        onChange={(value) => updateAsset(asset.id, { excludeFromGifRotation: !value })}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+                <div className="asset-row-actions">
+                  <button className="secondary compact-button" type="button" onClick={() => move(index, -1)} disabled={index === 0} aria-label={`Move ${asset.filename} up`}>↑</button>
+                  <button className="secondary compact-button" type="button" onClick={() => move(index, 1)} disabled={index === assets.length - 1} aria-label={`Move ${asset.filename} down`}>↓</button>
+                  <button className="danger compact-button" type="button" onClick={() => onChange(assets.filter((item) => item.id !== asset.id))}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   )
 }
 
