@@ -9,7 +9,7 @@ This repo contains the bot code and desktop control panel only. To run it for yo
 - Your own Twitch bot account or broadcaster account.
 - Your own Twitch application client ID and client secret.
 - Twitch access or refresh tokens with the scopes required by the features you enable.
-- Your own AI provider key, such as Gemini, or a local OpenAI-compatible endpoint such as Ollama.
+- Your own OpenAI or Gemini API key, or a local OpenAI-compatible endpoint such as Ollama.
 
 The default `AI_PROVIDER=mock` mode is useful for setup and testing because it does not call an external AI provider.
 
@@ -30,6 +30,22 @@ Installed app settings are stored in the current user's config folder, not besid
 ```
 
 Twitch and AI secrets can be entered from the app. Saved secret values are hidden and are only replaced when a new value is typed.
+
+For hosted GPT-5.6 Luna replies, use these AI settings in the desktop app:
+
+```env
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=https://api.openai.com/v1
+AI_MODEL=gpt-5.6-luna
+```
+
+Enter the OpenAI API key through the app's masked secret field; do not add a real key to `.env.example`, documentation, tests, or source files. The installed app stores it in the current user's local config file. Workspace `.env` files are gitignored.
+
+Gemini can remain configured as the fallback provider and is used for the current `!game` Google Search grounding and image-analysis features:
+
+```env
+AI_FALLBACK_PROVIDER=gemini
+```
 
 ## Media Actions and OBS Overlay
 
@@ -143,6 +159,7 @@ AI usage logs include provider finish reasons when available. Max-token or lengt
 ## Security Notes
 
 - Keep `.env`, token state files, budget state files, and announcement config files local and gitignored.
+- Before committing, verify `.env` remains ignored with `git check-ignore -v .env` and scan staged changes for credentials.
 - Keep emote description caches local if they contain channel-specific emote notes.
 - Keep `.lupusaria-knowledge.md` local if it contains streamer-specific private or semi-private details.
 - Installed app secrets live under `%APPDATA%\Starsong Tools\LupusAria`.

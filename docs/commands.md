@@ -30,8 +30,9 @@ AI requests cannot make LupusAria run chat commands. If a viewer asks Lupus to t
 
 ## AI Behavior
 
-AI commands use the provider from `AI_PROVIDER`: `mock`, `gemini`, or `openai-compatible`. Gemini is the recommended hosted provider; OpenAI-compatible is mainly for local Ollama experiments.
-`AI_MODEL` is not auto-populated for OpenAI-compatible providers; set it explicitly to the local model name you want to use.
+AI commands use the provider from `AI_PROVIDER`: `mock`, `gemini`, or `openai-compatible`. OpenAI-compatible supports hosted OpenAI models such as `gpt-5.6-luna` and local endpoints such as Ollama. Set `AI_MODEL` explicitly. For Luna, use `AI_BASE_URL=https://api.openai.com/v1`; the desktop app selects this endpoint automatically when saving a `gpt-` model.
+
+Gemini remains required for the current `!game` Google Search grounding and snapshot-analysis paths, even when Luna handles ordinary chat. Configure it as the fallback provider if those features are enabled.
 
 They are governed by:
 

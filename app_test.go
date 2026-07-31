@@ -224,6 +224,21 @@ func TestSaveSettingsWritesProvidedSecrets(t *testing.T) {
 	}
 }
 
+func TestAIBaseURLUsesOpenAIForGPTModels(t *testing.T) {
+	settings := ControlSettings{
+		AIProvider: "openai-compatible",
+		AIModel:    "gpt-5.6-luna",
+	}
+	if got := aiBaseURL(settings); got != "https://api.openai.com/v1" {
+		t.Fatalf("base URL = %q", got)
+	}
+
+	settings.AIModel = "llama3.1:8b"
+	if got := aiBaseURL(settings); got != "http://localhost:11434/v1" {
+		t.Fatalf("local base URL = %q", got)
+	}
+}
+
 func TestKnowledgeLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	t.Setenv(envPathOverride, path)

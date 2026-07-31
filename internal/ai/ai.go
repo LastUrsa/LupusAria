@@ -383,10 +383,15 @@ func (c *OpenAICompatibleClient) Complete(ctx context.Context, messages []Messag
 
 func (c *OpenAICompatibleClient) completeOnce(ctx context.Context, messages []Message) (Response, error) {
 	payload := chatCompletionRequest{
-		Model:       c.model,
-		Messages:    messages,
-		Temperature: 0.7,
-		MaxTokens:   c.maxTokens,
+		Model:    c.model,
+		Messages: messages,
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.model)), "gpt-5") {
+		payload.MaxCompletionTokens = c.maxTokens
+	} else {
+		temperature := 0.7
+		payload.Temperature = &temperature
+		payload.MaxTokens = c.maxTokens
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -445,10 +450,11 @@ func (c *OpenAICompatibleClient) completeOnce(ctx context.Context, messages []Me
 }
 
 type chatCompletionRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float64   `json:"temperature"`
-	MaxTokens   int       `json:"max_tokens"`
+	Model               string    `json:"model"`
+	Messages            []Message `json:"messages"`
+	Temperature         *float64  `json:"temperature,omitempty"`
+	MaxTokens           int       `json:"max_tokens,omitempty"`
+	MaxCompletionTokens int       `json:"max_completion_tokens,omitempty"`
 }
 
 type chatCompletionResponse struct {

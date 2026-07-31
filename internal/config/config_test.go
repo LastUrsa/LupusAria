@@ -138,6 +138,27 @@ AI_MAX_RETRIES=2
 	}
 }
 
+func TestLoadSelectsGPT56LunaPrices(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), ".env")
+	writeTestEnv(t, envPath, `
+TWITCH_BOT_USERNAME=LupusAria
+TWITCH_OAUTH_TOKEN=oauth:test
+TWITCH_CHANNEL=lastursa
+AI_PROVIDER=openai-compatible
+AI_API_KEY=test-key
+AI_BASE_URL=https://api.openai.com/v1
+AI_MODEL=gpt-5.6-luna
+`)
+
+	cfg, err := Load(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AI.InputPricePerMillion != 0.20 || cfg.AI.OutputPricePerMillion != 1.20 {
+		t.Fatalf("prices = %f/%f", cfg.AI.InputPricePerMillion, cfg.AI.OutputPricePerMillion)
+	}
+}
+
 func TestLoadRaisesSubsecondAutoSODelayToMinimum(t *testing.T) {
 	envPath := filepath.Join(t.TempDir(), ".env")
 	writeTestEnv(t, envPath, `
