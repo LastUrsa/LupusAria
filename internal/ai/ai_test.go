@@ -90,6 +90,41 @@ func TestOpenAICompatibleCompleteParsesResponseAndUsage(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleGPT5UsesMaxCompletionTokens(t *testing.T) {
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body chatCompletionRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.MaxCompletionTokens != 99 || body.MaxTokens != 0 {
+			t.Fatalf("token fields = max_completion_tokens:%d max_tokens:%d", body.MaxCompletionTokens, body.MaxTokens)
+		}
+		if body.Temperature != nil {
+			t.Fatalf("temperature should be omitted for GPT-5 models")
+		}
+		return jsonResponse(http.StatusOK, `{
+			"choices": [{"message": {"role": "assistant", "content": "hello from luna"}}],
+			"usage": {"prompt_tokens": 10, "completion_tokens": 20}
+		}`), nil
+	})
+
+	client := NewOpenAICompatibleClient(config.AIConfig{
+		APIKey:          "test-key",
+		BaseURL:         "https://api.openai.com/v1",
+		Model:           "gpt-5.6-luna",
+		MaxOutputTokens: 99,
+	})
+	client.httpClient = &http.Client{Transport: transport}
+
+	response, err := client.Complete(context.Background(), []Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Text != "hello from luna" {
+		t.Fatalf("text = %q", response.Text)
+	}
+}
+
 func TestOpenAICompatibleCompleteReturnsAPIErrorMessage(t *testing.T) {
 	client := NewOpenAICompatibleClient(config.AIConfig{BaseURL: "https://ai.test", Model: "test-model"})
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {

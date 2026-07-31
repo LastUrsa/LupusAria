@@ -19,7 +19,11 @@ func TestRealAIUsesPhoenixWrightChatContextForLurk(t *testing.T) {
 		t.Skip("set LUPUSARIA_REAL_AI_CONTEXT_TEST=1 to call the configured AI provider")
 	}
 
-	cfg, err := config.LoadPartial("../../.env")
+	envPath := strings.TrimSpace(os.Getenv("LUPUSARIA_ENV_PATH"))
+	if envPath == "" {
+		envPath = "../../.env"
+	}
+	cfg, err := config.LoadPartial(envPath)
 	if err != nil {
 		t.Fatal(err)
 	}

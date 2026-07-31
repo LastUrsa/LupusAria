@@ -1747,6 +1747,9 @@ func boolString(value bool) string {
 
 func aiBaseURL(settings ControlSettings) string {
 	if settings.AIProvider == "openai-compatible" {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(settings.AIModel)), "gpt-") {
+			return "https://api.openai.com/v1"
+		}
 		return "http://localhost:11434/v1"
 	}
 	return ""

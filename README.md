@@ -13,7 +13,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` pools.
 - Configurable command and stream-timer announcements with direct link recall, deduplicated ad-pod alerts, and channel point Media Actions with Twitch cooldown visibility for OBS overlays.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
-- Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
+- OpenAI GPT-5.6 Luna, Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
 - Local Wails control panel for setup, secrets entry, feature configuration, knowledge editing, media actions, and runtime controls.
 
 ## Quick Start
@@ -27,7 +27,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 go run ./cmd/lupusaria
 ```
 
-Switch to `AI_PROVIDER=gemini` when you are ready to use hosted real AI replies. Use `AI_PROVIDER=openai-compatible` for local Ollama experiments and set `AI_MODEL` to the local model you want.
+For hosted GPT-5.6 Luna replies, select the OpenAI-compatible provider in the desktop app, set the model to `gpt-5.6-luna`, and enter your own OpenAI API key there. Gemini is also supported as a primary provider and is still required for `!game` search and image analysis. OpenAI-compatible mode also works with local Ollama models when you supply their local model name and endpoint.
 
 On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral template if the file does not exist. Edit it directly, or use the desktop app's Knowledge tab, to add stable channel facts such as streamer identity, pronouns, recurring chat references, project links, and boundaries.
 
@@ -55,7 +55,7 @@ The app can start and stop the bot, manage account setup and saved secrets, edit
 
 ## Key Concepts
 
-- **Bring your own accounts:** you need your own Twitch bot or broadcaster account, Twitch application credentials, scoped Twitch tokens, and either a Gemini key or local OpenAI-compatible endpoint.
+- **Bring your own accounts:** you need your own Twitch bot or broadcaster account, Twitch application credentials, scoped Twitch tokens, and an API key or local endpoint for your chosen AI provider.
 - **AI cost controls:** AI calls only happen for enabled AI behaviors and are guarded by cooldowns, request limits, and optional daily/monthly budget caps.
 - **Local state:** `.env`, token states, budgets, announcements, media assets, emote caches, knowledge, and chat transcripts are local and gitignored.
 - **Media Actions:** channel point redeems can play random local images, GIFs, and sounds through the local OBS Browser Source at `http://127.0.0.1:47831/`.

@@ -992,7 +992,7 @@ Tags: lastursa, who is lastursa
 
 	messages := b.buildAIMessages(context.Background(), current, aiRequest{Kind: "mention", Prompt: "who's that?"})
 	userPrompt := messages[1].Content
-	if !strings.Contains(userPrompt, "Reply context: LupusAria said: @ragenowich check out LastUrsa") {
+	if !strings.Contains(userPrompt, "Direct reply anchor (highest priority): LupusAria said: @ragenowich check out LastUrsa") {
 		t.Fatalf("prompt missing reply context: %s", userPrompt)
 	}
 	if !strings.Contains(userPrompt, "LastUrsa is Ursa Starsong's Twitch username") {

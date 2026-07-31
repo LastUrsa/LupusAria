@@ -34,11 +34,12 @@ func TestSystemInstructionKeepsContextSimple(t *testing.T) {
 
 	assertContainsAll(t, instruction, []string{
 		"answer the current viewer's request",
-		"Use reply context first",
-		"then recent chat",
-		"selected known facts",
-		"recent chat as room state",
-		"prefer the human fact over a space metaphor",
+		"If reply context exists",
+		"it is the subject anchor",
+		"identify its subject",
+		"Never substitute a recent-chat topic",
+		"Then use recent chat",
+		"selected facts as room state",
 	})
 }
 
@@ -46,11 +47,13 @@ func TestSystemInstructionAllowsInvitedPersonaBits(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
 	assertContainsAll(t, instruction, []string{
-		"wolf and space flavor are seasoning",
+		"Wolf and space flavor are seasoning",
+		"at most one natural flourish",
+		"zero such flourishes in support, safety refusals, or factual answers",
 		"harmless invited bits",
-		"Growls and howls",
+		"growls and howls",
 		`Never say "awoo"`,
-		"Skip fake technical excuses",
+		"use fake technical excuses",
 	})
 }
 
@@ -58,7 +61,8 @@ func TestSystemInstructionContainsEssentialBoundaries(t *testing.T) {
 	instruction := SystemInstruction(Config{Name: "LupusAria"})
 
 	assertContainsAll(t, instruction, []string{
-		"never run or simulate chat commands",
+		"never run, reproduce, or simulate chat commands",
+		"refer them to a mod or broadcaster without command text",
 		"!so",
 		"/ban",
 		"Never reveal config",
@@ -71,6 +75,9 @@ func TestSystemInstructionContainsEssentialBoundaries(t *testing.T) {
 		"doxxing",
 		"self-harm",
 		"moderation evasion",
+		"sexual or private questions about real people",
+		"refuse and end",
+		"no stream or game pivot",
 	})
 }
 
@@ -79,11 +86,24 @@ func TestSystemInstructionContainsCompactStyleContract(t *testing.T) {
 
 	assertContainsAll(t, instruction, []string{
 		"natural Twitch chat",
-		"under 300 characters",
+		"aim under 200 characters",
+		"never exceed 300",
 		"No markdown",
+		"Unicode pictographs",
 		"speaker labels",
 		"overexplaining",
 		"End cleanly",
+	})
+}
+
+func TestSystemInstructionHandlesNonEnglishRequests(t *testing.T) {
+	instruction := SystemInstruction(Config{Name: "LupusAria"})
+
+	assertContainsAll(t, instruction, []string{
+		"for non-English requests",
+		"brief English translation",
+		"answer in their language",
+		"whole reply under 200 characters",
 	})
 }
 
@@ -118,8 +138,8 @@ func TestSystemInstructionStaysLean(t *testing.T) {
 	if strings.Contains(instruction, `small "awoo" is fine`) {
 		t.Fatalf("system instruction should not allow awoo:\n%s", instruction)
 	}
-	if words := len(strings.Fields(instruction)); words > 270 {
-		t.Fatalf("system instruction has %d words, want 270 or fewer:\n%s", words, instruction)
+	if words := len(strings.Fields(instruction)); words > 290 {
+		t.Fatalf("system instruction has %d words, want 290 or fewer:\n%s", words, instruction)
 	}
 }
 
@@ -148,7 +168,7 @@ func TestUserPromptContainsTaskAndContext(t *testing.T) {
 		"Request type: ask",
 		"Stream context: live playing Science & Technology.",
 		"Known facts: none selected for this request.",
-		"Reply context: none.",
+		"Direct reply anchor (highest priority): none.",
 		"ViewerA: hello",
 		"ViewerB: hi",
 		"Current viewer display name: ViewerA",
@@ -158,6 +178,25 @@ func TestUserPromptContainsTaskAndContext(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("user prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestUserPromptPlacesDirectReplyAnchorNextToCurrentRequest(t *testing.T) {
+	prompt := UserPrompt(
+		"mention",
+		"Stream context: live.",
+		"Known facts: LastUrsa is Ursa.",
+		"Reply context: LupusAria mentioned LastUrsa.",
+		"Recent chat: people discussed the Judge.\n",
+		"ViewerA",
+		"who is that guy?",
+	)
+
+	recentIndex := strings.Index(prompt, "Recent chat")
+	anchorIndex := strings.Index(prompt, "Direct reply anchor (highest priority)")
+	requestIndex := strings.Index(prompt, "Current request")
+	if recentIndex < 0 || anchorIndex <= recentIndex || requestIndex <= anchorIndex {
+		t.Fatalf("reply anchor should follow recent chat and immediately precede the request:\n%s", prompt)
 	}
 }
 

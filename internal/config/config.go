@@ -548,6 +548,8 @@ func defaultAIPrices(provider, model string) (float64, float64) {
 	switch {
 	case strings.Contains(normalized, "mock"):
 		return 0, 0
+	case strings.Contains(normalized, "gpt-5.6-luna"):
+		return 0.20, 1.20
 	case strings.Contains(normalized, "deepseek"):
 		return 0.07, 0.27
 	case strings.Contains(normalized, "flash-lite"):
