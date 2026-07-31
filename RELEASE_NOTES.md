@@ -1,5 +1,17 @@
 # LupusAria Release Notes
 
+## v0.8.0
+
+- Adds hosted GPT-5.6 Luna support through the OpenAI-compatible provider, including the correct OpenAI endpoint, GPT-5 request fields, and built-in token pricing defaults.
+- Keeps Gemini available as a fallback for the existing grounded `!game` search and image-analysis features.
+- Refines Lupus Aria's personality prompt to preserve his warm, dry character while keeping support, factual answers, safety refusals, and real-person boundaries focused.
+- Strengthens direct-reply context handling, non-English replies, command refusal behavior, and protection against hidden-instruction or credential disclosure.
+- Expands the personality evaluator and regression suite for persona flavor, reply anchors, privacy boundaries, translations, and refusals.
+- Adds a collapsible desktop navigation rail with recognizable section icons and a remembered compact-state preference.
+- Redesigns Media Actions for narrower windows with an action selector, an always-visible New action control, responsive editor columns, and collapsible OBS, Media, and Sounds panels.
+- Adds frontend component tests for navigation icons and responsive Media Actions states, and runs them in CI.
+- Updates setup, command, personality, provider, security, and responsive desktop documentation.
+
 ## v0.7.0
 
 - Shows each selected channel point reward's Twitch global cooldown in the Media Actions UI.

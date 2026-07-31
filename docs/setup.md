@@ -210,4 +210,4 @@ The release workflow:
 - uploads release artifacts
 - publishes or updates the GitHub Release when enabled
 
-Before tagging, add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
+Before tagging, update `wails.json`, `frontend/package.json`, and `frontend/package-lock.json`, then add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
