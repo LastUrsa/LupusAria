@@ -39,6 +39,13 @@ type Action struct {
 	Scale             int     `json:"scale"`
 	Animation         string  `json:"animation"`
 	MediaPlaybackMode string  `json:"mediaPlaybackMode"`
+	Text              string  `json:"text"`
+	TextFont          string  `json:"textFont"`
+	TextSize          int     `json:"textSize"`
+	TextBold          bool    `json:"textBold"`
+	TextItalic        bool    `json:"textItalic"`
+	TextUnderline     bool    `json:"textUnderline"`
+	TextColor         string  `json:"textColor"`
 }
 
 type Asset struct {
@@ -61,6 +68,13 @@ type Playback struct {
 	Scale             int     `json:"scale"`
 	Animation         string  `json:"animation"`
 	MediaPlaybackMode string  `json:"mediaPlaybackMode"`
+	Text              string  `json:"text"`
+	TextFont          string  `json:"textFont"`
+	TextSize          int     `json:"textSize"`
+	TextBold          bool    `json:"textBold"`
+	TextItalic        bool    `json:"textItalic"`
+	TextUnderline     bool    `json:"textUnderline"`
+	TextColor         string  `json:"textColor"`
 }
 
 var slugPattern = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
@@ -146,6 +160,9 @@ func SelectPlayback(action Action, rng *rand.Rand) (Playback, bool) {
 		Position:  action.Position,
 		Scale:     action.Scale,
 		Animation: action.Animation,
+		Text:      action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
+		TextBold: action.TextBold, TextItalic: action.TextItalic,
+		TextUnderline: action.TextUnderline, TextColor: action.TextColor,
 	}
 	if len(action.Media) > 0 {
 		asset := action.Media[rng.Intn(len(action.Media))]
@@ -174,6 +191,24 @@ func Normalize(action Action) Action {
 	}
 	action.RewardID = strings.TrimSpace(action.RewardID)
 	action.RewardTitle = strings.TrimSpace(action.RewardTitle)
+	action.Text = strings.TrimSpace(action.Text)
+	action.TextFont = strings.TrimSpace(action.TextFont)
+	if action.TextFont == "" {
+		action.TextFont = "Arial"
+	}
+	if action.TextSize == 0 {
+		action.TextSize = 32
+	}
+	if action.TextSize < 8 {
+		action.TextSize = 8
+	}
+	if action.TextSize > 200 {
+		action.TextSize = 200
+	}
+	action.TextColor = strings.TrimSpace(action.TextColor)
+	if !regexp.MustCompile(`^#[0-9a-fA-F]{6}$`).MatchString(action.TextColor) {
+		action.TextColor = "#ffffff"
+	}
 	if action.Duration == 0 {
 		action.Duration = 5
 	}

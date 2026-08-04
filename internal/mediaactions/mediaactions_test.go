@@ -88,6 +88,29 @@ func TestSelectPlaybackUsesSelectedMediaPlaybackMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeAndPlaybackPreserveTextStyle(t *testing.T) {
+	action := Normalize(Action{
+		ID: "captioned", Name: "Captioned", Enabled: true,
+		Trigger: TriggerChannelPointRedeem, RewardID: "reward-1",
+		Media: []Asset{{ID: "media-1", Filename: "one.png", Path: "/tmp/one.png"}},
+		Text:  "Hello chat", TextFont: "Verdana", TextSize: 44,
+		TextBold: true, TextItalic: true, TextUnderline: true, TextColor: "#12aBcD",
+	})
+	playback, ok := SelectPlayback(action, rand.New(rand.NewSource(1)))
+	if !ok {
+		t.Fatal("SelectPlayback returned false")
+	}
+	if playback.Text != "Hello chat" || playback.TextFont != "Verdana" || playback.TextSize != 44 ||
+		!playback.TextBold || !playback.TextItalic || !playback.TextUnderline || playback.TextColor != "#12aBcD" {
+		t.Fatalf("text style not preserved: %#v", playback)
+	}
+
+	defaults := Normalize(Action{})
+	if defaults.TextFont != "Arial" || defaults.TextSize != 32 || defaults.TextColor != "#ffffff" {
+		t.Fatalf("text defaults = %#v", defaults)
+	}
+}
+
 func TestSelectPlaybackLoopNextBuildsSequenceToCoverDuration(t *testing.T) {
 	action := Action{
 		ID:       "media",

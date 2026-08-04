@@ -31,6 +31,13 @@ type MediaAction = {
   position: string
   scale: number
   animation: string
+  text?: string
+  textFont?: string
+  textSize?: number
+  textBold?: boolean
+  textItalic?: boolean
+  textUnderline?: boolean
+  textColor?: string
 }
 type ChannelPointReward = {
   id: string
@@ -56,6 +63,13 @@ type MediaActionPlayback = {
   mediaFrameDelaysMs?: number[]
   mediaPlaybackMode?: string
   mediaClips?: MediaPlaybackClip[]
+  text: string
+  textFont: string
+  textSize: number
+  textBold: boolean
+  textItalic: boolean
+  textUnderline: boolean
+  textColor: string
 }
 type MediaPlaybackClip = {
   media: MediaAsset
@@ -214,7 +228,14 @@ function createEmptyMediaAction(index: number): MediaAction {
     duration: 5,
     position: 'center',
     scale: 100,
-    animation: 'fade-in-out'
+    animation: 'fade-in-out',
+    text: '',
+    textFont: 'Arial',
+    textSize: 32,
+    textBold: false,
+    textItalic: false,
+    textUnderline: false,
+    textColor: '#ffffff'
   } as MediaAction
 }
 
@@ -1061,6 +1082,23 @@ export function MediaActionsPanel({
               </label>
               <SelectField label="Animation" value={selectedAction.animation} options={animationOptions} onChange={(value) => onUpdate(selectedAction.id, 'animation', value)} />
             </Card>
+            <Card title="Text">
+              <TextArea label="Text under image" value={selectedAction.text || ''} onChange={(value) => onUpdate(selectedAction.id, 'text', value)} />
+              <TextField label="Font" value={selectedAction.textFont || 'Arial'} onChange={(value) => onUpdate(selectedAction.id, 'textFont', value)} />
+              <div className="split text-style-row">
+                <NumberField label="Size (px)" value={selectedAction.textSize || 32} min={8} max={200} onChange={(value) => onUpdate(selectedAction.id, 'textSize', value)} />
+                <label className="field color-field">
+                  <span>Color</span>
+                  <input type="color" value={selectedAction.textColor || '#ffffff'} onChange={(event) => onUpdate(selectedAction.id, 'textColor', event.target.value)} />
+                </label>
+              </div>
+              <div className="text-style-toggles">
+                <Toggle label="Bold" checked={selectedAction.textBold || false} onChange={(value) => onUpdate(selectedAction.id, 'textBold', value)} />
+                <Toggle label="Italic" checked={selectedAction.textItalic || false} onChange={(value) => onUpdate(selectedAction.id, 'textItalic', value)} />
+                <Toggle label="Underline" checked={selectedAction.textUnderline || false} onChange={(value) => onUpdate(selectedAction.id, 'textUnderline', value)} />
+              </div>
+              <div className="caption-preview" style={captionStyle(selectedAction)}>{selectedAction.text || 'Text preview'}</div>
+            </Card>
           </div>
 
           <div className="media-asset-grid">
@@ -1225,14 +1263,28 @@ function MediaActionOverlay({ playback }: { playback: MediaActionPlayback | null
   }
   return (
     <div className={`media-overlay ${playback.position} ${playback.animation}`}>
-      <AnimatedMediaImage playback={playback} />
+      <div className="media-overlay-content" style={{ transform: `scale(${(playback.scale || 100) / 100})` }}>
+        <AnimatedMediaImage playback={playback} />
+        {playback.text && <div className="media-overlay-caption" style={captionStyle(playback)}>{playback.text}</div>}
+      </div>
     </div>
   )
 }
 
 function AnimatedMediaImage({ playback }: { playback: MediaActionPlayback }) {
   const frameSrc = useAnimatedMediaFrame(playback)
-  return <img src={frameSrc || playback.mediaDataUrl} alt="" style={{ transform: `scale(${(playback.scale || 100) / 100})` }} />
+  return <img src={frameSrc || playback.mediaDataUrl} alt="" />
+}
+
+function captionStyle(value: Pick<MediaAction, 'textFont' | 'textSize' | 'textBold' | 'textItalic' | 'textUnderline' | 'textColor'>) {
+  return {
+    fontFamily: value.textFont || 'Arial',
+    fontSize: `${value.textSize || 32}px`,
+    fontWeight: value.textBold ? 700 : 400,
+    fontStyle: value.textItalic ? 'italic' : 'normal',
+    textDecoration: value.textUnderline ? 'underline' : 'none',
+    color: value.textColor || '#ffffff'
+  }
 }
 
 function useAnimatedMediaFrame(playback: MediaActionPlayback) {

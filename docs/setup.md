@@ -64,6 +64,7 @@ The Media Actions tab maps Twitch channel point redeems to local media and sound
 - import supported media files: `.gif`, `.png`, `.jpg`, `.jpeg`, `.webp`
 - import supported sound files: `.wav`, `.mp3`, `.ogg`, `.flac`
 - choose alert duration, screen position, scale, and animation
+- optionally add text beneath the image and customize its font, size, bold, italic, underline, and color
 - view the selected reward's Twitch global cooldown
 - preview inside the app while also sending the alert to OBS
 
@@ -77,6 +78,8 @@ http://127.0.0.1:47831/
 ```
 
 Set the OBS source background to transparent and keep the source local to the streaming PC. The overlay serves only on loopback and uses Server-Sent Events to receive playback payloads from the desktop app.
+
+Caption settings are stored per Media Action. Leave `Text under image` empty to show only the media. The editor's text preview reflects the selected typography, and the same styling is used by both the in-app preview and OBS overlay. The caption scales together with its image so it remains attached beneath the media.
 
 GIF playback is configurable per GIF:
 
