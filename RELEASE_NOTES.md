@@ -9,6 +9,7 @@
 - Expands the personality evaluator and regression suite for persona flavor, reply anchors, privacy boundaries, translations, and refusals.
 - Adds a collapsible desktop navigation rail with recognizable section icons and a remembered compact-state preference.
 - Redesigns Media Actions for narrower windows with an action selector, an always-visible New action control, responsive editor columns, and collapsible OBS, Media, and Sounds panels.
+- Adds optional text beneath Media Action images with editable font, size, bold, italic, underline, and color in both app previews and the OBS overlay.
 - Adds frontend component tests for navigation icons and responsive Media Actions states, and runs them in CI.
 - Updates setup, command, personality, provider, security, and responsive desktop documentation.
 

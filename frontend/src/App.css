@@ -1103,15 +1103,52 @@ h3 {
   max-width: min(70vw, 760px);
   max-height: min(70vh, 620px);
   object-fit: contain;
+}
+
+.media-overlay-content {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
   transform-origin: center;
 }
 
-.media-overlay.fade-in img,
-.media-overlay.fade-in-out img {
+.media-overlay-caption {
+  max-width: min(70vw, 760px);
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+}
+
+.text-style-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.color-field input[type="color"] {
+  width: 100%;
+  min-height: 42px;
+  padding: 4px;
+}
+
+.caption-preview {
+  min-height: 52px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: #17191d;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.media-overlay.fade-in .media-overlay-content,
+.media-overlay.fade-in-out .media-overlay-content {
   animation: mediaFadeIn 180ms ease-out both;
 }
 
-.media-overlay.fade-out img {
+.media-overlay.fade-out .media-overlay-content {
   animation: mediaFadeIn 120ms ease-out both;
 }
 

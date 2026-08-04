@@ -252,6 +252,13 @@ export namespace main {
 	    scale: number;
 	    animation: string;
 	    mediaPlaybackMode: string;
+	    text: string;
+	    textFont: string;
+	    textSize: number;
+	    textBold: boolean;
+	    textItalic: boolean;
+	    textUnderline: boolean;
+	    textColor: string;
 
 	    static createFrom(source: any = {}) {
 	        return new MediaActionSettings(source);
@@ -272,6 +279,13 @@ export namespace main {
 	        this.scale = source["scale"];
 	        this.animation = source["animation"];
 	        this.mediaPlaybackMode = source["mediaPlaybackMode"];
+	        this.text = source["text"];
+	        this.textFont = source["textFont"];
+	        this.textSize = source["textSize"];
+	        this.textBold = source["textBold"];
+	        this.textItalic = source["textItalic"];
+	        this.textUnderline = source["textUnderline"];
+	        this.textColor = source["textColor"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

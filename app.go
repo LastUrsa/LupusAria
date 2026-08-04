@@ -161,6 +161,13 @@ type MediaActionSettings struct {
 	Scale             int                  `json:"scale"`
 	Animation         string               `json:"animation"`
 	MediaPlaybackMode string               `json:"mediaPlaybackMode"`
+	Text              string               `json:"text"`
+	TextFont          string               `json:"textFont"`
+	TextSize          int                  `json:"textSize"`
+	TextBold          bool                 `json:"textBold"`
+	TextItalic        bool                 `json:"textItalic"`
+	TextUnderline     bool                 `json:"textUnderline"`
+	TextColor         string               `json:"textColor"`
 }
 
 type MediaAssetSettings struct {
@@ -197,6 +204,13 @@ type MediaActionPlayback struct {
 	MediaFrameDelaysMS []int               `json:"mediaFrameDelaysMs"`
 	MediaPlaybackMode  string              `json:"mediaPlaybackMode"`
 	MediaClips         []MediaPlaybackClip `json:"mediaClips"`
+	Text               string              `json:"text"`
+	TextFont           string              `json:"textFont"`
+	TextSize           int                 `json:"textSize"`
+	TextBold           bool                `json:"textBold"`
+	TextItalic         bool                `json:"textItalic"`
+	TextUnderline      bool                `json:"textUnderline"`
+	TextColor          string              `json:"textColor"`
 }
 
 type overlayServer struct {
@@ -1249,15 +1263,30 @@ const mediaOverlayHTML = `<!doctype html>
       max-width: min(82vw, 1200px);
       max-height: min(82vh, 900px);
       object-fit: contain;
+    }
+    #content {
+      display: grid;
+      justify-items: center;
+      gap: 12px;
       transform-origin: center;
+    }
+    #caption {
+      max-width: min(82vw, 1200px);
+      text-align: center;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: 1.2;
+      text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
     }
   </style>
 </head>
 <body>
-  <div id="stage" class="center"><img id="media" alt=""></div>
+  <div id="stage" class="center"><div id="content"><img id="media" alt=""><div id="caption"></div></div></div>
   <script>
     const stage = document.getElementById('stage');
     const media = document.getElementById('media');
+    const content = document.getElementById('content');
+    const caption = document.getElementById('caption');
     let hideTimer = null;
     let frameTimer = null;
     function clearFrameTimer() {
@@ -1358,7 +1387,15 @@ const mediaOverlayHTML = `<!doctype html>
         audio = new Audio(event.soundDataUrl);
       }
       if (event.mediaDataUrl) {
-        media.style.transform = 'scale(' + ((event.scale || 100) / 100) + ')';
+        content.style.transform = 'scale(' + ((event.scale || 100) / 100) + ')';
+        caption.textContent = event.text || '';
+        caption.style.display = event.text ? 'block' : 'none';
+        caption.style.fontFamily = event.textFont || 'Arial';
+        caption.style.fontSize = (event.textSize || 32) + 'px';
+        caption.style.fontWeight = event.textBold ? '700' : '400';
+        caption.style.fontStyle = event.textItalic ? 'italic' : 'normal';
+        caption.style.textDecoration = event.textUnderline ? 'underline' : 'none';
+        caption.style.color = event.textColor || '#ffffff';
         animateFrames(event, audio);
         stage.classList.add('visible');
       } else {
@@ -1455,6 +1492,9 @@ func mediaActionSettingsFromAction(action mediaactions.Action) MediaActionSettin
 		Scale:             action.Scale,
 		Animation:         action.Animation,
 		MediaPlaybackMode: action.MediaPlaybackMode,
+		Text:              action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
+		TextBold: action.TextBold, TextItalic: action.TextItalic,
+		TextUnderline: action.TextUnderline, TextColor: action.TextColor,
 	}
 }
 
@@ -1481,6 +1521,9 @@ func mediaActionFromSettings(action MediaActionSettings) mediaactions.Action {
 		Scale:             action.Scale,
 		Animation:         action.Animation,
 		MediaPlaybackMode: action.MediaPlaybackMode,
+		Text:              action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
+		TextBold: action.TextBold, TextItalic: action.TextItalic,
+		TextUnderline: action.TextUnderline, TextColor: action.TextColor,
 	})
 }
 
@@ -1529,6 +1572,9 @@ func mediaPlaybackFromPlayback(root string, playback mediaactions.Playback) (Med
 		Scale:             playback.Scale,
 		Animation:         playback.Animation,
 		MediaPlaybackMode: playback.MediaPlaybackMode,
+		Text:              playback.Text, TextFont: playback.TextFont, TextSize: playback.TextSize,
+		TextBold: playback.TextBold, TextItalic: playback.TextItalic,
+		TextUnderline: playback.TextUnderline, TextColor: playback.TextColor,
 	}
 	if playback.Media != nil {
 		clip, err := mediaPlaybackClipFromAsset(root, *playback.Media, playback.MediaPlaybackMode == mediaactions.PlaybackMatchAudio)

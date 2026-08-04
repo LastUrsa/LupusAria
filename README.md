@@ -58,7 +58,7 @@ The app can start and stop the bot, manage account setup and saved secrets, edit
 - **Bring your own accounts:** you need your own Twitch bot or broadcaster account, Twitch application credentials, scoped Twitch tokens, and an API key or local endpoint for your chosen AI provider.
 - **AI cost controls:** AI calls only happen for enabled AI behaviors and are guarded by cooldowns, request limits, and optional daily/monthly budget caps.
 - **Local state:** `.env`, token states, budgets, announcements, media assets, emote caches, knowledge, and chat transcripts are local and gitignored.
-- **Media Actions:** channel point redeems can play random local images, GIFs, and sounds through the local OBS Browser Source at `http://127.0.0.1:47831/`.
+- **Media Actions:** channel point redeems can play random local images, GIFs, and sounds, with optional styled text beneath the image, through the local OBS Browser Source at `http://127.0.0.1:47831/`.
 - **Ad alerts:** Twitch ad schedule polling provides warnings; EventSub ad-break events provide live starts when available; delayed segments are merged into the current pod to avoid duplicate announcements.
 
 See [Setup and Operations](docs/setup.md) for token scopes, desktop build notes, Media Actions details, cost-control settings, security notes, quality gates, and release steps.

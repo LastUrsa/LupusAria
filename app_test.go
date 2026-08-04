@@ -487,6 +487,19 @@ func TestMediaActionRedeemHandlerBroadcastsToOverlay(t *testing.T) {
 	}
 }
 
+func TestMediaActionTextStyleRoundTripsThroughSettings(t *testing.T) {
+	want := mediaactions.Action{
+		ID: "action-1", Name: "Captioned", Text: "Hello chat", TextFont: "Georgia",
+		TextSize: 48, TextBold: true, TextItalic: true, TextUnderline: true, TextColor: "#ff00aa",
+	}
+	got := mediaActionFromSettings(mediaActionSettingsFromAction(want))
+	if got.Text != want.Text || got.TextFont != want.TextFont || got.TextSize != want.TextSize ||
+		got.TextBold != want.TextBold || got.TextItalic != want.TextItalic ||
+		got.TextUnderline != want.TextUnderline || got.TextColor != want.TextColor {
+		t.Fatalf("round trip = %#v, want text style %#v", got, want)
+	}
+}
+
 func TestDisplayMinutesRoundsUp(t *testing.T) {
 	tests := map[time.Duration]int{
 		0:                           0,
