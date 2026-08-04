@@ -1,5 +1,11 @@
 # LupusAria Release Notes
 
+## v0.8.1
+
+- Adds optional text beneath Media Action images with editable font, size, bold, italic, underline, and color in both app previews and the OBS overlay.
+- Keeps captions attached beneath their images when alerts are scaled and provides a live typography preview in the Media Actions editor.
+- Adds persistence, playback, settings round-trip, and editor interaction tests for styled media captions.
+
 ## v0.8.0
 
 - Adds hosted GPT-5.6 Luna support through the OpenAI-compatible provider, including the correct OpenAI endpoint, GPT-5 request fields, and built-in token pricing defaults.
@@ -9,7 +15,6 @@
 - Expands the personality evaluator and regression suite for persona flavor, reply anchors, privacy boundaries, translations, and refusals.
 - Adds a collapsible desktop navigation rail with recognizable section icons and a remembered compact-state preference.
 - Redesigns Media Actions for narrower windows with an action selector, an always-visible New action control, responsive editor columns, and collapsible OBS, Media, and Sounds panels.
-- Adds optional text beneath Media Action images with editable font, size, bold, italic, underline, and color in both app previews and the OBS overlay.
 - Adds frontend component tests for navigation icons and responsive Media Actions states, and runs them in CI.
 - Updates setup, command, personality, provider, security, and responsive desktop documentation.
 
