@@ -532,6 +532,18 @@ func TestMediaActionTextStyleRoundTripsThroughSettings(t *testing.T) {
 	}
 }
 
+func TestMediaActionPositionAndAnimationsRoundTripThroughSettings(t *testing.T) {
+	want := mediaactions.Action{
+		ID: "action-1", Name: "Animated", Position: "custom", PositionX: 23, PositionY: 76,
+		EntranceAnimation: "slide-right", ExitAnimation: "slide-up",
+	}
+	got := mediaActionFromSettings(mediaActionSettingsFromAction(want))
+	if got.Position != want.Position || got.PositionX != want.PositionX || got.PositionY != want.PositionY ||
+		got.EntranceAnimation != want.EntranceAnimation || got.ExitAnimation != want.ExitAnimation {
+		t.Fatalf("round trip = %#v, want position and animations %#v", got, want)
+	}
+}
+
 func TestDisplayMinutesRoundsUp(t *testing.T) {
 	tests := map[time.Duration]int{
 		0:                           0,

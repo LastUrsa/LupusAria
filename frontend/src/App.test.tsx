@@ -155,6 +155,37 @@ describe('Media Actions responsive toolbar', () => {
     expect(onUpdate).toHaveBeenCalledWith('captioned', 'textUnderline', true)
   })
 
+  it('chooses a free overlay position and separate animations', () => {
+    const onUpdate = vi.fn()
+    const action = {
+      id: 'positioned', name: 'Positioned action', enabled: true,
+      trigger: 'channel_point_redeem', rewardId: '', rewardTitle: '',
+      media: [], sounds: [], duration: 5, position: 'custom', positionX: 50, positionY: 50,
+      scale: 100, animation: 'fade-in-out', entranceAnimation: 'slide-left', exitAnimation: 'slide-down'
+    }
+    render(<MediaActionsPanel {...panelDefaults} actions={[action]} selectedAction={action} onUpdate={onUpdate} />)
+
+    expect(screen.getAllByText('Slide Left').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Slide Down').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: /Choose on overlay/ }))
+    const canvas = screen.getByRole('application', { name: 'Overlay position' })
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1000, height: 500 } as DOMRect)
+    fireEvent.pointerDown(canvas, { clientX: 250, clientY: 375, pointerId: 1 })
+    fireEvent.pointerUp(canvas, { pointerId: 1 })
+    const scaleSlider = screen.getByRole('slider', { name: /^Image and text scale/ })
+    expect(scaleSlider).toHaveAttribute('max', '300')
+    fireEvent.change(scaleSlider, { target: { value: '275' } })
+
+    expect(screen.getByRole('dialog', { name: 'Choose overlay position' })).toBeInTheDocument()
+    expect(onUpdate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm position and scale' }))
+
+    expect(onUpdate).toHaveBeenCalledWith('positioned', 'position', 'custom')
+    expect(onUpdate).toHaveBeenCalledWith('positioned', 'positionX', 25)
+    expect(onUpdate).toHaveBeenCalledWith('positioned', 'positionY', 75)
+    expect(onUpdate).toHaveBeenCalledWith('positioned', 'scale', 275)
+  })
+
   it('requires confirmation before deleting an action', () => {
     const onRemove = vi.fn()
     const confirm = vi.spyOn(window, 'confirm')

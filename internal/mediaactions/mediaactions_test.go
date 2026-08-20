@@ -111,6 +111,24 @@ func TestNormalizeAndPlaybackPreserveTextStyle(t *testing.T) {
 	}
 }
 
+func TestNormalizeMigratesLegacyAnimationAndPreservesCustomPosition(t *testing.T) {
+	action := Normalize(Action{Position: "custom", PositionX: 17, PositionY: 83, Animation: "fade-in"})
+	if action.Position != "custom" || action.PositionX != 17 || action.PositionY != 83 {
+		t.Fatalf("custom position not preserved: %#v", action)
+	}
+	if action.EntranceAnimation != "fade" || action.ExitAnimation != "none" {
+		t.Fatalf("legacy animation not migrated: %#v", action)
+	}
+
+	action = Normalize(Action{EntranceAnimation: "slide-left", ExitAnimation: "slide-down"})
+	if action.EntranceAnimation != "slide-left" || action.ExitAnimation != "slide-down" {
+		t.Fatalf("directional animations not preserved: %#v", action)
+	}
+	if got := Normalize(Action{Scale: 400}).Scale; got != 300 {
+		t.Fatalf("scale = %d, want 300", got)
+	}
+}
+
 func TestSelectPlaybackLoopNextBuildsSequenceToCoverDuration(t *testing.T) {
 	action := Action{
 		ID:       "media",

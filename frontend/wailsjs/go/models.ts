@@ -249,8 +249,12 @@ export namespace main {
 	    sounds: MediaAssetSettings[];
 	    duration: number;
 	    position: string;
+	    positionX: number;
+	    positionY: number;
 	    scale: number;
 	    animation: string;
+	    entranceAnimation: string;
+	    exitAnimation: string;
 	    mediaPlaybackMode: string;
 	    text: string;
 	    textFont: string;
@@ -276,8 +280,12 @@ export namespace main {
 	        this.sounds = this.convertValues(source["sounds"], MediaAssetSettings);
 	        this.duration = source["duration"];
 	        this.position = source["position"];
+	        this.positionX = source["positionX"];
+	        this.positionY = source["positionY"];
 	        this.scale = source["scale"];
 	        this.animation = source["animation"];
+	        this.entranceAnimation = source["entranceAnimation"];
+	        this.exitAnimation = source["exitAnimation"];
 	        this.mediaPlaybackMode = source["mediaPlaybackMode"];
 	        this.text = source["text"];
 	        this.textFont = source["textFont"];

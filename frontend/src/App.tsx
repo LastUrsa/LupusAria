@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
 import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
@@ -29,8 +29,12 @@ type MediaAction = {
   sounds: MediaAsset[]
   duration: number
   position: string
+  positionX?: number
+  positionY?: number
   scale: number
   animation: string
+  entranceAnimation?: string
+  exitAnimation?: string
   text?: string
   textFont?: string
   textSize?: number
@@ -56,8 +60,12 @@ type MediaActionPlayback = {
   soundDataUrl: string
   duration: number
   position: string
+  positionX?: number
+  positionY?: number
   scale: number
   animation: string
+  entranceAnimation?: string
+  exitAnimation?: string
   mediaDurationMs?: number
   mediaFrameDataUrls?: string[]
   mediaFrameDelaysMs?: number[]
@@ -113,19 +121,13 @@ const triggerOptions = [
   { value: 'channel_point_redeem', label: 'Channel Point Redeem' }
 ]
 
-const positionOptions = [
-  { value: 'center', label: 'Center' },
-  { value: 'top-left', label: 'Top Left' },
-  { value: 'top-right', label: 'Top Right' },
-  { value: 'bottom-left', label: 'Bottom Left' },
-  { value: 'bottom-right', label: 'Bottom Right' }
-]
-
 const animationOptions = [
   { value: 'none', label: 'None' },
-  { value: 'fade-in', label: 'Fade In' },
-  { value: 'fade-out', label: 'Fade Out' },
-  { value: 'fade-in-out', label: 'Fade In + Fade Out' }
+  { value: 'fade', label: 'Fade' },
+  { value: 'slide-left', label: 'Slide Left' },
+  { value: 'slide-right', label: 'Slide Right' },
+  { value: 'slide-up', label: 'Slide Up' },
+  { value: 'slide-down', label: 'Slide Down' }
 ]
 
 const mediaPlaybackModeOptions = [
@@ -226,9 +228,13 @@ function createEmptyMediaAction(index: number): MediaAction {
     media: [],
     sounds: [],
     duration: 5,
-    position: 'center',
+    position: 'custom',
+    positionX: 50,
+    positionY: 50,
     scale: 100,
     animation: 'fade-in-out',
+    entranceAnimation: 'fade',
+    exitAnimation: 'fade',
     text: '',
     textFont: 'Arial',
     textSize: 32,
@@ -968,6 +974,7 @@ export function MediaActionsPanel({
   onPreview: (action: MediaAction) => void
   overlayUrl: string
 }) {
+  const [positionPickerOpen, setPositionPickerOpen] = useState(false)
   const rewardOptions = [
     { value: '', label: rewards.length === 0 ? 'Load rewards' : 'Choose redeem' },
     ...rewards.map((reward) => ({ value: reward.id, label: reward.enabled ? reward.title : `${reward.title} disabled` }))
@@ -1083,12 +1090,18 @@ export function MediaActionsPanel({
 
             <Card title="Display">
               <NumberField label="Duration seconds" value={selectedAction.duration} min={1} max={60} onChange={(value) => onUpdate(selectedAction.id, 'duration', value)} />
-              <SelectField label="Position" value={selectedAction.position} options={positionOptions} onChange={(value) => onUpdate(selectedAction.id, 'position', value)} />
+              <div className="field">
+                <span>Position</span>
+                <button className="secondary" type="button" onClick={() => setPositionPickerOpen(true)}>
+                  Choose on overlay · {mediaActionPosition(selectedAction).x}% / {mediaActionPosition(selectedAction).y}%
+                </button>
+              </div>
               <label className="field">
                 <span>Scale {selectedAction.scale}%</span>
-                <input type="range" min={25} max={200} value={selectedAction.scale} onChange={(event) => onUpdate(selectedAction.id, 'scale', Number(event.target.value))} />
+                <input type="range" min={25} max={300} value={selectedAction.scale} onChange={(event) => onUpdate(selectedAction.id, 'scale', Number(event.target.value))} />
               </label>
-              <SelectField label="Animation" value={selectedAction.animation} options={animationOptions} onChange={(value) => onUpdate(selectedAction.id, 'animation', value)} />
+              <SelectField label="Entrance" value={selectedAction.entranceAnimation || legacyEntranceAnimation(selectedAction.animation)} options={animationOptions} onChange={(value) => onUpdate(selectedAction.id, 'entranceAnimation', value)} />
+              <SelectField label="Exit" value={selectedAction.exitAnimation || legacyExitAnimation(selectedAction.animation)} options={animationOptions} onChange={(value) => onUpdate(selectedAction.id, 'exitAnimation', value)} />
             </Card>
             <Card title="Text">
               <TextArea label="Text under image" value={selectedAction.text || ''} onChange={(value) => onUpdate(selectedAction.id, 'text', value)} />
@@ -1127,12 +1140,113 @@ export function MediaActionsPanel({
               onChange={(assets) => onUpdateAssets(selectedAction.id, 'sound', assets)}
             />
           </div>
+          {positionPickerOpen && (
+            <PositionPicker
+              action={selectedAction}
+              onClose={() => setPositionPickerOpen(false)}
+              onChoose={(x, y, scale) => {
+                onUpdate(selectedAction.id, 'position', 'custom')
+                onUpdate(selectedAction.id, 'positionX', x)
+                onUpdate(selectedAction.id, 'positionY', y)
+                onUpdate(selectedAction.id, 'scale', scale)
+                setPositionPickerOpen(false)
+              }}
+            />
+          )}
         </section>
       ) : (
         <Card title="Media Actions" wide>
           <p className="muted">Create an action to connect a redeem to random media or sound.</p>
         </Card>
       )}
+    </div>
+  )
+}
+
+function mediaActionPosition(action: Pick<MediaAction, 'position' | 'positionX' | 'positionY'>) {
+  if (action.position === 'custom') {
+    return { x: action.positionX ?? 50, y: action.positionY ?? 50 }
+  }
+  const legacy: Record<string, { x: number; y: number }> = {
+    'top-left': { x: 10, y: 10 },
+    'top-right': { x: 90, y: 10 },
+    'bottom-left': { x: 10, y: 90 },
+    'bottom-right': { x: 90, y: 90 },
+    center: { x: 50, y: 50 }
+  }
+  return legacy[action.position] || legacy.center
+}
+
+function legacyEntranceAnimation(animation: string) {
+  return animation === 'none' || animation === 'fade-out' ? 'none' : 'fade'
+}
+
+function legacyExitAnimation(animation: string) {
+  return animation === 'none' || animation === 'fade-in' ? 'none' : 'fade'
+}
+
+function PositionPicker({ action, onChoose, onClose }: { action: MediaAction; onChoose: (x: number, y: number, scale: number) => void; onClose: () => void }) {
+  const [previewSrc, setPreviewSrc] = useState('')
+  const initialPosition = mediaActionPosition(action)
+  const [draftPosition, setDraftPosition] = useState(initialPosition)
+  const [draftScale, setDraftScale] = useState(action.scale || 100)
+  const draggingRef = useRef(false)
+
+  useEffect(() => {
+    const firstAsset = action.media?.[0]
+    let alive = true
+    if (firstAsset) {
+      GetMediaAssetDataURL(firstAsset.path).then((value) => alive && setPreviewSrc(value)).catch(() => undefined)
+    }
+    return () => { alive = false }
+  }, [action.media])
+
+  const updatePosition = (element: HTMLElement, clientX: number, clientY: number) => {
+    const bounds = element.getBoundingClientRect()
+    setDraftPosition({
+      x: Math.max(0, Math.min(100, Math.round(((clientX - bounds.left) / bounds.width) * 100))),
+      y: Math.max(0, Math.min(100, Math.round(((clientY - bounds.top) / bounds.height) * 100)))
+    })
+  }
+
+  return (
+    <div className="position-picker-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="position-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="position-picker-title">
+        <div className="position-picker-header">
+          <div><h3 id="position-picker-title">Choose overlay position</h3><p>Click anywhere in the frame to place the media and text.</p></div>
+          <span className="position-picker-coordinates">{draftPosition.x}% / {draftPosition.y}% · {draftScale}% scale</span>
+        </div>
+        <div
+          className="position-picker-canvas"
+          role="application"
+          aria-label="Overlay position"
+          onPointerDown={(event) => {
+            draggingRef.current = true
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+            updatePosition(event.currentTarget, event.clientX, event.clientY)
+          }}
+          onPointerMove={(event) => {
+            if (draggingRef.current) updatePosition(event.currentTarget, event.clientX, event.clientY)
+          }}
+          onPointerUp={() => { draggingRef.current = false }}
+          onPointerCancel={() => { draggingRef.current = false }}
+        >
+          <span className="position-picker-safe-area">OBS overlay</span>
+          <span className="position-picker-example" style={{ left: `${draftPosition.x}%`, top: `${draftPosition.y}%`, transform: `translate(-50%, -50%) scale(${draftScale / 100})` }}>
+            {previewSrc ? <img src={previewSrc} alt="" /> : <span className="position-picker-placeholder">{action.text || 'Media preview'}</span>}
+            {action.text && <strong style={captionStyle(action)}>{action.text}</strong>}
+          </span>
+        </div>
+        <label className="position-picker-scale">
+          <span>Image and text scale</span>
+          <input type="range" min={25} max={300} value={draftScale} onChange={(event) => setDraftScale(Number(event.target.value))} />
+          <strong>{draftScale}%</strong>
+        </label>
+        <div className="position-picker-actions">
+          <button className="secondary" type="button" onClick={onClose}>Cancel</button>
+          <button type="button" onClick={() => onChoose(draftPosition.x, draftPosition.y, draftScale)}>Confirm position and scale</button>
+        </div>
+      </section>
     </div>
   )
 }
@@ -1274,12 +1388,32 @@ function isGifAsset(asset: MediaAsset) {
 }
 
 function MediaActionOverlay({ playback }: { playback: MediaActionPlayback | null }) {
+  const [exiting, setExiting] = useState(false)
+  useEffect(() => {
+    setExiting(false)
+    if (!playback) return
+    const timer = window.setTimeout(() => setExiting(true), Math.max(100, Math.max(1, playback.duration || 5) * 1000 - 300))
+    return () => window.clearTimeout(timer)
+  }, [playback])
   if (!playback || !playback.mediaDataUrl) {
     return null
   }
+  const position = mediaActionPosition(playback)
+  const animation = exiting
+    ? playback.exitAnimation || legacyExitAnimation(playback.animation)
+    : playback.entranceAnimation || legacyEntranceAnimation(playback.animation)
+  const animationClass = animation === 'none' ? '' : `media-${exiting ? 'exit' : 'enter'}-${animation}`
+  const style = {
+    '--media-position-x': `${position.x}%`,
+    '--media-position-y': `${position.y}%`
+  } as CSSProperties
+  const contentStyle = {
+    '--media-scale': (playback.scale || 100) / 100,
+    transform: `scale(${(playback.scale || 100) / 100})`
+  } as CSSProperties
   return (
-    <div className={`media-overlay ${playback.position} ${playback.animation}`}>
-      <div className="media-overlay-content" style={{ transform: `scale(${(playback.scale || 100) / 100})` }}>
+    <div className={`media-overlay ${playback.position}`} style={style}>
+      <div className={`media-overlay-content ${animationClass}`} style={contentStyle}>
         <AnimatedMediaImage playback={playback} />
         {playback.text && <div className="media-overlay-caption" style={captionStyle(playback)}>{playback.text}</div>}
       </div>
