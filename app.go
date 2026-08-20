@@ -158,8 +158,12 @@ type MediaActionSettings struct {
 	Sounds            []MediaAssetSettings `json:"sounds"`
 	Duration          int                  `json:"duration"`
 	Position          string               `json:"position"`
+	PositionX         int                  `json:"positionX"`
+	PositionY         int                  `json:"positionY"`
 	Scale             int                  `json:"scale"`
 	Animation         string               `json:"animation"`
+	EntranceAnimation string               `json:"entranceAnimation"`
+	ExitAnimation     string               `json:"exitAnimation"`
 	MediaPlaybackMode string               `json:"mediaPlaybackMode"`
 	Text              string               `json:"text"`
 	TextFont          string               `json:"textFont"`
@@ -197,8 +201,12 @@ type MediaActionPlayback struct {
 	SoundDataURL       string              `json:"soundDataUrl"`
 	Duration           int                 `json:"duration"`
 	Position           string              `json:"position"`
+	PositionX          int                 `json:"positionX"`
+	PositionY          int                 `json:"positionY"`
 	Scale              int                 `json:"scale"`
 	Animation          string              `json:"animation"`
+	EntranceAnimation  string              `json:"entranceAnimation"`
+	ExitAnimation      string              `json:"exitAnimation"`
 	MediaDurationMS    int                 `json:"mediaDurationMs"`
 	MediaFrameDataURLs []string            `json:"mediaFrameDataUrls"`
 	MediaFrameDelaysMS []int               `json:"mediaFrameDelaysMs"`
@@ -1276,6 +1284,13 @@ const mediaOverlayHTML = `<!doctype html>
     #stage.top-right { place-items: start end; }
     #stage.bottom-left { place-items: end start; }
     #stage.bottom-right { place-items: end; }
+    #stage.custom { display: block; }
+    #stage.custom #content {
+      position: absolute;
+      left: var(--position-x, 50%);
+      top: var(--position-y, 50%);
+      translate: -50% -50%;
+    }
     img {
       max-width: min(82vw, 1200px);
       max-height: min(82vh, 900px);
@@ -1305,6 +1320,7 @@ const mediaOverlayHTML = `<!doctype html>
     const content = document.getElementById('content');
     const caption = document.getElementById('caption');
     let hideTimer = null;
+    let exitTimer = null;
     let frameTimer = null;
     function clearFrameTimer() {
       if (frameTimer) {
@@ -1317,6 +1333,38 @@ const mediaOverlayHTML = `<!doctype html>
         return '';
       }
       return url + '#clip-' + token + '-' + Date.now();
+    }
+    function legacyEntrance(animation) {
+      return animation === 'none' || animation === 'fade-out' ? 'none' : 'fade';
+    }
+    function legacyExit(animation) {
+      return animation === 'none' || animation === 'fade-in' ? 'none' : 'fade';
+    }
+    function animationFrames(animation, exiting, scale) {
+      const resting = 'translate(0, 0) scale(' + scale + ')';
+      const offsets = {
+        'slide-left': 'translateX(-80px) scale(' + scale + ')',
+        'slide-right': 'translateX(80px) scale(' + scale + ')',
+        'slide-up': 'translateY(-80px) scale(' + scale + ')',
+        'slide-down': 'translateY(80px) scale(' + scale + ')'
+      };
+      const displaced = offsets[animation] || resting;
+      const visible = { opacity: 1, transform: resting };
+      const hidden = { opacity: 0, transform: displaced };
+      return exiting ? [visible, hidden] : [hidden, visible];
+    }
+    function runAnimation(animation, exiting, scale) {
+      if (!animation || animation === 'none') {
+        content.style.opacity = exiting ? '0' : '1';
+        content.style.transform = 'scale(' + scale + ')';
+        return;
+      }
+      content.getAnimations().forEach((item) => item.cancel());
+      content.animate(animationFrames(animation, exiting, scale), {
+        duration: exiting ? 300 : 260,
+        easing: exiting ? 'ease-in' : 'ease-out',
+        fill: 'forwards'
+      });
     }
     function animateFrames(event, audio) {
       clearFrameTimer();
@@ -1397,14 +1445,18 @@ const mediaOverlayHTML = `<!doctype html>
     }
     function play(event) {
       clearTimeout(hideTimer);
+      clearTimeout(exitTimer);
       clearFrameTimer();
       stage.className = event.position || 'center';
+      stage.style.setProperty('--position-x', Math.max(0, Math.min(100, event.positionX ?? 50)) + '%');
+      stage.style.setProperty('--position-y', Math.max(0, Math.min(100, event.positionY ?? 50)) + '%');
       let audio = null;
       if (event.soundDataUrl) {
         audio = new Audio(event.soundDataUrl);
       }
       if (event.mediaDataUrl) {
-        content.style.transform = 'scale(' + ((event.scale || 100) / 100) + ')';
+        const scale = (event.scale || 100) / 100;
+        content.style.transform = 'scale(' + scale + ')';
         caption.textContent = event.text || '';
         caption.style.display = event.text ? 'block' : 'none';
         caption.style.fontFamily = event.textFont || 'Arial';
@@ -1415,6 +1467,7 @@ const mediaOverlayHTML = `<!doctype html>
         caption.style.color = event.textColor || '#ffffff';
         animateFrames(event, audio);
         stage.classList.add('visible');
+        runAnimation(event.entranceAnimation || legacyEntrance(event.animation), false, scale);
       } else {
         media.removeAttribute('src');
         stage.classList.remove('visible');
@@ -1425,6 +1478,8 @@ const mediaOverlayHTML = `<!doctype html>
       const hideAfter = event.mediaPlaybackMode === 'match_audio' && audio && Number.isFinite(audio.duration) && audio.duration > 0
         ? Math.max(Math.max(1, event.duration || 5) * 1000, audio.duration * 1000)
         : Math.max(1, event.duration || 5) * 1000;
+      const beginExit = () => runAnimation(event.exitAnimation || legacyExit(event.animation), true, (event.scale || 100) / 100);
+      exitTimer = setTimeout(beginExit, Math.max(0, hideAfter - 300));
       hideTimer = setTimeout(() => {
         clearFrameTimer();
         stage.classList.remove('visible');
@@ -1433,6 +1488,8 @@ const mediaOverlayHTML = `<!doctype html>
         audio.addEventListener('loadedmetadata', () => {
           if (Number.isFinite(audio.duration) && audio.duration > 0) {
             clearTimeout(hideTimer);
+            clearTimeout(exitTimer);
+            exitTimer = setTimeout(beginExit, Math.max(0, Math.max(Math.max(1, event.duration || 5) * 1000, audio.duration * 1000) - 300));
             hideTimer = setTimeout(() => {
               clearFrameTimer();
               stage.classList.remove('visible');
@@ -1506,8 +1563,12 @@ func mediaActionSettingsFromAction(action mediaactions.Action) MediaActionSettin
 		Sounds:            mediaAssetSettingsFromAssets(action.Sounds),
 		Duration:          action.Duration,
 		Position:          action.Position,
+		PositionX:         action.PositionX,
+		PositionY:         action.PositionY,
 		Scale:             action.Scale,
 		Animation:         action.Animation,
+		EntranceAnimation: action.EntranceAnimation,
+		ExitAnimation:     action.ExitAnimation,
 		MediaPlaybackMode: action.MediaPlaybackMode,
 		Text:              action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
 		TextBold: action.TextBold, TextItalic: action.TextItalic,
@@ -1535,8 +1596,12 @@ func mediaActionFromSettings(action MediaActionSettings) mediaactions.Action {
 		Sounds:            mediaAssetsFromSettings(action.Sounds),
 		Duration:          action.Duration,
 		Position:          action.Position,
+		PositionX:         action.PositionX,
+		PositionY:         action.PositionY,
 		Scale:             action.Scale,
 		Animation:         action.Animation,
+		EntranceAnimation: action.EntranceAnimation,
+		ExitAnimation:     action.ExitAnimation,
 		MediaPlaybackMode: action.MediaPlaybackMode,
 		Text:              action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
 		TextBold: action.TextBold, TextItalic: action.TextItalic,
@@ -1586,8 +1651,12 @@ func mediaPlaybackFromPlayback(root string, playback mediaactions.Playback) (Med
 		Name:              playback.Name,
 		Duration:          playback.Duration,
 		Position:          playback.Position,
+		PositionX:         playback.PositionX,
+		PositionY:         playback.PositionY,
 		Scale:             playback.Scale,
 		Animation:         playback.Animation,
+		EntranceAnimation: playback.EntranceAnimation,
+		ExitAnimation:     playback.ExitAnimation,
 		MediaPlaybackMode: playback.MediaPlaybackMode,
 		Text:              playback.Text, TextFont: playback.TextFont, TextSize: playback.TextSize,
 		TextBold: playback.TextBold, TextItalic: playback.TextItalic,

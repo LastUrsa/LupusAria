@@ -36,8 +36,12 @@ type Action struct {
 	Sounds            []Asset `json:"sounds"`
 	Duration          int     `json:"duration"`
 	Position          string  `json:"position"`
+	PositionX         int     `json:"positionX"`
+	PositionY         int     `json:"positionY"`
 	Scale             int     `json:"scale"`
 	Animation         string  `json:"animation"`
+	EntranceAnimation string  `json:"entranceAnimation"`
+	ExitAnimation     string  `json:"exitAnimation"`
 	MediaPlaybackMode string  `json:"mediaPlaybackMode"`
 	Text              string  `json:"text"`
 	TextFont          string  `json:"textFont"`
@@ -65,8 +69,12 @@ type Playback struct {
 	Sound             *Asset  `json:"sound,omitempty"`
 	Duration          int     `json:"duration"`
 	Position          string  `json:"position"`
+	PositionX         int     `json:"positionX"`
+	PositionY         int     `json:"positionY"`
 	Scale             int     `json:"scale"`
 	Animation         string  `json:"animation"`
+	EntranceAnimation string  `json:"entranceAnimation"`
+	ExitAnimation     string  `json:"exitAnimation"`
 	MediaPlaybackMode string  `json:"mediaPlaybackMode"`
 	Text              string  `json:"text"`
 	TextFont          string  `json:"textFont"`
@@ -154,13 +162,13 @@ func SelectPlayback(action Action, rng *rand.Rand) (Playback, bool) {
 		rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
 	playback := Playback{
-		ActionID:  action.ID,
-		Name:      action.Name,
-		Duration:  action.Duration,
-		Position:  action.Position,
-		Scale:     action.Scale,
-		Animation: action.Animation,
-		Text:      action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
+		ActionID: action.ID,
+		Name:     action.Name,
+		Duration: action.Duration,
+		Position: action.Position, PositionX: action.PositionX, PositionY: action.PositionY,
+		Scale: action.Scale, Animation: action.Animation,
+		EntranceAnimation: action.EntranceAnimation, ExitAnimation: action.ExitAnimation,
+		Text: action.Text, TextFont: action.TextFont, TextSize: action.TextSize,
 		TextBold: action.TextBold, TextItalic: action.TextItalic,
 		TextUnderline: action.TextUnderline, TextColor: action.TextColor,
 	}
@@ -224,14 +232,35 @@ func Normalize(action Action) Action {
 	if action.Scale < 25 {
 		action.Scale = 25
 	}
-	if action.Scale > 200 {
-		action.Scale = 200
+	if action.Scale > 300 {
+		action.Scale = 300
 	}
-	if !slices.Contains([]string{"center", "top-left", "top-right", "bottom-left", "bottom-right"}, action.Position) {
+	if !slices.Contains([]string{"center", "top-left", "top-right", "bottom-left", "bottom-right", "custom"}, action.Position) {
 		action.Position = "center"
 	}
+	action.PositionX = max(0, min(100, action.PositionX))
+	action.PositionY = max(0, min(100, action.PositionY))
 	if !slices.Contains([]string{"none", "fade-in", "fade-out", "fade-in-out"}, action.Animation) {
 		action.Animation = "fade-in-out"
+	}
+	if action.EntranceAnimation == "" && action.ExitAnimation == "" {
+		switch action.Animation {
+		case "none":
+			action.EntranceAnimation, action.ExitAnimation = "none", "none"
+		case "fade-in":
+			action.EntranceAnimation, action.ExitAnimation = "fade", "none"
+		case "fade-out":
+			action.EntranceAnimation, action.ExitAnimation = "none", "fade"
+		default:
+			action.EntranceAnimation, action.ExitAnimation = "fade", "fade"
+		}
+	}
+	validAnimations := []string{"none", "fade", "slide-left", "slide-right", "slide-up", "slide-down"}
+	if !slices.Contains(validAnimations, action.EntranceAnimation) {
+		action.EntranceAnimation = "fade"
+	}
+	if !slices.Contains(validAnimations, action.ExitAnimation) {
+		action.ExitAnimation = "fade"
 	}
 	actionMediaPlaybackMode := action.MediaPlaybackMode
 	if !isPlaybackMode(actionMediaPlaybackMode) {
