@@ -1,6 +1,6 @@
 # LupusAria Release Notes
 
-## Unreleased
+## v0.9.0
 
 - Adds a visual Media Action position picker for dragging images, GIFs, and captions anywhere on the OBS overlay and resizing them up to 300% before confirming.
 - Splits Media Action animation into independent entrance and exit effects, including directional slides left, right, up, and down.
