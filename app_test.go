@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -387,6 +389,110 @@ func TestOverlayServerBroadcastsPlaybackEvents(t *testing.T) {
 	}
 	if playback.ActionID != "action-1" || playback.Name != "Alert" {
 		t.Fatalf("playback = %#v", playback)
+	}
+}
+
+func TestOverlayServerBroadcastsAssetURLsInsteadOfEmbeddedData(t *testing.T) {
+	server, err := newOverlayServerAtAddress("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close(context.Background())
+
+	assetPath := filepath.Join(t.TempDir(), "alert.gif")
+	want := []byte("fake gif payload")
+	if err := os.WriteFile(assetPath, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := make(chan []byte, 1)
+	server.mu.Lock()
+	server.clients[client] = true
+	server.mu.Unlock()
+	server.Broadcast(MediaActionPlayback{
+		Media:        &MediaAssetSettings{Path: assetPath, Filename: "alert.gif"},
+		MediaDataURL: "data:image/gif;base64,embedded-payload",
+	})
+
+	raw := <-client
+	var playback MediaActionPlayback
+	if err := json.Unmarshal(raw, &playback); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(playback.MediaDataURL, server.URL()+"assets/") {
+		t.Fatalf("media URL = %q, want overlay asset URL", playback.MediaDataURL)
+	}
+	resp, err := http.Get(playback.MediaDataURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("asset body = %q, want %q", got, want)
+	}
+}
+
+func TestOverlayCancelsPreviousAnimationBeforeHandlingNoAnimation(t *testing.T) {
+	start := strings.Index(mediaOverlayHTML, "function runAnimation")
+	if start < 0 {
+		t.Fatal("runAnimation not found")
+	}
+	animationCode := mediaOverlayHTML[start:]
+	cancelAt := strings.Index(animationCode, "content.getAnimations().forEach")
+	noneAt := strings.Index(animationCode, "if (!animation || animation === 'none')")
+	if cancelAt < 0 || noneAt < 0 || cancelAt > noneAt {
+		t.Fatalf("previous animations must be cancelled before the none-animation branch")
+	}
+	if strings.Contains(animationCode, "fill: 'forwards'") || !strings.Contains(animationCode, "fill: 'none'") {
+		t.Fatal("overlay animations must not retain a filled state between playbacks")
+	}
+}
+
+func TestInstallOBSOverlayCreatesAndUpdatesStableFile(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configDir)
+
+	path, err := installOBSOverlay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPath := filepath.Join(configDir, "Starsong Tools", "LupusAria", "OBS Overlay", obsOverlayFilename)
+	if path != wantPath {
+		t.Fatalf("overlay path = %q, want %q", path, wantPath)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, obsOverlayHTML) {
+		t.Fatal("installed overlay does not match embedded repository asset")
+	}
+
+	if err := os.WriteFile(path, []byte("outdated"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installOBSOverlay(); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, obsOverlayHTML) {
+		t.Fatal("existing OBS overlay was not updated")
+	}
+}
+
+func TestStandaloneOBSOverlayReconnectsToFixedLocalEndpoint(t *testing.T) {
+	html := string(obsOverlayHTML)
+	if !strings.Contains(html, "http://127.0.0.1:47831/") {
+		t.Fatal("standalone overlay must connect to the fixed loopback endpoint")
+	}
+	if !strings.Contains(html, "new EventSource(eventsUrl)") || !strings.Contains(html, "setTimeout(connect, 1000)") {
+		t.Fatal("standalone overlay must retry its connection when LupusAria is unavailable")
 	}
 }
 

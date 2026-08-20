@@ -71,13 +71,24 @@ The Media Actions tab maps Twitch channel point redeems to local media and sound
 Live channel point redeems are sent only to the OBS overlay, so they do not cover the app while the bot is running.
 Twitch's cooldown applies to the reward globally, so one redemption temporarily blocks everyone from redeeming it. The value is read-only in LupusAria; change it in the Twitch dashboard.
 
-Use this stable OBS Browser Source URL:
+LupusAria installs a reconnecting OBS overlay file when the app starts. On Windows, it is located at:
 
 ```text
-http://127.0.0.1:47831/
+%APPDATA%\Starsong Tools\LupusAria\OBS Overlay\LupusAria-OBS-Overlay.html
 ```
 
-Set the OBS source background to transparent and keep the source local to the streaming PC. The overlay serves only on loopback and uses Server-Sent Events to receive playback payloads from the desktop app.
+To add it to OBS:
+
+1. Start LupusAria once so the file is installed or updated.
+2. In OBS, add a **Browser** source and enable **Local file**.
+3. Browse to the file above. In the file picker, enter `%APPDATA%\Starsong Tools\LupusAria\OBS Overlay` in the File name box and press Enter if the AppData folder is hidden.
+4. Set Width to `1920` and Height to `1080` (or your canvas dimensions).
+5. Leave **Shutdown source when not visible** disabled so the source remains connected between scenes.
+6. Click OK, then use **Refresh cache of current page** once if replacing the older URL-based source.
+
+The local file waits for LupusAria and reconnects when the app becomes available, including when OBS starts first. LupusAria refreshes the installed copy on every launch so app upgrades also update the overlay. The source can be reused across scenes; point each scene at the same file.
+
+The direct URL `http://127.0.0.1:47831/` remains available for development and troubleshooting, but the installed local file is recommended for OBS. Keep the overlay local to the streaming PC. Its event and media endpoints bind only to loopback.
 
 Caption settings are stored per Media Action. Leave `Text under image` empty to show only the media. The editor's text preview reflects the selected typography, and the same styling is used by both the in-app preview and OBS overlay. The caption scales together with its image so it remains attached beneath the media.
 

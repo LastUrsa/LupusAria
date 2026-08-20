@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,7 +40,11 @@ import (
 const (
 	envPathOverride         = "LUPUSARIA_ENV_PATH"
 	defaultMediaOverlayPort = 47831
+	obsOverlayFilename      = "LupusAria-OBS-Overlay.html"
 )
+
+//go:embed obs/LupusAria-OBS-Overlay.html
+var obsOverlayHTML []byte
 
 type App struct {
 	ctx context.Context
@@ -226,6 +233,7 @@ type overlayServer struct {
 	url               string
 	mu                sync.Mutex
 	clients           map[chan []byte]bool
+	assetPaths        map[string]string
 	heartbeatInterval time.Duration
 }
 
@@ -270,6 +278,11 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if path, err := installOBSOverlay(); err != nil {
+		a.appendLog("OBS overlay file unavailable: " + err.Error())
+	} else {
+		a.appendLog("OBS overlay file installed at " + path)
+	}
 	overlay, err := newOverlayServer()
 	if err != nil {
 		a.appendLog("media overlay unavailable: " + err.Error())
@@ -277,6 +290,22 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.overlay = overlay
 	a.appendLog("media overlay listening at " + overlay.URL())
+}
+
+func installOBSOverlay() (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(configDir, "Starsong Tools", "LupusAria", "OBS Overlay")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, obsOverlayFilename)
+	if err := os.WriteFile(path, obsOverlayHTML, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -1157,11 +1186,13 @@ func newOverlayServerAtAddress(address string) (*overlayServer, error) {
 	overlay := &overlayServer{
 		url:               "http://" + address + "/",
 		clients:           map[chan []byte]bool{},
+		assetPaths:        map[string]string{},
 		heartbeatInterval: 15 * time.Second,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", overlay.handleIndex)
 	mux.HandleFunc("/events", overlay.handleEvents)
+	mux.HandleFunc("/assets/", overlay.handleAsset)
 	overlay.server = &http.Server{Handler: mux}
 	go func() {
 		if err := overlay.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -1180,11 +1211,13 @@ func (s *overlayServer) Close(ctx context.Context) error {
 }
 
 func (s *overlayServer) Broadcast(playback MediaActionPlayback) {
+	s.mu.Lock()
+	playback = s.preparePlaybackLocked(playback)
 	data, err := json.Marshal(playback)
 	if err != nil {
+		s.mu.Unlock()
 		return
 	}
-	s.mu.Lock()
 	defer s.mu.Unlock()
 	for client := range s.clients {
 		select {
@@ -1192,6 +1225,47 @@ func (s *overlayServer) Broadcast(playback MediaActionPlayback) {
 		default:
 		}
 	}
+}
+
+func (s *overlayServer) preparePlaybackLocked(playback MediaActionPlayback) MediaActionPlayback {
+	assetURL := func(asset *MediaAssetSettings) string {
+		if asset == nil || strings.TrimSpace(asset.Path) == "" {
+			return ""
+		}
+		sum := sha256.Sum256([]byte(asset.Path))
+		token := hex.EncodeToString(sum[:16])
+		if s.assetPaths == nil {
+			s.assetPaths = map[string]string{}
+		}
+		s.assetPaths[token] = asset.Path
+		return strings.TrimRight(s.url, "/") + "/assets/" + token
+	}
+	if url := assetURL(playback.Media); url != "" {
+		playback.MediaDataURL = url
+	}
+	if url := assetURL(playback.Sound); url != "" {
+		playback.SoundDataURL = url
+	}
+	for i := range playback.MediaClips {
+		if url := assetURL(&playback.MediaClips[i].Media); url != "" {
+			playback.MediaClips[i].MediaDataURL = url
+		}
+	}
+	return playback
+}
+
+func (s *overlayServer) handleAsset(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimPrefix(r.URL.Path, "/assets/")
+	s.mu.Lock()
+	path := s.assetPaths[token]
+	s.mu.Unlock()
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	http.ServeFile(w, r, path)
 }
 
 func (s *overlayServer) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -1354,16 +1428,16 @@ const mediaOverlayHTML = `<!doctype html>
       return exiting ? [visible, hidden] : [hidden, visible];
     }
     function runAnimation(animation, exiting, scale) {
+      content.getAnimations().forEach((item) => item.cancel());
+      content.style.opacity = exiting ? '0' : '1';
+      content.style.transform = 'scale(' + scale + ')';
       if (!animation || animation === 'none') {
-        content.style.opacity = exiting ? '0' : '1';
-        content.style.transform = 'scale(' + scale + ')';
         return;
       }
-      content.getAnimations().forEach((item) => item.cancel());
       content.animate(animationFrames(animation, exiting, scale), {
         duration: exiting ? 300 : 260,
         easing: exiting ? 'ease-in' : 'ease-out',
-        fill: 'forwards'
+        fill: 'none'
       });
     }
     function animateFrames(event, audio) {

@@ -1,5 +1,10 @@
 # LupusAria Release Notes
 
+## v0.9.1
+
+- Streams Media Action images, GIFs, and sounds to OBS through local asset URLs instead of embedding multi-megabyte base64 data in each event, preventing large alerts from appearing late.
+- Installs and automatically updates a reconnecting OBS Browser Source HTML file under the LupusAria user-data folder, with setup instructions for starting OBS before the app and reusing the source across scenes.
+
 ## v0.9.0
 
 - Adds a visual Media Action position picker for dragging images, GIFs, and captions anywhere on the OBS overlay and resizing them up to 300% before confirming.
