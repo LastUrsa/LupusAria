@@ -1034,6 +1034,21 @@ h3 {
   font-size: 0.76rem;
 }
 
+.sound-volume {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 260px);
+  color: var(--color-neutral-300);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.sound-volume input {
+  min-width: 90px;
+}
+
 .asset-row-actions {
   display: flex;
   flex-wrap: wrap;

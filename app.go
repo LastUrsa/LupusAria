@@ -186,6 +186,7 @@ type MediaAssetSettings struct {
 	Filename               string `json:"filename"`
 	Path                   string `json:"path"`
 	DurationMS             int    `json:"durationMs"`
+	Volume                 *int   `json:"volume,omitempty"`
 	MediaPlaybackMode      string `json:"mediaPlaybackMode"`
 	ExcludeFromGifRotation bool   `json:"excludeFromGifRotation"`
 }
@@ -1023,8 +1024,8 @@ func (a *App) StartBot() error {
 	actions, actionErr := loadEnabledMediaActions()
 	if actionErr != nil {
 		a.appendLog("media actions disabled: " + actionErr.Error())
-	} else if len(actions) > 0 {
-		mediaOptions.MediaActionRedeem = a.mediaActionRedeemHandler(ctx, actions)
+	} else {
+		mediaOptions.MediaActionRedeem = a.mediaActionRedeemHandler(ctx)
 		a.appendLog(fmt.Sprintf("loaded media actions: %d; redeem listener enabled", len(actions)))
 	}
 	go func() {
@@ -1085,21 +1086,11 @@ func (a *App) broadcastMediaActionPlayback(playback MediaActionPlayback) {
 	}
 }
 
-func (a *App) mediaActionRedeemHandler(ctx context.Context, actions []mediaactions.Action) func(context.Context, twitch.ChannelPointRedeemEvent) {
+func (a *App) mediaActionRedeemHandler(ctx context.Context) func(context.Context, twitch.ChannelPointRedeemEvent) {
 	root, err := mediaActionsRoot()
 	if err != nil {
 		a.appendLog("media action storage unavailable: " + err.Error())
 		return nil
-	}
-	byReward := map[string]mediaactions.Action{}
-	byRewardTitle := map[string]mediaactions.Action{}
-	for _, action := range actions {
-		if action.Enabled && action.RewardID != "" {
-			byReward[action.RewardID] = action
-		}
-		if action.Enabled && action.RewardTitle != "" {
-			byRewardTitle[normalizeMediaActionRewardTitle(action.RewardTitle)] = action
-		}
 	}
 	queue := make(chan MediaActionPlayback, 32)
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -1124,6 +1115,21 @@ func (a *App) mediaActionRedeemHandler(ctx context.Context, actions []mediaactio
 	}()
 	return func(ctx context.Context, event twitch.ChannelPointRedeemEvent) {
 		a.appendLog(fmt.Sprintf("received channel point redeem: %q", firstNonEmptyString(event.RewardTitle, event.RewardID)))
+		actions, err := loadEnabledMediaActions()
+		if err != nil {
+			a.appendLog("media actions could not be reloaded: " + err.Error())
+			return
+		}
+		byReward := map[string]mediaactions.Action{}
+		byRewardTitle := map[string]mediaactions.Action{}
+		for _, action := range actions {
+			if action.RewardID != "" {
+				byReward[action.RewardID] = action
+			}
+			if action.RewardTitle != "" {
+				byRewardTitle[normalizeMediaActionRewardTitle(action.RewardTitle)] = action
+			}
+		}
 		action, ok := byReward[event.RewardID]
 		if !ok && event.RewardTitle != "" {
 			action, ok = byRewardTitle[normalizeMediaActionRewardTitle(event.RewardTitle)]
@@ -1527,6 +1533,7 @@ const mediaOverlayHTML = `<!doctype html>
       let audio = null;
       if (event.soundDataUrl) {
         audio = new Audio(event.soundDataUrl);
+        audio.volume = Math.max(0, Math.min(1, (event.sound?.volume ?? 100) / 100));
       }
       if (event.mediaDataUrl) {
         const scale = (event.scale || 100) / 100;
@@ -1697,6 +1704,7 @@ func mediaAssetSettingsFromAssets(assets []mediaactions.Asset) []MediaAssetSetti
 			Filename:               asset.Filename,
 			Path:                   asset.Path,
 			DurationMS:             durationMS,
+			Volume:                 asset.Volume,
 			MediaPlaybackMode:      asset.MediaPlaybackMode,
 			ExcludeFromGifRotation: asset.ExcludeFromGifRotation,
 		})
@@ -1712,6 +1720,7 @@ func mediaAssetsFromSettings(settings []MediaAssetSettings) []mediaactions.Asset
 			Filename:               asset.Filename,
 			Path:                   asset.Path,
 			DurationMS:             asset.DurationMS,
+			Volume:                 asset.Volume,
 			MediaPlaybackMode:      asset.MediaPlaybackMode,
 			ExcludeFromGifRotation: asset.ExcludeFromGifRotation,
 		})
@@ -1758,7 +1767,7 @@ func mediaPlaybackFromPlayback(root string, playback mediaactions.Playback) (Med
 		}
 	}
 	if playback.Sound != nil {
-		asset := MediaAssetSettings{ID: playback.Sound.ID, Filename: playback.Sound.Filename, Path: playback.Sound.Path, DurationMS: playback.Sound.DurationMS, MediaPlaybackMode: playback.Sound.MediaPlaybackMode, ExcludeFromGifRotation: playback.Sound.ExcludeFromGifRotation}
+		asset := MediaAssetSettings{ID: playback.Sound.ID, Filename: playback.Sound.Filename, Path: playback.Sound.Path, DurationMS: playback.Sound.DurationMS, Volume: playback.Sound.Volume, MediaPlaybackMode: playback.Sound.MediaPlaybackMode, ExcludeFromGifRotation: playback.Sound.ExcludeFromGifRotation}
 		payload.Sound = &asset
 		dataURL, err := mediaAssetDataURL(root, playback.Sound.Path)
 		if err != nil {
@@ -1770,7 +1779,7 @@ func mediaPlaybackFromPlayback(root string, playback mediaactions.Playback) (Med
 }
 
 func mediaPlaybackClipFromAsset(root string, media mediaactions.Asset, includeFrames bool) (MediaPlaybackClip, error) {
-	asset := MediaAssetSettings{ID: media.ID, Filename: media.Filename, Path: media.Path, DurationMS: media.DurationMS, MediaPlaybackMode: media.MediaPlaybackMode, ExcludeFromGifRotation: media.ExcludeFromGifRotation}
+	asset := MediaAssetSettings{ID: media.ID, Filename: media.Filename, Path: media.Path, DurationMS: media.DurationMS, Volume: media.Volume, MediaPlaybackMode: media.MediaPlaybackMode, ExcludeFromGifRotation: media.ExcludeFromGifRotation}
 	dataURL, err := mediaAssetDataURL(root, media.Path)
 	if err != nil {
 		return MediaPlaybackClip{}, err

@@ -543,7 +543,7 @@ func TestMediaActionRedeemHandlerMatchesRewardTitleFallback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	app := NewApp()
-	handler := app.mediaActionRedeemHandler(ctx, []mediaactions.Action{{
+	actions := []mediaactions.Action{{
 		ID:          "action-1",
 		Name:        "Its A Gundam",
 		Enabled:     true,
@@ -556,7 +556,15 @@ func TestMediaActionRedeemHandlerMatchesRewardTitleFallback(t *testing.T) {
 			Path:     assetPath,
 		}},
 		Duration: 1,
-	}})
+	}}
+	path, err := mediaActionsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mediaactions.Save(path, actions); err != nil {
+		t.Fatal(err)
+	}
+	handler := app.mediaActionRedeemHandler(ctx)
 	if handler == nil {
 		t.Fatal("handler is nil")
 	}
@@ -593,7 +601,7 @@ func TestMediaActionRedeemHandlerBroadcastsToOverlay(t *testing.T) {
 	client := make(chan []byte, 1)
 	app := NewApp()
 	app.overlay = &overlayServer{clients: map[chan []byte]bool{client: true}}
-	handler := app.mediaActionRedeemHandler(ctx, []mediaactions.Action{{
+	actions := []mediaactions.Action{{
 		ID:       "action-1",
 		Name:     "Reward",
 		Enabled:  true,
@@ -605,9 +613,23 @@ func TestMediaActionRedeemHandlerBroadcastsToOverlay(t *testing.T) {
 			Path:     assetPath,
 		}},
 		Duration: 1,
-	}})
+	}}
+	path, err := mediaActionsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mediaactions.Save(path, actions); err != nil {
+		t.Fatal(err)
+	}
+	handler := app.mediaActionRedeemHandler(ctx)
 	if handler == nil {
 		t.Fatal("handler is nil")
+	}
+	actions[0].Position = "custom"
+	actions[0].PositionX = 23
+	actions[0].PositionY = 76
+	if err := mediaactions.Save(path, actions); err != nil {
+		t.Fatal(err)
 	}
 
 	handler(ctx, twitch.ChannelPointRedeemEvent{RewardID: "reward-1", RewardTitle: "Reward"})
@@ -617,7 +639,7 @@ func TestMediaActionRedeemHandlerBroadcastsToOverlay(t *testing.T) {
 		if err := json.Unmarshal(raw, &playback); err != nil {
 			t.Fatal(err)
 		}
-		if playback.ActionID != "action-1" || playback.SoundDataURL == "" {
+		if playback.ActionID != "action-1" || playback.SoundDataURL == "" || playback.Position != "custom" || playback.PositionX != 23 || playback.PositionY != 76 {
 			t.Fatalf("playback = %#v", playback)
 		}
 	case <-time.After(time.Second):
@@ -647,6 +669,19 @@ func TestMediaActionPositionAndAnimationsRoundTripThroughSettings(t *testing.T) 
 	if got.Position != want.Position || got.PositionX != want.PositionX || got.PositionY != want.PositionY ||
 		got.EntranceAnimation != want.EntranceAnimation || got.ExitAnimation != want.ExitAnimation {
 		t.Fatalf("round trip = %#v, want position and animations %#v", got, want)
+	}
+}
+
+func TestMediaActionSoundVolumeRoundTripsIntoOverlayPlayback(t *testing.T) {
+	volume := 35
+	action := mediaactions.Action{Sounds: []mediaactions.Asset{{ID: "sound-1", Path: "/tmp/sound.mp3", Volume: &volume}}}
+	settings := mediaActionSettingsFromAction(action)
+	got := mediaActionFromSettings(settings)
+	if len(got.Sounds) != 1 || got.Sounds[0].Volume == nil || *got.Sounds[0].Volume != volume {
+		t.Fatalf("sound volume round trip = %#v, want %d", got.Sounds, volume)
+	}
+	if !strings.Contains(mediaOverlayHTML, "(event.sound?.volume ?? 100) / 100") {
+		t.Fatal("OBS overlay does not apply the selected sound volume")
 	}
 }
 

@@ -57,6 +57,7 @@ type Asset struct {
 	Filename               string `json:"filename"`
 	Path                   string `json:"path"`
 	DurationMS             int    `json:"durationMs"`
+	Volume                 *int   `json:"volume,omitempty"`
 	MediaPlaybackMode      string `json:"mediaPlaybackMode"`
 	ExcludeFromGifRotation bool   `json:"excludeFromGifRotation"`
 }
@@ -148,6 +149,7 @@ func ImportAssets(root string, action Action, kind string, paths []string) ([]As
 			Filename:   filepath.Base(target),
 			Path:       target,
 			DurationMS: mediaDurationMS(kind, target),
+			Volume:     intPointer(100),
 		})
 	}
 	return imported, nil
@@ -334,6 +336,12 @@ func normalizeAssets(assets []Asset, defaultPlaybackMode string) []Asset {
 		if asset.DurationMS < 0 {
 			asset.DurationMS = 0
 		}
+		if asset.Volume == nil {
+			asset.Volume = intPointer(100)
+		} else {
+			volume := max(0, min(100, *asset.Volume))
+			asset.Volume = &volume
+		}
 		asset.MediaPlaybackMode = strings.TrimSpace(asset.MediaPlaybackMode)
 		if !isPlaybackMode(asset.MediaPlaybackMode) {
 			asset.MediaPlaybackMode = defaultPlaybackMode
@@ -343,6 +351,10 @@ func normalizeAssets(assets []Asset, defaultPlaybackMode string) []Asset {
 		}
 	}
 	return out
+}
+
+func intPointer(value int) *int {
+	return &value
 }
 
 func isPlaybackMode(mode string) bool {

@@ -256,4 +256,22 @@ describe('Media Actions responsive toolbar', () => {
     expect(confirm).toHaveBeenCalledWith('Delete asset "alert.mp3"?')
     expect(onUpdateAssets).not.toHaveBeenCalled()
   })
+
+  it('sets an individual volume for each sound', () => {
+    const onUpdateAssets = vi.fn()
+    const asset = { id: 'asset-1', filename: 'alert.mp3', path: '/tmp/alert.mp3' }
+    const action = {
+      id: 'action-1', name: 'Redeem alert', enabled: true,
+      trigger: 'channel_point_redeem', rewardId: '', rewardTitle: 'Reward',
+      media: [], sounds: [asset], duration: 5, position: 'center', scale: 100,
+      animation: 'fade-in-out'
+    }
+
+    render(<MediaActionsPanel {...panelDefaults} actions={[action]} selectedAction={action} onUpdateAssets={onUpdateAssets} />)
+
+    const slider = screen.getByRole('slider', { name: 'alert.mp3 volume' })
+    expect(slider).toHaveValue('100')
+    fireEvent.change(slider, { target: { value: '35' } })
+    expect(onUpdateAssets).toHaveBeenCalledWith('action-1', 'sound', [{ ...asset, volume: 35 }])
+  })
 })

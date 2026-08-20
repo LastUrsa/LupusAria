@@ -129,6 +129,28 @@ func TestNormalizeMigratesLegacyAnimationAndPreservesCustomPosition(t *testing.T
 	}
 }
 
+func TestNormalizeDefaultsAndClampsAssetVolume(t *testing.T) {
+	muted := 0
+	tooLoud := 140
+	action := Normalize(Action{
+		Media: []Asset{{Path: "/tmp/image.png"}},
+		Sounds: []Asset{
+			{Path: "/tmp/default.mp3"},
+			{Path: "/tmp/muted.mp3", Volume: &muted},
+			{Path: "/tmp/loud.mp3", Volume: &tooLoud},
+		},
+	})
+	if action.Media[0].Volume == nil || *action.Media[0].Volume != 100 {
+		t.Fatalf("legacy media volume = %v, want 100", action.Media[0].Volume)
+	}
+	want := []int{100, 0, 100}
+	for i, asset := range action.Sounds {
+		if asset.Volume == nil || *asset.Volume != want[i] {
+			t.Fatalf("sound %d volume = %v, want %d", i, asset.Volume, want[i])
+		}
+	}
+}
+
 func TestSelectPlaybackLoopNextBuildsSequenceToCoverDuration(t *testing.T) {
 	action := Action{
 		ID:       "media",
