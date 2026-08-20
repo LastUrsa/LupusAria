@@ -1,6 +1,6 @@
 # LupusAria Release Notes
 
-## Unreleased
+## v0.9.2
 
 - Reloads saved Media Actions for each channel point redemption so position, scale, media, and other edits match previews immediately without restarting the bot.
 - Adds individual 0–100% volume controls for every Media Action sound, updates active in-app previews while the slider moves, and applies the selected level consistently to sound previews, action previews, and OBS playback.
