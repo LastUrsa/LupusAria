@@ -1,5 +1,10 @@
 # LupusAria Release Notes
 
+## Unreleased
+
+- Keeps the OBS Media Actions event stream healthy with periodic heartbeats and failed-connection cleanup, so redeems resume automatically without manually refreshing the browser source.
+- Requires confirmation before deleting media actions, media or sound assets, and announcements.
+
 ## v0.8.1
 
 - Adds optional text beneath Media Action images with editable font, size, bold, italic, underline, and color in both app previews and the OBS overlay.

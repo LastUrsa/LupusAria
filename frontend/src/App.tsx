@@ -1029,7 +1029,15 @@ export function MediaActionsPanel({
             </div>
             <div className="media-editor-actions">
               <button type="button" onClick={() => onPreview(selectedAction)} disabled={busy}>Preview</button>
-              <button className="danger" type="button" onClick={() => onRemove(selectedAction.id)}>Delete</button>
+              <button
+                className="danger"
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Delete media action "${selectedAction.name || 'Untitled'}"?`)) {
+                    onRemove(selectedAction.id)
+                  }
+                }}
+              >Delete</button>
             </div>
           </div>
 
@@ -1210,7 +1218,15 @@ function AssetSection({
                 <div className="asset-row-actions">
                   <button className="secondary compact-button" type="button" onClick={() => move(index, -1)} disabled={index === 0} aria-label={`Move ${asset.filename} up`}>↑</button>
                   <button className="secondary compact-button" type="button" onClick={() => move(index, 1)} disabled={index === assets.length - 1} aria-label={`Move ${asset.filename} down`}>↓</button>
-                  <button className="danger compact-button" type="button" onClick={() => onChange(assets.filter((item) => item.id !== asset.id))}>Delete</button>
+                  <button
+                    className="danger compact-button"
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Delete asset "${asset.filename}"?`)) {
+                        onChange(assets.filter((item) => item.id !== asset.id))
+                      }
+                    }}
+                  >Delete</button>
                 </div>
               </div>
             ))}
@@ -1449,7 +1465,15 @@ function AnnouncementSummarySection({
                       onChange={(value) => updateAnnouncement(index, 'kind', value)}
                       compact
                     />
-                    <button className="danger" type="button" onClick={() => removeAnnouncement(index)}>Remove</button>
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`Remove announcement "${item.id || 'Untitled'}"?`)) {
+                          removeAnnouncement(index)
+                        }
+                      }}
+                    >Remove</button>
                   </div>
                   <div className="split">
                     <TextField label="ID" value={item.id} onChange={(value) => updateAnnouncement(index, 'id', value)} />

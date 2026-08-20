@@ -154,4 +154,75 @@ describe('Media Actions responsive toolbar', () => {
     expect(onUpdate).toHaveBeenCalledWith('captioned', 'textItalic', true)
     expect(onUpdate).toHaveBeenCalledWith('captioned', 'textUnderline', true)
   })
+
+  it('requires confirmation before deleting an action', () => {
+    const onRemove = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm')
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true)
+    const action = {
+      id: 'action-1',
+      name: 'Redeem alert',
+      enabled: true,
+      trigger: 'channel_point_redeem',
+      rewardId: '',
+      rewardTitle: 'Reward',
+      media: [],
+      sounds: [],
+      duration: 5,
+      position: 'center',
+      scale: 100,
+      animation: 'fade-in-out'
+    }
+
+    render(
+      <MediaActionsPanel
+        {...panelDefaults}
+        actions={[action]}
+        selectedAction={action}
+        onRemove={onRemove}
+      />
+    )
+
+    const deleteButton = screen.getByRole('button', { name: 'Delete' })
+    fireEvent.click(deleteButton)
+    expect(onRemove).not.toHaveBeenCalled()
+
+    fireEvent.click(deleteButton)
+    expect(onRemove).toHaveBeenCalledWith('action-1')
+    expect(confirm).toHaveBeenCalledWith('Delete media action "Redeem alert"?')
+  })
+
+  it('requires confirmation before deleting an asset', () => {
+    const onUpdateAssets = vi.fn()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const asset = { id: 'asset-1', filename: 'alert.mp3', path: '/tmp/alert.mp3' }
+    const action = {
+      id: 'action-1',
+      name: 'Redeem alert',
+      enabled: true,
+      trigger: 'channel_point_redeem',
+      rewardId: '',
+      rewardTitle: 'Reward',
+      media: [],
+      sounds: [asset],
+      duration: 5,
+      position: 'center',
+      scale: 100,
+      animation: 'fade-in-out'
+    }
+
+    render(
+      <MediaActionsPanel
+        {...panelDefaults}
+        actions={[action]}
+        selectedAction={action}
+        onUpdateAssets={onUpdateAssets}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[1])
+    expect(confirm).toHaveBeenCalledWith('Delete asset "alert.mp3"?')
+    expect(onUpdateAssets).not.toHaveBeenCalled()
+  })
 })

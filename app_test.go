@@ -390,6 +390,38 @@ func TestOverlayServerBroadcastsPlaybackEvents(t *testing.T) {
 	}
 }
 
+func TestOverlayServerKeepsIdleEventStreamAlive(t *testing.T) {
+	server, err := newOverlayServerAtAddress("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.heartbeatInterval = 10 * time.Millisecond
+	defer server.Close(context.Background())
+
+	req, err := http.NewRequest(http.MethodGet, server.URL()+"events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	lines := make(chan string, 16)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		close(lines)
+	}()
+	waitForLine(t, lines, ": connected")
+	waitForLine(t, lines, ": heartbeat")
+}
+
 func TestMediaActionRedeemHandlerMatchesRewardTitleFallback(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
