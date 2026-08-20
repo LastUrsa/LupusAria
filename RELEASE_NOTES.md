@@ -4,6 +4,7 @@
 
 - Keeps the OBS Media Actions event stream healthy with periodic heartbeats and failed-connection cleanup, so redeems resume automatically without manually refreshing the browser source.
 - Requires confirmation before deleting media actions, media or sound assets, and announcements.
+- Updates frontend and CI toolchain dependencies to patched releases used by the security quality gates.
 
 ## v0.8.1
 
