@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LupusAria OBS Overlay</title>
+  <style>
+    html, body, iframe {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border: 0;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <iframe id="overlay" title="LupusAria media overlay" allow="autoplay"></iframe>
+  <script>
+    const overlayUrl = 'http://127.0.0.1:47831/';
+    const eventsUrl = overlayUrl + 'events';
+    const frame = document.getElementById('overlay');
+    let probe = null;
+
+    function connect() {
+      if (probe) {
+        probe.close();
+      }
+      probe = new EventSource(eventsUrl);
+      probe.onopen = () => {
+        probe.close();
+        probe = null;
+        if (frame.src !== overlayUrl) {
+          frame.src = overlayUrl;
+        }
+      };
+      probe.onerror = () => {
+        probe.close();
+        probe = null;
+        window.setTimeout(connect, 1000);
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
