@@ -15,6 +15,7 @@ type MediaAsset = {
   filename: string
   path: string
   durationMs?: number
+  volume?: number
   mediaPlaybackMode?: string
   excludeFromGifRotation?: boolean
 }
@@ -88,6 +89,8 @@ type MediaPlaybackClip = {
 }
 type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'mediaActions' | 'knowledge'
 type AnnouncementKind = 'command' | 'timer'
+
+const activeSoundPreviews = new Map<string, Set<HTMLAudioElement>>()
 type IndexedAnnouncement = { item: Announcement; index: number }
 type AnnouncementUpdate = <K extends keyof Announcement>(index: number, key: K, value: Announcement[K]) => void
 
@@ -318,7 +321,9 @@ export default function App() {
       setActivePlayback(playback)
       if (playback.soundDataUrl) {
         const audio = new Audio(playback.soundDataUrl)
-        audio.play().catch(() => undefined)
+        audio.volume = soundVolume(playback.sound)
+        const stopTracking = trackSoundPreview(playback.sound, audio)
+        audio.play().catch(stopTracking)
       }
       if (playbackTimerRef.current) {
         window.clearTimeout(playbackTimerRef.current)
@@ -1311,6 +1316,23 @@ function AssetSection({
                 )}
                 <div className="asset-name">
                   <strong title={asset.filename}>{asset.filename}</strong>
+                  {kind === 'sound' ? (
+                    <label className="sound-volume">
+                      <span>Volume {asset.volume ?? 100}%</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={asset.volume ?? 100}
+                        aria-label={`${asset.filename} volume`}
+                        onChange={(event) => {
+                          const volume = Number(event.target.value)
+                          updateAsset(asset.id, { volume })
+                          updateActiveSoundPreviewVolume(asset.id, volume)
+                        }}
+                      />
+                    </label>
+                  ) : null}
                   {kind === 'media' && (asset.durationMs || 0) > 0 ? <small>{formatAssetDuration(asset.durationMs || 0)}</small> : null}
                   {kind === 'media' && isGifAsset(asset) ? (
                     <div className="gif-options">
@@ -1372,8 +1394,35 @@ function AssetThumbnail({ asset }: { asset: MediaAsset }) {
 function playAsset(asset: MediaAsset) {
   GetMediaAssetDataURL(asset.path).then((value) => {
     const audio = new Audio(value)
-    audio.play().catch(() => undefined)
+    audio.volume = soundVolume(asset)
+    const stopTracking = trackSoundPreview(asset, audio)
+    audio.play().catch(stopTracking)
   }).catch(() => undefined)
+}
+
+function soundVolume(asset?: MediaAsset) {
+  return Math.max(0, Math.min(1, (asset?.volume ?? 100) / 100))
+}
+
+function trackSoundPreview(asset: MediaAsset | undefined, audio: HTMLAudioElement) {
+  if (!asset?.id) return () => undefined
+  const active = activeSoundPreviews.get(asset.id) ?? new Set<HTMLAudioElement>()
+  active.add(audio)
+  activeSoundPreviews.set(asset.id, active)
+  const remove = () => {
+    active.delete(audio)
+    if (active.size === 0) activeSoundPreviews.delete(asset.id)
+  }
+  audio.addEventListener('ended', remove, { once: true })
+  audio.addEventListener('error', remove, { once: true })
+  return remove
+}
+
+function updateActiveSoundPreviewVolume(assetId: string, volume: number) {
+  const normalized = Math.max(0, Math.min(1, volume / 100))
+  activeSoundPreviews.get(assetId)?.forEach((audio) => {
+    audio.volume = normalized
+  })
 }
 
 function formatAssetDuration(durationMs: number) {

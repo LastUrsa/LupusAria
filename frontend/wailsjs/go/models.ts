@@ -221,6 +221,7 @@ export namespace main {
 	    filename: string;
 	    path: string;
 	    durationMs: number;
+	    volume: number;
 	    mediaPlaybackMode: string;
 	    excludeFromGifRotation: boolean;
 
@@ -234,6 +235,7 @@ export namespace main {
 	        this.filename = source["filename"];
 	        this.path = source["path"];
 	        this.durationMs = source["durationMs"];
+	        this.volume = source["volume"];
 	        this.mediaPlaybackMode = source["mediaPlaybackMode"];
 	        this.excludeFromGifRotation = source["excludeFromGifRotation"];
 	    }

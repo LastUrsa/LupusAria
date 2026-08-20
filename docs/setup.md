@@ -63,6 +63,7 @@ The Media Actions tab maps Twitch channel point redeems to local media and sound
 - select a custom reward from the channel
 - import supported media files: `.gif`, `.png`, `.jpg`, `.jpeg`, `.webp`
 - import supported sound files: `.wav`, `.mp3`, `.ogg`, `.flac`
+- set an individual 0–100% playback volume for every sound file, used by sound previews, Media Action previews, and OBS redeems
 - choose alert duration and scale, place the alert anywhere on a visual 16:9 overlay, and configure separate entrance and exit animations
 - optionally add text beneath the image and customize its font, size, bold, italic, underline, and color
 - view the selected reward's Twitch global cooldown
@@ -91,6 +92,8 @@ The local file waits for LupusAria and reconnects when the app becomes available
 The direct URL `http://127.0.0.1:47831/` remains available for development and troubleshooting, but the installed local file is recommended for OBS. Keep the overlay local to the streaming PC. Its event and media endpoints bind only to loopback.
 
 Caption settings are stored per Media Action. Leave `Text under image` empty to show only the media. The editor's text preview reflects the selected typography, and the same styling is used by both the in-app preview and OBS overlay. The caption scales together with its image so it remains attached beneath the media.
+
+Each sound has its own volume slider. Moving it while that sound is playing through the **Play** button or an in-app Media Action preview changes the active preview immediately. OBS uses the selected volume when the next preview or redeem starts. After saving Media Actions, live redeems reload the latest position, scale, media, sound, volume, and animation settings without requiring a bot restart.
 
 Use `Choose on overlay` to open the position picker. It displays the action's first image or GIF as the placement example; when no media is configured, it uses the action text or a placeholder. Click or drag within the frame to preview a position and use the 25–300% scale control to resize the example, then confirm to save both settings or cancel to discard them. Entrance and exit effects are configured independently and support none, fade, and sliding left, right, up, or down. Existing actions using the earlier center/corner positions and combined fade setting are migrated automatically when loaded.
 
