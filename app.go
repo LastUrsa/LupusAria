@@ -214,10 +214,11 @@ type MediaActionPlayback struct {
 }
 
 type overlayServer struct {
-	server  *http.Server
-	url     string
-	mu      sync.Mutex
-	clients map[chan []byte]bool
+	server            *http.Server
+	url               string
+	mu                sync.Mutex
+	clients           map[chan []byte]bool
+	heartbeatInterval time.Duration
 }
 
 type MediaPlaybackClip struct {
@@ -1146,8 +1147,9 @@ func newOverlayServerAtAddress(address string) (*overlayServer, error) {
 	}
 	address = listener.Addr().String()
 	overlay := &overlayServer{
-		url:     "http://" + address + "/",
-		clients: map[chan []byte]bool{},
+		url:               "http://" + address + "/",
+		clients:           map[chan []byte]bool{},
+		heartbeatInterval: 15 * time.Second,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", overlay.handleIndex)
@@ -1211,14 +1213,29 @@ func (s *overlayServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 		close(client)
 	}()
 
-	_, _ = fmt.Fprint(w, ": connected\n\n")
+	if _, err := fmt.Fprint(w, ": connected\n\n"); err != nil {
+		return
+	}
 	flusher.Flush()
+	heartbeatInterval := s.heartbeatInterval
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = 15 * time.Second
+	}
+	heartbeat := time.NewTicker(heartbeatInterval)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case data := <-client:
-			_, _ = fmt.Fprintf(w, "event: playback\ndata: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "event: playback\ndata: %s\n\n", data); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
+				return
+			}
 			flusher.Flush()
 		}
 	}
