@@ -5,6 +5,20 @@
   transition: grid-template-columns 160ms ease;
 }
 
+.wrapup-preview {
+  min-height: 260px;
+  margin: 18px 0;
+  padding: 18px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: inherit;
+  line-height: 1.55;
+  color: var(--color-neutral-100);
+  background: rgba(5, 8, 18, .55);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
 .app-shell.navigation-collapsed {
   grid-template-columns: 72px minmax(0, 1fr);
 }

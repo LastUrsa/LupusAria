@@ -33,6 +33,7 @@ import (
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/mediaactions"
 	"lupusaria/internal/twitch"
+	"lupusaria/internal/wrapup"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -56,6 +57,7 @@ type App struct {
 	logs      []string
 
 	overlay *overlayServer
+	wrapUp  *wrapup.Service
 }
 
 type ControlSettings struct {
@@ -114,6 +116,7 @@ type ControlSettings struct {
 	ResetPermission      string `json:"resetPermission"`
 	AutosoPermission     string `json:"autosoPermission"`
 	SORoulettePermission string `json:"soRoulettePermission"`
+	WrapUpPermission     string `json:"wrapUpPermission"`
 
 	GlobalCooldownSeconds int `json:"globalCooldownSeconds"`
 	UserCooldownSeconds   int `json:"userCooldownSeconds"`
@@ -279,6 +282,18 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if envPath, err := appEnvPath(); err == nil {
+		if cfg, e := config.LoadPartial(envPath); e == nil {
+			a.wrapUp, e = wrapup.New(cfg.Bot.WrapUpStatePath, func(r wrapup.Report) {
+				if a.ctx != nil {
+					runtime.EventsEmit(a.ctx, "wrapup-updated", r)
+				}
+			})
+			if e != nil {
+				a.appendLog("stream wrap-up unavailable: " + e.Error())
+			}
+		}
+	}
 	if path, err := installOBSOverlay(); err != nil {
 		a.appendLog("OBS overlay file unavailable: " + err.Error())
 	} else {
@@ -370,6 +385,7 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		ResetPermission:      cfg.Bot.ResetPermission,
 		AutosoPermission:     cfg.RecentStreamers.Permission,
 		SORoulettePermission: cfg.RecentStreamers.SORoulettePermission,
+		WrapUpPermission:     cfg.Bot.WrapUpPermission,
 
 		GlobalCooldownSeconds: int(cfg.Bot.GlobalCooldown / time.Second),
 		UserCooldownSeconds:   int(cfg.Bot.UserCooldown / time.Second),
@@ -443,6 +459,7 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"RESET_COMMAND_PERMISSION":       settings.ResetPermission,
 		"AUTOSO_COMMAND_PERMISSION":      settings.AutosoPermission,
 		"SO_ROULETTE_COMMAND_PERMISSION": settings.SORoulettePermission,
+		"WRAPUP_COMMAND_PERMISSION":      settings.WrapUpPermission,
 
 		"GLOBAL_COOLDOWN_SECONDS": strconv.Itoa(settings.GlobalCooldownSeconds),
 		"USER_COOLDOWN_SECONDS":   strconv.Itoa(settings.UserCooldownSeconds),
@@ -512,8 +529,9 @@ func (a *App) CheckTwitchPermissions() (TwitchPermissionCheck, error) {
 		"moderator:read:chatters",
 		"moderator:read:followers",
 	}))
-	if cfg.AdAlerts.Enabled || cfg.Twitch.AdsOAuthToken != "" || cfg.Twitch.AdsRefreshToken != "" {
-		broadcasterScopes := []string{"channel:read:redemptions"}
+	if cfg.Twitch.AdsOAuthToken != "" || cfg.Twitch.AdsRefreshToken != "" {
+		broadcasterScopes := []string{"moderator:read:followers", "channel:read:subscriptions", "bits:read"}
+		broadcasterScopes = append(broadcasterScopes, "channel:read:redemptions")
 		if cfg.AdAlerts.Enabled {
 			broadcasterScopes = append(broadcasterScopes, "channel:read:ads")
 		}
@@ -522,7 +540,7 @@ func (a *App) CheckTwitchPermissions() (TwitchPermissionCheck, error) {
 		check.Items = append(check.Items, TwitchPermissionItem{
 			Name:   "Broadcaster token",
 			Status: "warning",
-			Detail: "No broadcaster token is saved. Media Actions need a channel token with channel:read:redemptions.",
+			Detail: "No broadcaster token is saved. Stream Wrap-Up needs moderator:read:followers, channel:read:subscriptions, and bits:read.",
 		})
 	}
 	check.Overall = overallPermissionStatus(check.Items)
@@ -1021,6 +1039,7 @@ func (a *App) StartBot() error {
 		return err
 	}
 	mediaOptions := botrunner.Options{}
+	mediaOptions.WrapUp = a.wrapUp
 	actions, actionErr := loadEnabledMediaActions()
 	if actionErr != nil {
 		a.appendLog("media actions disabled: " + actionErr.Error())
@@ -1055,6 +1074,17 @@ func (a *App) StopBot() error {
 		cancel()
 	}
 	return nil
+}
+
+func (a *App) GetWrapUp() (wrapup.Report, error) {
+	if a.wrapUp == nil {
+		return wrapup.Report{}, errors.New("stream wrap-up is unavailable")
+	}
+	report, ok := a.wrapUp.Current()
+	if !ok {
+		return wrapup.Report{Status: "none", Formatted: "No stream session has been recorded yet."}, nil
+	}
+	return report, nil
 }
 
 func (a *App) GetLogs() []string {

@@ -38,6 +38,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetWrapUp() {
+  return window['go']['main']['App']['GetWrapUp']();
+}
+
 export function ImportMediaActionAssets(arg1, arg2) {
   return window['go']['main']['App']['ImportMediaActionAssets'](arg1, arg2);
 }

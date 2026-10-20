@@ -15,6 +15,7 @@ import (
 )
 
 type StreamInfo struct {
+	ID          string
 	Channel     string
 	Title       string
 	GameName    string
@@ -90,6 +91,7 @@ func (c *HelixClient) GetStreamInfo(ctx context.Context, channel string) (Stream
 	endpoint := "https://api.twitch.tv/helix/streams?user_login=" + url.QueryEscape(channel)
 	var result struct {
 		Data []struct {
+			ID          string    `json:"id"`
 			UserLogin   string    `json:"user_login"`
 			Title       string    `json:"title"`
 			GameName    string    `json:"game_name"`
@@ -107,6 +109,7 @@ func (c *HelixClient) GetStreamInfo(ctx context.Context, channel string) (Stream
 
 	stream := result.Data[0]
 	return StreamInfo{
+		ID:          stream.ID,
 		Channel:     stream.UserLogin,
 		Title:       stream.Title,
 		GameName:    stream.GameName,

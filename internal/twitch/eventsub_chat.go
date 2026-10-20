@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"lupusaria/internal/wrapup"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,18 +19,21 @@ import (
 const eventSubWebSocketURL = "wss://eventsub.wss.twitch.tv/ws"
 
 type EventSubConfig struct {
-	ClientID       string
-	Token          string
-	SendToken      string
-	AdClientID     string
-	AdToken        string
-	RedeemClientID string
-	RedeemToken    string
-	Channel        string
-	BroadcasterID  string
-	UserID         string
-	AdBreaks       chan<- AdBreakEvent
-	Redeems        chan<- ChannelPointRedeemEvent
+	ClientID         string
+	Token            string
+	SendToken        string
+	AdClientID       string
+	AdToken          string
+	RedeemClientID   string
+	RedeemToken      string
+	BroadcasterToken string
+	ModeratorID      string
+	Channel          string
+	BroadcasterID    string
+	UserID           string
+	AdBreaks         chan<- AdBreakEvent
+	Redeems          chan<- ChannelPointRedeemEvent
+	WrapUpEvents     chan<- wrapup.Event
 }
 
 type AdBreakEvent struct {
@@ -197,6 +201,29 @@ func (c *EventSubChatClient) subscribeToRedeems(ctx context.Context, sessionID s
 }
 
 func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, sessionID string) error {
+	if c.cfg.WrapUpEvents != nil {
+		helix := c.helix
+		if strings.TrimSpace(c.cfg.BroadcasterToken) != "" {
+			helix = NewHelixClient(c.cfg.ClientID, c.cfg.BroadcasterToken)
+		}
+		condition := map[string]string{"broadcaster_user_id": c.cfg.BroadcasterID}
+		for _, sub := range []struct {
+			typ, version string
+			condition    map[string]string
+		}{
+			{"stream.online", "1", condition}, {"stream.offline", "1", condition},
+			{"channel.subscribe", "1", condition}, {"channel.subscription.message", "1", condition},
+			{"channel.subscription.gift", "1", condition}, {"channel.cheer", "1", condition},
+			{"channel.raid", "1", map[string]string{"to_broadcaster_user_id": c.cfg.BroadcasterID}},
+			{"channel.follow", "2", map[string]string{"broadcaster_user_id": c.cfg.BroadcasterID, "moderator_user_id": firstNonEmpty(c.cfg.ModeratorID, c.cfg.BroadcasterID)}},
+		} {
+			if err := helix.CreateEventSubWebSocketSubscription(ctx, sub.typ, sub.version, sub.condition, sessionID); err != nil {
+				if c.logger != nil {
+					c.logger.Warn("wrap-up EventSub subscription unavailable", "type", sub.typ, "error", err)
+				}
+			}
+		}
+	}
 	if err := c.subscribeToRedeems(ctx, sessionID); err != nil {
 		return fmt.Errorf("subscribe to channel point redeems: %w", err)
 	}
@@ -207,7 +234,7 @@ func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, s
 }
 
 func (c *EventSubChatClient) needsBroadcasterSession() bool {
-	return c.cfg.Redeems != nil || c.cfg.AdBreaks != nil
+	return c.cfg.Redeems != nil || c.cfg.AdBreaks != nil || c.cfg.WrapUpEvents != nil
 }
 
 func (c *EventSubChatClient) connectSession(ctx context.Context, rawURL string) (*websocket.Conn, eventSubSession, error) {
@@ -269,6 +296,12 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 			}
 			if c.logger != nil {
 				c.logger.Warn(label+" read failed; reconnecting", "error", err)
+			}
+			if c.cfg.WrapUpEvents != nil && label == "EventSub broadcaster" {
+				select {
+				case c.cfg.WrapUpEvents <- wrapup.Event{MessageID: fmt.Sprintf("gap-%d", time.Now().UnixNano()), Type: "gap", At: time.Now().UTC()}:
+				default:
+				}
 			}
 			next, err := c.reconnectFresh(ctx, subscribe, setConn, label)
 			if err != nil {
@@ -340,6 +373,18 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 				} else if c.logger != nil {
 					c.logger.Warn("EventSub channel point redeem payload could not be parsed")
 				}
+			default:
+				if c.cfg.WrapUpEvents != nil {
+					if event, ok := eventSubWrapUpEvent(subscriptionType, msg.Metadata.MessageID, msg.Payload.Event); ok {
+						select {
+						case c.cfg.WrapUpEvents <- event:
+						default:
+							if c.logger != nil {
+								c.logger.Warn("wrap-up event dropped; receiver is busy")
+							}
+						}
+					}
+				}
 			}
 		case "revocation":
 			if c.logger != nil {
@@ -391,6 +436,7 @@ type eventSubMessage struct {
 }
 
 type eventSubMetadata struct {
+	MessageID           string `json:"message_id"`
 	MessageType         string `json:"message_type"`
 	SubscriptionType    string `json:"subscription_type"`
 	SubscriptionVersion string `json:"subscription_version"`
@@ -415,21 +461,32 @@ type eventSubSubscription struct {
 }
 
 type eventSubChatEvent struct {
-	BroadcasterUserLogin string          `json:"broadcaster_user_login"`
-	ChatterUserID        string          `json:"chatter_user_id"`
-	ChatterUserLogin     string          `json:"chatter_user_login"`
-	ChatterUserName      string          `json:"chatter_user_name"`
-	ID                   string          `json:"id"`
-	UserID               string          `json:"user_id"`
-	UserLogin            string          `json:"user_login"`
-	UserName             string          `json:"user_name"`
-	UserInput            string          `json:"user_input"`
-	MessageID            string          `json:"message_id"`
-	DurationSeconds      flexibleInteger `json:"duration_seconds"`
-	StartedAt            string          `json:"started_at"`
-	RedeemedAt           string          `json:"redeemed_at"`
-	IsAutomatic          flexibleBool    `json:"is_automatic"`
-	Reward               struct {
+	BroadcasterUserID       string          `json:"broadcaster_user_id"`
+	BroadcasterUserLogin    string          `json:"broadcaster_user_login"`
+	ChatterUserID           string          `json:"chatter_user_id"`
+	ChatterUserLogin        string          `json:"chatter_user_login"`
+	ChatterUserName         string          `json:"chatter_user_name"`
+	ID                      string          `json:"id"`
+	UserID                  string          `json:"user_id"`
+	UserLogin               string          `json:"user_login"`
+	UserName                string          `json:"user_name"`
+	UserInput               string          `json:"user_input"`
+	MessageID               string          `json:"message_id"`
+	DurationSeconds         flexibleInteger `json:"duration_seconds"`
+	StartedAt               string          `json:"started_at"`
+	FollowedAt              string          `json:"followed_at"`
+	IsGift                  bool            `json:"is_gift"`
+	IsAnonymous             bool            `json:"is_anonymous"`
+	Tier                    string          `json:"tier"`
+	Total                   int             `json:"total"`
+	Bits                    int             `json:"bits"`
+	CumulativeMonths        int             `json:"cumulative_months"`
+	FromBroadcasterUserID   string          `json:"from_broadcaster_user_id"`
+	FromBroadcasterUserName string          `json:"from_broadcaster_user_name"`
+	Viewers                 int             `json:"viewers"`
+	RedeemedAt              string          `json:"redeemed_at"`
+	IsAutomatic             flexibleBool    `json:"is_automatic"`
+	Reward                  struct {
 		ID    string `json:"id"`
 		Title string `json:"title"`
 	} `json:"reward"`
@@ -445,6 +502,60 @@ type eventSubChatEvent struct {
 		ParentUserLogin   string `json:"parent_user_login"`
 		ParentUserName    string `json:"parent_user_name"`
 	} `json:"reply"`
+}
+
+func eventSubWrapUpEvent(kind, messageID string, e eventSubChatEvent) (wrapup.Event, bool) {
+	at := time.Now().UTC()
+	parse := func(raw string) {
+		if t, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			at = t
+		}
+	}
+	v := wrapup.Event{MessageID: messageID, UserID: e.UserID, Name: e.UserName, At: at, Metadata: map[string]any{}}
+	switch kind {
+	case "stream.online":
+		parse(e.StartedAt)
+		v.Type = "online"
+		v.UserID = e.BroadcasterUserID
+		v.Metadata["streamId"] = e.ID
+	case "stream.offline":
+		v.Type = "offline"
+		v.UserID = e.BroadcasterUserID
+	case "channel.follow":
+		parse(e.FollowedAt)
+		v.Type = "follow"
+	case "channel.subscribe":
+		v.Type = "subscribe"
+		v.Metadata["tier"] = e.Tier
+		v.Metadata["isGift"] = e.IsGift
+	case "channel.subscription.message":
+		v.Type = "resub"
+		v.Metadata["tier"] = e.Tier
+		v.Metadata["months"] = e.CumulativeMonths
+	case "channel.subscription.gift":
+		v.Type = "gift"
+		v.Metadata["tier"] = e.Tier
+		v.Metadata["total"] = e.Total
+		if e.IsAnonymous {
+			v.UserID = ""
+			v.Name = "Anonymous"
+		}
+	case "channel.cheer":
+		v.Type = "cheer"
+		v.Metadata["bits"] = e.Bits
+		if e.IsAnonymous {
+			v.UserID = ""
+			v.Name = "Anonymous"
+		}
+	case "channel.raid":
+		v.Type = "raid"
+		v.UserID = e.FromBroadcasterUserID
+		v.Name = e.FromBroadcasterUserName
+		v.Metadata["viewers"] = e.Viewers
+	default:
+		return wrapup.Event{}, false
+	}
+	return v, true
 }
 
 type eventSubChatFragment struct {

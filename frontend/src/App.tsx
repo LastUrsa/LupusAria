@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
-import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
+import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, GetWrapUp, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
 import lupusAriaIcon from './assets/images/LupusAriaIcon.png'
 import './App.css'
@@ -87,7 +87,8 @@ type MediaPlaybackClip = {
   mediaFrameDataUrls?: string[]
   mediaFrameDelaysMs?: number[]
 }
-type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'mediaActions' | 'knowledge'
+type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'wrapup' | 'mediaActions' | 'knowledge'
+type WrapUpReport = { sessionId: string; streamId: string; status: string; startedAt: string; followerCount: number; subscriptionCount: number; giftedSubCount: number; bits: number; raidCount: number; formatted: string; stats: string; completenessWarning?: string }
 type AnnouncementKind = 'command' | 'timer'
 
 const activeSoundPreviews = new Map<string, Set<HTMLAudioElement>>()
@@ -99,6 +100,7 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'setup', label: 'Setup' },
   { id: 'aiBudget', label: 'AI & Budget' },
   { id: 'features', label: 'Features' },
+  { id: 'wrapup', label: 'Stream Wrap-Up' },
   { id: 'mediaActions', label: 'Media Actions' },
   { id: 'knowledge', label: 'Knowledge' }
 ]
@@ -190,6 +192,7 @@ const emptySettings: Settings = {
   resetPermission: 'broadcaster',
   autosoPermission: 'mods',
   soRoulettePermission: 'mods',
+  wrapUpPermission: 'broadcaster',
   globalCooldownSeconds: 6,
   userCooldownSeconds: 20,
   maxContextMessages: 30,
@@ -259,6 +262,7 @@ export default function App() {
   const [activePlayback, setActivePlayback] = useState<MediaActionPlayback | null>(null)
   const [mediaOverlayUrl, setMediaOverlayUrl] = useState('')
   const [permissionCheck, setPermissionCheck] = useState<TwitchPermissionCheck | null>(null)
+  const [wrapUp, setWrapUp] = useState<WrapUpReport | null>(null)
   const [notice, setNotice] = useState('')
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
@@ -292,6 +296,7 @@ export default function App() {
         }))
       }
       setLogs((await GetLogs()) ?? [])
+      setWrapUp(await GetWrapUp())
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
     }
@@ -309,8 +314,20 @@ export default function App() {
         window.clearTimeout(playbackTimerRef.current)
       }
       EventsOff('media-action-playback')
+      EventsOff('wrapup-updated')
     }
   }, [])
+
+  useEffect(() => {
+    EventsOn('wrapup-updated', (report: WrapUpReport) => setWrapUp(report))
+    return () => EventsOff('wrapup-updated')
+  }, [])
+
+  async function copyWrapUp() {
+    if (!wrapUp?.formatted) return
+    try { await navigator.clipboard.writeText(wrapUp.formatted); showToast('Stream wrap-up copied.') }
+    catch (error) { setNotice(`Could not copy stream wrap-up: ${error instanceof Error ? error.message : String(error)}`) }
+  }
 
   useEffect(() => {
     window.localStorage.setItem('lupusaria-navigation-collapsed', String(navigationCollapsed))
@@ -576,12 +593,13 @@ export default function App() {
   const setupState = setupMissing === 0 && twitchCredentialReady && twitchAppReady ? 'Ready' : 'Needs setup'
   const aiReady = settings.aiProvider === 'mock' || settings.hasGeminiApiKey || settings.hasAiApiKey || settings.geminiApiKey.trim() !== '' || settings.aiApiKey.trim() !== ''
   const chatRepliesEnabled = settings.enableMentions || settings.enableAsk || settings.enableLurk
-  const canSaveSection = section !== 'overview'
+  const canSaveSection = section !== 'overview' && section !== 'wrapup'
   const topbarCopy: Record<Section, string> = {
     overview: 'Status, launch controls, and recent activity.',
     setup: 'Twitch account, streamer identity, and credentials.',
     aiBudget: 'Provider, models, keys, context, and cost rails.',
     features: 'Chat behavior, AutoSO, ad alerts, and announcements.',
+    wrapup: 'Live supporter totals and a copyable end-of-stream thank-you list.',
     mediaActions: 'Random media and sounds for channel point redeems.',
     knowledge: 'Stable channel facts for AI replies.'
   }
@@ -754,6 +772,23 @@ export default function App() {
             </Card>
           )}
 
+          {section === 'wrapup' && (
+            <Card title="Stream Wrap-Up" wide>
+              <div className="status-strip" aria-label="Wrap-up summary">
+                <StatusChip label="Session" value={wrapUp?.status === 'live' ? 'Live' : wrapUp?.status === 'complete' ? 'Completed' : 'None'} tone={wrapUp?.status === 'live' ? 'good' : 'normal'} />
+                <StatusChip label="Followers" value={String(wrapUp?.followerCount ?? 0)} tone="normal" />
+                <StatusChip label="Subscriptions" value={String(wrapUp?.subscriptionCount ?? 0)} tone="normal" />
+                <StatusChip label="Gift Subs" value={String(wrapUp?.giftedSubCount ?? 0)} tone="normal" />
+                <StatusChip label="Bits" value={(wrapUp?.bits ?? 0).toLocaleString()} tone="normal" />
+                <StatusChip label="Raids" value={String(wrapUp?.raidCount ?? 0)} tone="normal" />
+              </div>
+              <div className="info-callout"><strong>{wrapUp?.streamId ? `Twitch stream ${wrapUp.streamId}` : wrapUp?.sessionId || 'No stream session'}</strong><span>{wrapUp?.startedAt ? `Started ${new Date(wrapUp.startedAt).toLocaleString()}` : 'Tracking begins when Twitch confirms the channel is live.'}</span></div>
+              {wrapUp?.completenessWarning && <div className="notice error">{wrapUp.completenessWarning}</div>}
+              <pre className="wrapup-preview">{wrapUp?.formatted || 'No stream session has been recorded yet.'}</pre>
+              <div className="announcement-actions"><button type="button" onClick={() => refresh(false)}>Refresh Preview</button><button className="secondary" type="button" onClick={copyWrapUp} disabled={!wrapUp?.formatted}>Copy Wrap-Up</button></div>
+            </Card>
+          )}
+
           {section === 'mediaActions' && (
             <MediaActionsPanel
               actions={mediaActions}
@@ -794,6 +829,7 @@ export default function App() {
                   <SelectField label="!commands permission" value={settings.commandsPermission} options={permissionOptions} onChange={(value) => update('commandsPermission', value)} />
                   <SelectField label="!reset permission" value={settings.resetPermission} options={permissionOptions} onChange={(value) => update('resetPermission', value)} />
                 </div>
+                <SelectField label="!wrapup permission (all subcommands)" value={settings.wrapUpPermission} options={permissionOptions} onChange={(value) => update('wrapUpPermission', value)} />
                 <div className="split">
                   <NumberField label="Global cooldown seconds" value={settings.globalCooldownSeconds} onChange={(value) => update('globalCooldownSeconds', value)} />
                   <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
@@ -927,6 +963,12 @@ export function NavIcon({ section }: { section: Section }) {
         <path d="M4 17h3" />
         <path d="M11 17h9" />
         <circle cx="9" cy="17" r="2" />
+      </>
+    ),
+    wrapup: (
+      <>
+        <path d="M5 4h14v16H5z" />
+        <path d="M8 8h8M8 12h8M8 16h5" />
       </>
     ),
     mediaActions: (

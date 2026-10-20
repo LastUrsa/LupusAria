@@ -10,6 +10,7 @@
 .lupusaria-knowledge.md
 .lupusaria-chat.jsonl
 .lupusaria-emotes.json
+.lupusaria-wrapup.json
 examples/knowledge/ursa.md
 exports/
 /bin/
