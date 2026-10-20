@@ -18,10 +18,12 @@ import (
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
+	"lupusaria/internal/wrapup"
 )
 
 type Options struct {
 	MediaActionRedeem func(context.Context, twitch.ChannelPointRedeemEvent)
+	WrapUp            *wrapup.Service
 }
 
 func Run(ctx context.Context, envPath string, logger *slog.Logger) error {
@@ -69,7 +71,7 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}
 	}
 
-	if (cfg.AdAlerts.Enabled || options.MediaActionRedeem != nil) && cfg.Twitch.AdsRefreshToken != "" {
+	if (cfg.AdAlerts.Enabled || options.MediaActionRedeem != nil || options.WrapUp != nil) && cfg.Twitch.AdsRefreshToken != "" {
 		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
 			ClientID:                     cfg.Twitch.AdsClientID,
 			ClientSecret:                 cfg.Twitch.AdsClientSecret,
@@ -100,6 +102,7 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	var channelEmotes []twitch.Emote
 	var adBreaks chan twitch.AdBreakEvent
 	var redeems chan twitch.ChannelPointRedeemEvent
+	var wrapEvents chan wrapup.Event
 	if cfg.Twitch.ClientID != "" {
 		helix = twitch.NewHelixClient(cfg.Twitch.ClientID, cfg.Twitch.OAuthToken)
 		streamProvider = helix
@@ -122,8 +125,22 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	if options.MediaActionRedeem != nil {
 		redeems = make(chan twitch.ChannelPointRedeemEvent, 32)
 	}
+	if options.WrapUp != nil {
+		wrapEvents = make(chan wrapup.Event, 64)
+		if helix != nil {
+			if info, e := helix.GetStreamInfo(ctx, cfg.Twitch.Channel); e != nil {
+				logger.Warn("could not reconcile wrap-up stream status", "error", e)
+			} else if info.Live {
+				if e = options.WrapUp.Online(info.ID, broadcasterID, info.StartedAt); e != nil {
+					logger.Warn("could not resume wrap-up stream session", "error", e)
+				}
+			} else if e = options.WrapUp.Offline(time.Now().UTC()); e != nil {
+				logger.Warn("could not finalize wrap-up stream session", "error", e)
+			}
+		}
+	}
 
-	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, redeems, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
+	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, redeems, wrapEvents, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
 
 	if helix != nil && cfg.RecentStreamers.Enabled {
 		recentService = recentstreamers.New(recentstreamers.Config{
@@ -172,6 +189,8 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		GamePermission:        cfg.Bot.GamePermission,
 		CommandsPermission:    cfg.Bot.CommandsPermission,
 		ResetPermission:       cfg.Bot.ResetPermission,
+		WrapUpPermission:      cfg.Bot.WrapUpPermission,
+		WrapUp:                options.WrapUp,
 		MaxContextMessages:    cfg.Bot.MaxContextMessages,
 		StreamContextTTL:      cfg.Bot.StreamContextTTL,
 		GlobalCooldown:        cfg.Bot.GlobalCooldown,
@@ -257,6 +276,29 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 			}
 		}()
 	}
+	if wrapEvents != nil {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event := <-wrapEvents:
+					var err error
+					switch event.Type {
+					case "online":
+						err = options.WrapUp.Online(fmt.Sprint(event.Metadata["streamId"]), event.UserID, event.At)
+					case "offline":
+						err = options.WrapUp.Offline(event.At)
+					default:
+						err = options.WrapUp.Record(event)
+					}
+					if err != nil {
+						logger.Warn("failed to persist wrap-up event", "type", event.Type, "error", err)
+					}
+				}
+			}
+		}()
+	}
 
 	err = runner.Run(ctx)
 	if errors.Is(err, context.Canceled) {
@@ -292,7 +334,7 @@ func appAccessToken(ctx context.Context, cfg config.Config, logger *slog.Logger)
 	return tokenSet.AccessToken
 }
 
-func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, adBreaks chan<- twitch.AdBreakEvent, redeems chan<- twitch.ChannelPointRedeemEvent, logger *slog.Logger) bot.Chat {
+func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string, adBreaks chan<- twitch.AdBreakEvent, redeems chan<- twitch.ChannelPointRedeemEvent, wrapEvents chan<- wrapup.Event, logger *slog.Logger) bot.Chat {
 	if cfg.Twitch.ClientID != "" && cfg.Twitch.OAuthToken != "" && broadcasterID != "" && botUserID != "" {
 		if logger != nil {
 			logger.Info("configuring EventSub chat transport",
@@ -302,18 +344,21 @@ func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string
 			)
 		}
 		return twitch.NewEventSubChatClient(twitch.EventSubConfig{
-			ClientID:       cfg.Twitch.ClientID,
-			Token:          cfg.Twitch.OAuthToken,
-			SendToken:      sendToken,
-			AdClientID:     cfg.Twitch.AdsClientID,
-			AdToken:        cfg.Twitch.AdsOAuthToken,
-			RedeemClientID: cfg.Twitch.AdsClientID,
-			RedeemToken:    cfg.Twitch.AdsOAuthToken,
-			Channel:        cfg.Twitch.Channel,
-			BroadcasterID:  broadcasterID,
-			UserID:         botUserID,
-			AdBreaks:       adBreaks,
-			Redeems:        redeems,
+			ClientID:         cfg.Twitch.ClientID,
+			Token:            cfg.Twitch.OAuthToken,
+			SendToken:        sendToken,
+			AdClientID:       cfg.Twitch.AdsClientID,
+			AdToken:          cfg.Twitch.AdsOAuthToken,
+			RedeemClientID:   cfg.Twitch.AdsClientID,
+			RedeemToken:      cfg.Twitch.AdsOAuthToken,
+			BroadcasterToken: cfg.Twitch.AdsOAuthToken,
+			ModeratorID:      broadcasterID,
+			Channel:          cfg.Twitch.Channel,
+			BroadcasterID:    broadcasterID,
+			UserID:           botUserID,
+			AdBreaks:         adBreaks,
+			Redeems:          redeems,
+			WrapUpEvents:     wrapEvents,
 		}, logger)
 	}
 	if logger != nil {

@@ -69,6 +69,8 @@ type BotConfig struct {
 	GamePermission     string
 	CommandsPermission string
 	ResetPermission    string
+	WrapUpPermission   string
+	WrapUpStatePath    string
 	MaxContextMessages int
 	StreamContextTTL   time.Duration
 	GlobalCooldown     time.Duration
@@ -202,6 +204,8 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			GamePermission:     commandPermission(values, "GAME_COMMAND_PERMISSION", "everyone"),
 			CommandsPermission: commandPermission(values, "COMMANDS_COMMAND_PERMISSION", "everyone"),
 			ResetPermission:    commandPermission(values, "RESET_COMMAND_PERMISSION", "broadcaster"),
+			WrapUpPermission:   commandPermission(values, "WRAPUP_COMMAND_PERMISSION", "broadcaster"),
+			WrapUpStatePath:    resolveLocalPath(baseDir, get(values, "WRAPUP_STATE_PATH", ".lupusaria-wrapup.json")),
 			MaxContextMessages: getInt(values, "MAX_CONTEXT_MESSAGES", 30),
 			StreamContextTTL:   time.Duration(getInt(values, "STREAM_CONTEXT_TTL_SECONDS", 120)) * time.Second,
 			GlobalCooldown:     time.Duration(getInt(values, "GLOBAL_COOLDOWN_SECONDS", 6)) * time.Second,

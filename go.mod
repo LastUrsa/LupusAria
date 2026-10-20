@@ -2,6 +2,8 @@ module lupusaria
 
 go 1.25.0
 
+toolchain go1.26.9
+
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/wailsapp/wails/v2 v2.12.0

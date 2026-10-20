@@ -20,6 +20,7 @@ import (
 	"lupusaria/internal/personality"
 	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
+	"lupusaria/internal/wrapup"
 )
 
 type Chat interface {
@@ -45,6 +46,8 @@ type Config struct {
 	GamePermission        string
 	CommandsPermission    string
 	ResetPermission       string
+	WrapUpPermission      string
+	WrapUp                *wrapup.Service
 	MaxContextMessages    int
 	StreamContextTTL      time.Duration
 	GlobalCooldown        time.Duration
@@ -97,6 +100,8 @@ type Bot struct {
 	cooldownMu    sync.Mutex
 	lastGlobalUse time.Time
 	lastUserUse   map[string]time.Time
+	resetMu       sync.Mutex
+	resetPending  map[string]time.Time
 }
 
 type chatContextEntry struct {
@@ -153,6 +158,7 @@ func New(cfg Config, chat Chat, aiClient ai.Client, streamProvider StreamInfoPro
 		aiQueue:       make(chan queuedAIRequest, aiQueueCapacity),
 		aiPendingUser: map[string]bool{},
 		lastUserUse:   map[string]time.Time{},
+		resetPending:  map[string]time.Time{},
 	}
 }
 
@@ -163,6 +169,7 @@ func normalizeConfigPermissions(cfg Config) Config {
 	cfg.GamePermission = normalizePermissionOrDefault(cfg.GamePermission, "everyone")
 	cfg.CommandsPermission = normalizePermissionOrDefault(cfg.CommandsPermission, "everyone")
 	cfg.ResetPermission = normalizePermissionOrDefault(cfg.ResetPermission, "broadcaster")
+	cfg.WrapUpPermission = normalizePermissionOrDefault(cfg.WrapUpPermission, "broadcaster")
 	return cfg
 }
 
@@ -424,6 +431,44 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 	if b.ann != nil && b.ann.HandleCommand(ctx, msg) {
 		return true
 	}
+	if b.cfg.EnableCommands && b.cfg.WrapUp != nil && (lower == "!wrapup" || strings.HasPrefix(lower, "!wrapup ")) {
+		if !b.commandAllowed(msg, b.cfg.WrapUpPermission) {
+			b.say(msg.Channel, permissionDeniedMessage("!wrapup", b.cfg.WrapUpPermission))
+			return true
+		}
+		arg := strings.TrimSpace(strings.TrimPrefix(lower, "!wrapup"))
+		report, ok := b.cfg.WrapUp.Current()
+		if !ok {
+			b.say(msg.Channel, "No stream session has been recorded yet.")
+			return true
+		}
+		switch arg {
+		case "", "preview":
+			b.say(msg.Channel, report.Stats+" Full wrap-up is ready in Lupus Aria.")
+		case "stats":
+			b.say(msg.Channel, report.Stats)
+		case "reset":
+			b.resetMu.Lock()
+			b.resetPending[msg.UserID] = time.Now().Add(30 * time.Second)
+			b.resetMu.Unlock()
+			b.say(msg.Channel, "To clear this stream's wrap-up, confirm within 30 seconds with !wrapup reset confirm.")
+		case "reset confirm":
+			b.resetMu.Lock()
+			until := b.resetPending[msg.UserID]
+			delete(b.resetPending, msg.UserID)
+			b.resetMu.Unlock()
+			if time.Now().After(until) {
+				b.say(msg.Channel, "Wrap-up reset confirmation expired. Run !wrapup reset again.")
+			} else if err := b.cfg.WrapUp.Reset(); err != nil {
+				b.say(msg.Channel, "Could not reset the wrap-up.")
+			} else {
+				b.say(msg.Channel, "This stream's wrap-up events were cleared.")
+			}
+		default:
+			b.say(msg.Channel, "Usage: !wrapup [preview|stats|reset]")
+		}
+		return true
+	}
 
 	switch {
 	case b.cfg.EnableCommands && (lower == "!game" || strings.HasPrefix(lower, "!game ")):
@@ -438,7 +483,7 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 			b.say(msg.Channel, permissionDeniedMessage("!commands", b.cfg.CommandsPermission))
 			return true
 		}
-		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !autoso, !autoso next, !autoso refresh, !autoso status, !soroulette.", b.cfg.Name))
+		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !wrapup [preview|stats|reset], !autoso, !autoso next, !autoso refresh, !autoso status, !soroulette.", b.cfg.Name))
 		return true
 	case b.cfg.EnableReset && lower == "!reset":
 		if !b.commandAllowed(msg, b.cfg.ResetPermission) {

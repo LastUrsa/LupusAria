@@ -128,6 +128,23 @@ When the Twitch client secret is saved, LupusAria uses an app access token for T
 
 Media Actions require a broadcaster token with `channel:read:redemptions`. Ad alerts require `channel:read:ads`. If both are enabled, generate one broadcaster token with both scopes:
 
+Stream Wrap-Up uses the existing broadcaster EventSub connection. Its broadcaster token needs `moderator:read:followers channel:read:subscriptions bits:read`; `channel.raid`, `stream.online`, and `stream.offline` require no additional scope. A combined token can include these alongside the scopes for Media Actions and ad alerts. Use **Setup → Check permissions** to validate the saved token and see missing scopes.
+
+## Stream Wrap-Up
+
+Lupus Aria starts or resumes a session from Twitch's authoritative stream ID, stores each EventSub delivery ID for durable deduplication, finalizes the session when Twitch reports the stream offline, and retains the completed session for offline access. The state file defaults to `.lupusaria-wrapup.json` beside the app configuration and is created with user-only file permissions. Override it with `WRAPUP_STATE_PATH` if needed.
+
+The app's **Stream Wrap-Up** section shows session status, Twitch stream ID, event totals, the complete thank-you list, and a **Copy Wrap-Up** button. Updates arrive live while the backend is connected. If EventSub disconnects, the report warns that events during the interruption may be missing; Twitch does not provide reliable backfill for all support events.
+
+Configuration:
+
+```env
+WRAPUP_COMMAND_PERMISSION=broadcaster
+WRAPUP_STATE_PATH=.lupusaria-wrapup.json
+```
+
+The state file contains Twitch user IDs, display names, contribution metadata, timestamps, and EventSub delivery IDs. It does not contain OAuth tokens. Keep it local; the default path is gitignored.
+
 ```bash
 twitch token -u --dcf -s 'channel:read:redemptions channel:read:ads'
 ```
@@ -186,7 +203,7 @@ AI usage logs include provider finish reasons when available. Max-token or lengt
 
 ## Security Notes
 
-- Keep `.env`, token state files, budget state files, and announcement config files local and gitignored.
+- Keep `.env`, token state files, budget state files, announcement config files, and Stream Wrap-Up state local and gitignored.
 - Before committing, verify `.env` remains ignored with `git check-ignore -v .env` and scan staged changes for credentials.
 - Keep emote description caches local if they contain channel-specific emote notes.
 - Keep `.lupusaria-knowledge.md` local if it contains streamer-specific private or semi-private details.

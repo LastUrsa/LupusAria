@@ -44,6 +44,7 @@ They are governed by:
 - `GAME_COMMAND_PERMISSION`
 - `COMMANDS_COMMAND_PERMISSION`
 - `RESET_COMMAND_PERMISSION`
+- `WRAPUP_COMMAND_PERMISSION`
 - `MAX_AI_REQUESTS_PER_HOUR`
 - `DAILY_AI_BUDGET_USD`
 - `MONTHLY_AI_BUDGET_USD`
@@ -65,6 +66,17 @@ AI usage logs include provider finish reasons when available. `MAX_TOKENS`, leng
 
 Streamer identity and pronouns come from `STREAMER_NAME` and `STREAMER_PRONOUNS`. Stable channel facts come from the local knowledge file, which LupusAria creates from the starter template when needed.
 Chat transcripts are appended locally to `CHAT_LOG_PATH`, which defaults to `.lupusaria-chat.jsonl`.
+
+## Stream Wrap-Up
+
+Stream Wrap-Up uses Twitch's existing EventSub connection and is enabled whenever the bot is running. All wrap-up commands inherit `WRAPUP_COMMAND_PERMISSION`, which defaults to `broadcaster` and can be changed in the desktop app.
+
+- `!wrapup` refreshes the app and sends a compact numerical summary to chat. It never ends or clears the stream session.
+- `!wrapup preview` refreshes the same read-only report.
+- `!wrapup stats` sends only the numerical summary.
+- `!wrapup reset` starts a 30-second confirmation window. `!wrapup reset confirm` clears events only from the current or most recently completed session.
+
+The full supporter list is available under **Stream Wrap-Up** in the app. Use **Copy Wrap-Up** to copy the complete formatted list; Twitch chat receives only the concise summary.
 
 ## AutoSO
 

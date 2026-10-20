@@ -22,6 +22,7 @@ describe('collapsed navigation icons', () => {
     'setup',
     'aiBudget',
     'features',
+    'wrapup',
     'mediaActions',
     'knowledge'
   ] as const)('renders a recognizable SVG for %s', (section) => {

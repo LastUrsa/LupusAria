@@ -58,6 +58,7 @@ The app can start and stop the bot, manage account setup and saved secrets, edit
 - **Bring your own accounts:** you need your own Twitch bot or broadcaster account, Twitch application credentials, scoped Twitch tokens, and an API key or local endpoint for your chosen AI provider.
 - **AI cost controls:** AI calls only happen for enabled AI behaviors and are guarded by cooldowns, request limits, and optional daily/monthly budget caps.
 - **Local state:** `.env`, token states, budgets, announcements, media assets, emote caches, knowledge, and chat transcripts are local and gitignored.
+- **Stream Wrap-Up:** automatically records follows, subscriptions, gift subs, Bits, and incoming raids for each Twitch broadcast, then provides a live preview and complete copyable thank-you list in the desktop app.
 - **Media Actions:** channel point redeems can play random local images, GIFs, and sounds, with optional styled text beneath the image, through the reconnecting local OBS Browser Source installed under the app's user-data folder.
 - **Ad alerts:** Twitch ad schedule polling provides warnings; EventSub ad-break events provide live starts when available; delayed segments are merged into the current pod to avoid duplicate announcements.
 

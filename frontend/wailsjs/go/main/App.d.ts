@@ -20,6 +20,8 @@ export function GetMediaOverlayURL():Promise<string>;
 
 export function GetSettings():Promise<main.ControlSettings>;
 
+export function GetWrapUp():Promise<any>;
+
 export function ImportMediaActionAssets(arg1:main.MediaActionSettings,arg2:string):Promise<Array<main.MediaAssetSettings>>;
 
 export function PreviewMediaAction(arg1:main.MediaActionSettings):Promise<void>;

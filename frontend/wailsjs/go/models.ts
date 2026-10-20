@@ -98,6 +98,7 @@ export namespace main {
 	    resetPermission: string;
 	    autosoPermission: string;
 	    soRoulettePermission: string;
+	    wrapUpPermission: string;
 	    globalCooldownSeconds: number;
 	    userCooldownSeconds: number;
 	    maxContextMessages: number;
@@ -176,6 +177,7 @@ export namespace main {
 	        this.resetPermission = source["resetPermission"];
 	        this.autosoPermission = source["autosoPermission"];
 	        this.soRoulettePermission = source["soRoulettePermission"];
+	        this.wrapUpPermission = source["wrapUpPermission"];
 	        this.globalCooldownSeconds = source["globalCooldownSeconds"];
 	        this.userCooldownSeconds = source["userCooldownSeconds"];
 	        this.maxContextMessages = source["maxContextMessages"];
