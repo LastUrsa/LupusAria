@@ -126,9 +126,15 @@ Set the bot username, channel, streamer identity, Twitch client ID, client secre
 
 When the Twitch client secret is saved, LupusAria uses an app access token for Twitch API chat sends. This is the Twitch Chat Bot Badge path when the bot account has authorized `user:bot` and `user:write:chat`, the bot is not the broadcaster account, and the bot is a moderator in the channel or the broadcaster has granted `channel:bot` to the app.
 
-Media Actions require a broadcaster token with `channel:read:redemptions`. Ad alerts require `channel:read:ads`. If both are enabled, generate one broadcaster token with both scopes:
+The Setup tab calls the second credential group **Broadcaster credentials**. These fields map to the existing `TWITCH_ADS_*` environment variables for backward compatibility, but the token is shared by Stream Wrap-Up, Media Actions, and ad alerts. It must be authorized as the broadcaster/channel owner.
 
-Stream Wrap-Up uses the existing broadcaster EventSub connection. Its broadcaster token needs `moderator:read:followers channel:read:subscriptions bits:read`; `channel.raid`, `stream.online`, and `stream.offline` require no additional scope. A combined token can include these alongside the scopes for Media Actions and ad alerts. Use **Setup → Check permissions** to validate the saved token and see missing scopes.
+Stream Wrap-Up needs `moderator:read:followers channel:read:subscriptions bits:read`. Media Actions additionally require `channel:read:redemptions`, and ad alerts require `channel:read:ads`. `channel.raid`, `stream.online`, and `stream.offline` require no additional scope. To enable all three features, generate one broadcaster token with:
+
+```bash
+twitch token -u --dcf -s 'moderator:read:followers channel:read:subscriptions bits:read channel:read:redemptions channel:read:ads'
+```
+
+Enter that token in **Broadcaster OAuth token** or save its refresh token in **Broadcaster refresh token**. Use **Setup → Check permissions** to validate the saved token and see missing scopes.
 
 ## Stream Wrap-Up
 
@@ -145,21 +151,17 @@ WRAPUP_STATE_PATH=.lupusaria-wrapup.json
 
 The state file contains Twitch user IDs, display names, contribution metadata, timestamps, and EventSub delivery IDs. It does not contain OAuth tokens. Keep it local; the default path is gitignored.
 
-```bash
-twitch token -u --dcf -s 'channel:read:redemptions channel:read:ads'
-```
-
-If you only need Media Actions, use:
+To enable Media Actions alongside Stream Wrap-Up, add `channel:read:redemptions` to the three Stream Wrap-Up scopes. For example:
 
 ```bash
-twitch token -u --dcf -s 'channel:read:redemptions'
+twitch token -u --dcf -s 'moderator:read:followers channel:read:subscriptions bits:read channel:read:redemptions'
 ```
 
-The broadcaster token must be used with the same Twitch application that generated it. If broadcaster features use a separate Twitch app, set the ads/broadcaster client ID and secret separately from the bot client ID and secret.
+The broadcaster token must be used with the same Twitch application that generated it. If broadcaster features use a separate Twitch app, enter that app's client ID and secret in the **Broadcaster client ID** and **Broadcaster client secret** fields.
 
-Use an ads refresh token when possible. LupusAria refreshes the ads access token during long runs and retries temporary Twitch ad schedule polling failures instead of disabling ad alerts for the rest of the session.
+Use a broadcaster refresh token when possible. LupusAria refreshes the access token during long runs and retries temporary Twitch ad schedule polling failures instead of disabling ad alerts for the rest of the session.
 
-Ad warnings come from Twitch's ad schedule. When EventSub can create the `channel.ad_break.begin` subscription with the ads token, ad-start alerts use that live event. Otherwise LupusAria remembers the warned ad and uses schedule polling to synthesize start and expected-end alerts.
+Ad warnings come from Twitch's ad schedule. When EventSub can create the `channel.ad_break.begin` subscription with the broadcaster token, ad-start alerts use that live event. Otherwise LupusAria remembers the warned ad and uses schedule polling to synthesize start and expected-end alerts.
 
 ## AI and Cost Controls
 
