@@ -1,6 +1,6 @@
 # LupusAria
 
-LupusAria is a local-first AI-powered Twitch chat bot written in Go, with a Wails desktop control panel for day-to-day setup and control.
+LupusAria is a local-first AI-powered Twitch chat bot with a Wails desktop control panel for setup, live operation, and post-stream wrap-up.
 
 It is intended to be usable from this public repo by streamers who want a local bot they can inspect and run themselves. You provide your own Twitch application credentials, Twitch tokens, and AI source; LupusAria does not include hosted AI access, shared Twitch credentials, or managed infrastructure.
 
@@ -12,50 +12,62 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Twitch emote context enrichment with local cached visual descriptions.
 - AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` pools.
 - Configurable command and stream-timer announcements with direct link recall, deduplicated ad-pod alerts, and channel point Media Actions with Twitch cooldown visibility for OBS overlays.
+- Persistent Stream Wrap-Up tracking for follows, subscriptions, gift subscriptions, Bits, and incoming raids, with a live report and copyable thank-you list.
+- Reconnecting OBS Media Actions overlay with visual placement, independent entrance and exit animations, styled captions, GIF playback controls, and per-sound volume.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
 - OpenAI GPT-5.6 Luna, Gemini, local Ollama/OpenAI-compatible, and mock AI providers.
-- Local Wails control panel for setup, secrets entry, feature configuration, knowledge editing, media actions, and runtime controls.
+- Local Wails control panel for account setup, permission validation, secrets, feature configuration, knowledge editing, media actions, wrap-up reporting, and runtime controls.
 
-## Quick Start
+## Install on Windows
 
-1. Copy `.env.example` to `.env`.
-2. Fill in your Twitch bot username, OAuth token, channel, and app credentials.
-3. Set `STREAMER_NAME`, `STREAMER_PRONOUNS`, and start with `AI_PROVIDER=mock`.
-4. Run the bot:
-
-```bash
-go run ./cmd/lupusaria
-```
-
-For hosted GPT-5.6 Luna replies, select the OpenAI-compatible provider in the desktop app, set the model to `gpt-5.6-luna`, and enter your own OpenAI API key there. Gemini is also supported as a primary provider and is still required for `!game` search and image analysis. OpenAI-compatible mode also works with local Ollama models when you supply their local model name and endpoint.
-
-On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral template if the file does not exist. Edit it directly, or use the desktop app's Knowledge tab, to add stable channel facts such as streamer identity, pronouns, recurring chat references, project links, and boundaries.
-
-## Desktop App
-
-Run the local control panel:
-
-```bash
-/home/don/go/bin/wails dev
-```
-
-Build the executable:
-
-```bash
-/home/don/go/bin/wails build
-```
-
-Windows releases are built through GitHub Actions. The installer uses publisher `Starsong Tools`, installs to `%ProgramFiles%\Starsong Tools\LupusAria`, and stores user settings under:
+Download the installer or portable archive from the [latest GitHub release](https://github.com/LastUrsa/LupusAria/releases/latest). The installer uses publisher `Starsong Tools`, installs under `%ProgramFiles%\Starsong Tools\LupusAria`, and stores settings under:
 
 ```text
 %APPDATA%\Starsong Tools\LupusAria\.env
 ```
 
-The app can start and stop the bot, manage account setup and saved secrets, edit AI and budget settings, configure command permissions, tune `!game` snapshot crop, maintain streamer knowledge, configure announcements, and manage Media Actions.
+For first-time setup:
+
+1. Open **Setup** and enter the channel, bot username, streamer identity, and Twitch application credentials.
+2. Add a bot-account token for chat and a broadcaster-account token for Stream Wrap-Up, Media Actions, and ad alerts. These are separate authorization roles—typically a bot login and the channel-owner login—even when both tokens use the same Twitch application.
+3. Save, then use **Check permissions** to verify both tokens and their scopes.
+4. Start with the mock AI provider, or configure your own OpenAI, Gemini, or local OpenAI-compatible endpoint.
+5. Select **Start bot**.
+
+The exact Twitch CLI commands and required scopes are in [Twitch Tokens](docs/setup.md#twitch-tokens). Authorize the broadcaster token while signed in as the channel owner, and retain its refresh token so LupusAria can renew access.
+
+For hosted GPT-5.6 Luna replies, select the OpenAI-compatible provider, set the model to `gpt-5.6-luna`, and enter your own OpenAI API key. Gemini is supported as a primary or fallback provider and is required for the current `!game` search and image-analysis paths. OpenAI-compatible mode also works with local Ollama models when you provide their model name and endpoint.
+
+On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral template if the file does not exist. Edit it directly, or use the desktop app's Knowledge tab, to add stable channel facts such as streamer identity, pronouns, recurring chat references, project links, and boundaries.
+
+## Desktop App
+
+To run from source, install Go 1.26.10, Node.js 24, the platform-specific [Wails dependencies](https://wails.io/docs/gettingstarted/installation), and Wails v2.12.0. Then install the frontend packages and start the development app:
+
+```bash
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+npm --prefix frontend ci
+wails dev
+```
+
+Build the executable:
+
+```bash
+wails build
+```
+
+The headless bot entry point remains available for development and automation. Copy `.env.example` to `.env`, configure it, and run:
+
+```bash
+go run ./cmd/lupusaria
+```
+
+The app can start and stop the bot, manage account setup and saved secrets, validate Twitch permissions, edit AI and budget settings, configure command permissions, tune `!game` snapshot crop, maintain streamer knowledge, configure announcements and Media Actions, and display the current or most recently completed Stream Wrap-Up.
 
 ## Key Concepts
 
 - **Bring your own accounts:** you need your own Twitch bot or broadcaster account, Twitch application credentials, scoped Twitch tokens, and an API key or local endpoint for your chosen AI provider.
+- **Two Twitch authorization roles:** the bot token handles chat; the broadcaster token is authorized as the channel owner and powers Wrap-Up, redeems, and ad features. The Setup permission checker reports missing credentials or scopes.
 - **AI cost controls:** AI calls only happen for enabled AI behaviors and are guarded by cooldowns, request limits, and optional daily/monthly budget caps.
 - **Local state:** `.env`, token states, budgets, announcements, media assets, emote caches, knowledge, and chat transcripts are local and gitignored.
 - **Stream Wrap-Up:** automatically records follows, subscriptions, gift subs, Bits, and incoming raids for each Twitch broadcast, then provides a live preview and complete copyable thank-you list in the desktop app.
@@ -63,6 +75,8 @@ The app can start and stop the bot, manage account setup and saved secrets, edit
 - **Ad alerts:** Twitch ad schedule polling provides warnings; EventSub ad-break events provide live starts when available; delayed segments are merged into the current pod to avoid duplicate announcements.
 
 See [Setup and Operations](docs/setup.md) for token scopes, desktop build notes, Media Actions details, cost-control settings, security notes, quality gates, and release steps.
+
+See [Release Notes](RELEASE_NOTES.md) for changes in each published version.
 
 ## Docs
 
