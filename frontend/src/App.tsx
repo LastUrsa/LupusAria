@@ -695,7 +695,7 @@ export default function App() {
               <Card title="Saved credentials">
                 <StatusRow label="Twitch app" value={settings.hasTwitchClientId ? 'Saved' : 'Missing'} tone={settings.hasTwitchClientId ? 'good' : 'muted'} />
                 <StatusRow label="Bot token" value={settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken ? 'Saved' : 'Missing'} tone={settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken ? 'good' : 'muted'} />
-                <StatusRow label="Ads token" value={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'Saved' : 'Optional'} tone={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'good' : 'muted'} />
+                <StatusRow label="Broadcaster token" value={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'Saved' : 'Missing'} tone={settings.hasTwitchAdsOAuthToken || settings.hasTwitchAdsRefreshToken ? 'good' : 'warning'} />
                 <div className="permission-check-header">
                   <div>
                     <strong>{permissionCheck ? `Permissions: ${permissionCheck.overall}` : 'Permissions'}</strong>
@@ -716,21 +716,29 @@ export default function App() {
                   <strong>Saved secrets are hidden.</strong>
                   <span>Leave a field blank to keep the saved value. Type a new value only when replacing it.</span>
                 </div>
+                <div className="credential-group-heading">
+                  <strong>Bot and Twitch app credentials</strong>
+                  <span>The bot token reads and sends chat. The client ID and secret identify your Twitch application.</span>
+                </div>
                 <div className="split">
-                  <SecretField label="Client ID" saved={settings.hasTwitchClientId} value={settings.twitchClientId} onChange={(value) => update('twitchClientId', value)} />
-                  <SecretField label="Client secret" saved={settings.hasTwitchClientSecret} value={settings.twitchClientSecret} onChange={(value) => update('twitchClientSecret', value)} />
+                  <SecretField label="Twitch app client ID" saved={settings.hasTwitchClientId} value={settings.twitchClientId} onChange={(value) => update('twitchClientId', value)} />
+                  <SecretField label="Twitch app client secret" saved={settings.hasTwitchClientSecret} value={settings.twitchClientSecret} onChange={(value) => update('twitchClientSecret', value)} />
                 </div>
                 <div className="split">
                   <SecretField label="Bot OAuth token" saved={settings.hasTwitchOAuthToken} value={settings.twitchOAuthToken} onChange={(value) => update('twitchOAuthToken', value)} />
                   <SecretField label="Bot refresh token" saved={settings.hasTwitchRefreshToken} value={settings.twitchRefreshToken} onChange={(value) => update('twitchRefreshToken', value)} />
                 </div>
-                <div className="split">
-                  <SecretField label="Ads OAuth token" saved={settings.hasTwitchAdsOAuthToken} value={settings.twitchAdsOAuthToken} onChange={(value) => update('twitchAdsOAuthToken', value)} />
-                  <SecretField label="Ads refresh token" saved={settings.hasTwitchAdsRefreshToken} value={settings.twitchAdsRefreshToken} onChange={(value) => update('twitchAdsRefreshToken', value)} />
+                <div className="credential-group-heading">
+                  <strong>Broadcaster credentials</strong>
+                  <span>These are the Broadcaster Token credentials checked by the permissions validator. Authorize them as the channel owner for Stream Wrap-Up, Media Actions, and ad alerts.</span>
                 </div>
                 <div className="split">
-                  <SecretField label="Ads client ID" saved={settings.hasTwitchAdsClientId} value={settings.twitchAdsClientId} onChange={(value) => update('twitchAdsClientId', value)} />
-                  <SecretField label="Ads client secret" saved={settings.hasTwitchAdsClientSecret} value={settings.twitchAdsClientSecret} onChange={(value) => update('twitchAdsClientSecret', value)} />
+                  <SecretField label="Broadcaster OAuth token" saved={settings.hasTwitchAdsOAuthToken} value={settings.twitchAdsOAuthToken} onChange={(value) => update('twitchAdsOAuthToken', value)} />
+                  <SecretField label="Broadcaster refresh token" saved={settings.hasTwitchAdsRefreshToken} value={settings.twitchAdsRefreshToken} onChange={(value) => update('twitchAdsRefreshToken', value)} />
+                </div>
+                <div className="split">
+                  <SecretField label="Broadcaster client ID" saved={settings.hasTwitchAdsClientId} value={settings.twitchAdsClientId} onChange={(value) => update('twitchAdsClientId', value)} />
+                  <SecretField label="Broadcaster client secret" saved={settings.hasTwitchAdsClientSecret} value={settings.twitchAdsClientSecret} onChange={(value) => update('twitchAdsClientSecret', value)} />
                 </div>
               </Card>
             </div>
@@ -1882,7 +1890,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   )
 }
 
-function StatusRow({ label, value, tone = 'normal' }: { label: string; value: string; tone?: 'normal' | 'good' | 'muted' }) {
+function StatusRow({ label, value, tone = 'normal' }: { label: string; value: string; tone?: 'normal' | 'good' | 'warning' | 'muted' }) {
   return (
     <div className="status-row">
       <span>{label}</span>

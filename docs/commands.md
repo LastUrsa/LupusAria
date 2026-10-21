@@ -118,7 +118,7 @@ AD_ALERT_END_MESSAGE=Welcome back. Ads should be done now.
 
 `AD_ALERT_WARNING_MESSAGE` should include one `%s` placeholder, such as `5 minutes`.
 
-Ad alerts require a broadcaster token with `channel:read:ads`. Use `TWITCH_ADS_REFRESH_TOKEN` when possible so the bot can refresh the token locally during long runs. If the ads token was generated from a different Twitch application than the bot token, set `TWITCH_ADS_CLIENT_ID` and `TWITCH_ADS_CLIENT_SECRET` too. Temporary Twitch ad schedule polling failures are logged and retried. If the EventSub ad-break subscription is unavailable, Lupus remembers the warned ad and uses the schedule poller to synthesize start and expected-end alerts.
+Ad alerts require a broadcaster token with `channel:read:ads`. Use the Setup tab's **Broadcaster refresh token** field when possible so the bot can refresh the token locally during long runs. If the broadcaster token was generated from a different Twitch application than the bot token, also fill in **Broadcaster client ID** and **Broadcaster client secret**. These fields retain the `TWITCH_ADS_*` environment-variable names for backward compatibility. Temporary Twitch ad schedule polling failures are logged and retried. If the EventSub ad-break subscription is unavailable, Lupus remembers the warned ad and uses the schedule poller to synthesize start and expected-end alerts.
 
 ## Announcements
 

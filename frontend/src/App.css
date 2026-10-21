@@ -477,6 +477,25 @@ h3 {
   color: var(--color-neutral-100);
 }
 
+.credential-group-heading {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.credential-group-heading strong {
+  color: var(--color-neutral-100);
+  font-size: 14px;
+}
+
+.credential-group-heading span {
+  color: var(--color-neutral-300);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -629,6 +648,10 @@ h3 {
 
 .status-row strong.good {
   color: var(--color-semantic-success);
+}
+
+.status-row strong.warning {
+  color: var(--color-semantic-warning);
 }
 
 .status-row strong.muted {
