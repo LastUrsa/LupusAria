@@ -62,7 +62,7 @@ The headless bot entry point remains available for development and automation. C
 go run ./cmd/lupusaria
 ```
 
-The app can start and stop the bot, manage account setup and saved secrets, validate Twitch permissions, edit AI and budget settings, configure command permissions, tune `!game` snapshot crop, maintain streamer knowledge, configure announcements and Media Actions, and display the current or most recently completed Stream Wrap-Up.
+The app can start and stop the bot, manage account setup and saved secrets, validate Twitch permissions, edit AI and budget settings, configure command permissions, tune `!game` snapshot crop, maintain streamer knowledge, configure announcements and Media Actions, and display the current or most recently completed report under **Features → Stream Wrap-Up**.
 
 ## Key Concepts
 

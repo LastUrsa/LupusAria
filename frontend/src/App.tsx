@@ -87,7 +87,7 @@ type MediaPlaybackClip = {
   mediaFrameDataUrls?: string[]
   mediaFrameDelaysMs?: number[]
 }
-type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'wrapup' | 'mediaActions' | 'knowledge'
+type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'mediaActions' | 'knowledge'
 type WrapUpReport = { sessionId: string; streamId: string; status: string; startedAt: string; followerCount: number; subscriptionCount: number; giftedSubCount: number; bits: number; raidCount: number; formatted: string; stats: string; completenessWarning?: string }
 type AnnouncementKind = 'command' | 'timer'
 
@@ -100,7 +100,6 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'setup', label: 'Setup' },
   { id: 'aiBudget', label: 'AI & Budget' },
   { id: 'features', label: 'Features' },
-  { id: 'wrapup', label: 'Stream Wrap-Up' },
   { id: 'mediaActions', label: 'Media Actions' },
   { id: 'knowledge', label: 'Knowledge' }
 ]
@@ -582,24 +581,14 @@ export default function App() {
     .filter(({ item }) => item.kind === 'timer')
   const selectedMediaAction = mediaActions.find((item) => item.id === selectedMediaActionId) ?? mediaActions[0] ?? null
   const currentSection = sections.find((item) => item.id === section) ?? sections[0]
-  const setupMissing = [
-    settings.channel,
-    settings.botUsername,
-    settings.streamerName,
-    settings.streamerPronouns
-  ].filter((value) => !value.trim()).length
-  const twitchCredentialReady = settings.hasTwitchOAuthToken || settings.hasTwitchRefreshToken || settings.twitchOAuthToken.trim() !== '' || settings.twitchRefreshToken.trim() !== ''
-  const twitchAppReady = settings.hasTwitchClientId || settings.twitchClientId.trim() !== ''
-  const setupState = setupMissing === 0 && twitchCredentialReady && twitchAppReady ? 'Ready' : 'Needs setup'
-  const aiReady = settings.aiProvider === 'mock' || settings.hasGeminiApiKey || settings.hasAiApiKey || settings.geminiApiKey.trim() !== '' || settings.aiApiKey.trim() !== ''
-  const chatRepliesEnabled = settings.enableMentions || settings.enableAsk || settings.enableLurk
-  const canSaveSection = section !== 'overview' && section !== 'wrapup'
+  const setupIssues = getSetupIssues(settings)
+  const aiModelLabel = getAIModelLabel(settings)
+  const canSaveSection = section !== 'overview'
   const topbarCopy: Record<Section, string> = {
     overview: 'Status, launch controls, and recent activity.',
     setup: 'Twitch account, streamer identity, and credentials.',
     aiBudget: 'Provider, models, keys, context, and cost rails.',
-    features: 'Chat behavior, AutoSO, ad alerts, and announcements.',
-    wrapup: 'Live supporter totals and a copyable end-of-stream thank-you list.',
+    features: 'Chat behavior, Stream Wrap-Up, AutoSO, ad alerts, and announcements.',
     mediaActions: 'Random media and sounds for channel point redeems.',
     knowledge: 'Stable channel facts for AI replies.'
   }
@@ -665,20 +654,23 @@ export default function App() {
         <section className="panel">
           {section === 'overview' && (
             <div className="overview-stack">
-              <section className="status-strip" aria-label="Runtime summary">
-                <StatusChip label="Setup" value={setupState} tone={setupState === 'Ready' ? 'good' : 'warning'} />
-                <StatusChip label="Channel" value={settings.channel || 'Not set'} tone={settings.channel ? 'normal' : 'warning'} />
-                <StatusChip label="AI" value={aiReady ? settings.aiProvider : 'Needs key'} tone={aiReady ? 'good' : 'warning'} />
-                <StatusChip label="Knowledge" value={settings.knowledgeExists ? 'Ready' : 'Missing'} tone={settings.knowledgeExists ? 'good' : 'warning'} />
-                <StatusChip label="Chat" value={chatRepliesEnabled ? 'Enabled' : 'Disabled'} tone={chatRepliesEnabled ? 'good' : 'muted'} />
-                <StatusChip label="AutoSO" value={settings.autosoEnabled ? 'Enabled' : 'Disabled'} tone={settings.autosoEnabled ? 'good' : 'muted'} />
-                <StatusChip label="Ads" value={settings.adAlertsEnabled ? 'Enabled' : 'Disabled'} tone={settings.adAlertsEnabled ? 'good' : 'muted'} />
-                <StatusChip label="Announcements" value={settings.announcementsEnabled ? `${announcements.length} set` : 'Disabled'} tone={settings.announcementsEnabled ? 'good' : 'muted'} />
-                <StatusChip label="Media Actions" value={mediaActions.length > 0 ? `${mediaActions.length} set` : 'None'} tone={mediaActions.some((item) => item.enabled) ? 'good' : 'muted'} />
+              {setupIssues.length > 0 && (
+                <section className="overview-warning" aria-label="Setup required">
+                  <div>
+                    <strong>Setup required</strong>
+                    <span>Missing: {setupIssues.join(', ')}.</span>
+                  </div>
+                  <button className="secondary" type="button" onClick={() => setSection('setup')}>Open Setup</button>
+                </section>
+              )}
+              <section className="configuration-summary" aria-label="Current configuration">
+                <div><span>Channel</span><strong>{settings.channel || 'Not configured'}</strong></div>
+                <div><span>Chat account</span><strong>{settings.botUsername || 'Not configured'}</strong></div>
+                <div><span>AI model</span><strong>{aiModelLabel}</strong></div>
               </section>
               <Card title="Activity" wide>
                 <div className="log-view full">
-                  {logs.length === 0 ? <p className="muted">No activity yet.</p> : logs.slice(-28).map((line) => <div key={line}>{line}</div>)}
+                  {logs.length === 0 ? <p className="muted">No activity yet. Start the bot to see connection and chat activity here.</p> : logs.slice(-28).map((line) => <div key={line}>{line}</div>)}
                 </div>
               </Card>
             </div>
@@ -780,23 +772,6 @@ export default function App() {
             </Card>
           )}
 
-          {section === 'wrapup' && (
-            <Card title="Stream Wrap-Up" wide>
-              <div className="status-strip" aria-label="Wrap-up summary">
-                <StatusChip label="Session" value={wrapUp?.status === 'live' ? 'Live' : wrapUp?.status === 'complete' ? 'Completed' : 'None'} tone={wrapUp?.status === 'live' ? 'good' : 'normal'} />
-                <StatusChip label="Followers" value={String(wrapUp?.followerCount ?? 0)} tone="normal" />
-                <StatusChip label="Subscriptions" value={String(wrapUp?.subscriptionCount ?? 0)} tone="normal" />
-                <StatusChip label="Gift Subs" value={String(wrapUp?.giftedSubCount ?? 0)} tone="normal" />
-                <StatusChip label="Bits" value={(wrapUp?.bits ?? 0).toLocaleString()} tone="normal" />
-                <StatusChip label="Raids" value={String(wrapUp?.raidCount ?? 0)} tone="normal" />
-              </div>
-              <div className="info-callout"><strong>{wrapUp?.streamId ? `Twitch stream ${wrapUp.streamId}` : wrapUp?.sessionId || 'No stream session'}</strong><span>{wrapUp?.startedAt ? `Started ${new Date(wrapUp.startedAt).toLocaleString()}` : 'Tracking begins when Twitch confirms the channel is live.'}</span></div>
-              {wrapUp?.completenessWarning && <div className="notice error">{wrapUp.completenessWarning}</div>}
-              <pre className="wrapup-preview">{wrapUp?.formatted || 'No stream session has been recorded yet.'}</pre>
-              <div className="announcement-actions"><button type="button" onClick={() => refresh(false)}>Refresh Preview</button><button className="secondary" type="button" onClick={copyWrapUp} disabled={!wrapUp?.formatted}>Copy Wrap-Up</button></div>
-            </Card>
-          )}
-
           {section === 'mediaActions' && (
             <MediaActionsPanel
               actions={mediaActions}
@@ -837,12 +812,19 @@ export default function App() {
                   <SelectField label="!commands permission" value={settings.commandsPermission} options={permissionOptions} onChange={(value) => update('commandsPermission', value)} />
                   <SelectField label="!reset permission" value={settings.resetPermission} options={permissionOptions} onChange={(value) => update('resetPermission', value)} />
                 </div>
-                <SelectField label="!wrapup permission (all subcommands)" value={settings.wrapUpPermission} options={permissionOptions} onChange={(value) => update('wrapUpPermission', value)} />
                 <div className="split">
                   <NumberField label="Global cooldown seconds" value={settings.globalCooldownSeconds} onChange={(value) => update('globalCooldownSeconds', value)} />
                   <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
                 </div>
               </FeaturePanel>
+              <StreamWrapUpPanel
+                report={wrapUp}
+                permission={settings.wrapUpPermission}
+                permissionOptions={permissionOptions}
+                onPermissionChange={(value) => update('wrapUpPermission', value)}
+                onRefresh={() => refresh(false)}
+                onCopy={copyWrapUp}
+              />
               <FeaturePanel title="!game snapshots" summary="Crop the Twitch preview before visual analysis.">
                 <div className="info-callout">
                   <strong>Crop keeps Lupus focused on the game.</strong>
@@ -971,12 +953,6 @@ export function NavIcon({ section }: { section: Section }) {
         <path d="M4 17h3" />
         <path d="M11 17h9" />
         <circle cx="9" cy="17" r="2" />
-      </>
-    ),
-    wrapup: (
-      <>
-        <path d="M5 4h14v16H5z" />
-        <path d="M8 8h8M8 12h8M8 16h5" />
       </>
     ),
     mediaActions: (
@@ -1762,6 +1738,82 @@ function FeaturePanel({
       <div className="feature-panel-body">{children}</div>
     </details>
   )
+}
+
+export function StreamWrapUpPanel({
+  report,
+  permission,
+  permissionOptions,
+  onPermissionChange,
+  onRefresh,
+  onCopy
+}: {
+  report: WrapUpReport | null
+  permission: string
+  permissionOptions: Array<{ value: string; label: string }>
+  onPermissionChange: (value: string) => void
+  onRefresh: () => void
+  onCopy: () => void
+}) {
+  return (
+    <FeaturePanel title="Stream Wrap-Up" summary="Live supporter totals and a copyable end-of-stream thank-you list.">
+      <SelectField label="!wrapup permission (all subcommands)" value={permission} options={permissionOptions} onChange={onPermissionChange} />
+      <div className="status-strip" aria-label="Wrap-up summary">
+        <StatusChip label="Session" value={report?.status === 'live' ? 'Live' : report?.status === 'complete' ? 'Completed' : 'None'} tone={report?.status === 'live' ? 'good' : 'normal'} />
+        <StatusChip label="Followers" value={String(report?.followerCount ?? 0)} tone="normal" />
+        <StatusChip label="Subscriptions" value={String(report?.subscriptionCount ?? 0)} tone="normal" />
+        <StatusChip label="Gift Subs" value={String(report?.giftedSubCount ?? 0)} tone="normal" />
+        <StatusChip label="Bits" value={(report?.bits ?? 0).toLocaleString()} tone="normal" />
+        <StatusChip label="Raids" value={String(report?.raidCount ?? 0)} tone="normal" />
+      </div>
+      <div className="info-callout"><strong>{report?.streamId ? `Twitch stream ${report.streamId}` : report?.sessionId || 'No stream session'}</strong><span>{report?.startedAt ? `Started ${new Date(report.startedAt).toLocaleString()}` : 'Tracking begins when Twitch confirms the channel is live.'}</span></div>
+      {report?.completenessWarning && <div className="notice error">{report.completenessWarning}</div>}
+      <pre className="wrapup-preview">{report?.formatted || 'No stream session has been recorded yet.'}</pre>
+      <div className="announcement-actions"><button type="button" onClick={onRefresh}>Refresh Preview</button><button className="secondary" type="button" onClick={onCopy} disabled={!report?.formatted}>Copy Wrap-Up</button></div>
+    </FeaturePanel>
+  )
+}
+
+export function getAIModelLabel(settings: Pick<Settings, 'aiProvider' | 'aiModel' | 'geminiModel'>): string {
+  if (settings.aiProvider === 'mock') return 'Mock (no external AI)'
+  const model = settings.aiProvider === 'gemini' ? settings.geminiModel : settings.aiModel
+  return model.trim() || 'Not configured'
+}
+
+export function getSetupIssues(settings: Pick<Settings,
+  | 'channel'
+  | 'botUsername'
+  | 'twitchOAuthToken'
+  | 'twitchRefreshToken'
+  | 'twitchClientId'
+  | 'twitchClientSecret'
+  | 'hasTwitchOAuthToken'
+  | 'hasTwitchRefreshToken'
+  | 'hasTwitchClientId'
+  | 'hasTwitchClientSecret'
+  | 'aiProvider'
+  | 'aiApiKey'
+  | 'geminiApiKey'
+  | 'hasAiApiKey'
+  | 'hasGeminiApiKey'
+>): string[] {
+  const issues: string[] = []
+  const hasBotAccessToken = settings.hasTwitchOAuthToken || settings.twitchOAuthToken.trim() !== ''
+  const hasBotRefreshToken = settings.hasTwitchRefreshToken || settings.twitchRefreshToken.trim() !== ''
+  const hasClientID = settings.hasTwitchClientId || settings.twitchClientId.trim() !== ''
+  const hasClientSecret = settings.hasTwitchClientSecret || settings.twitchClientSecret.trim() !== ''
+  const hasAIKey = settings.hasAiApiKey || settings.aiApiKey.trim() !== ''
+  const hasGeminiKey = settings.hasGeminiApiKey || settings.geminiApiKey.trim() !== ''
+
+  if (!settings.channel.trim()) issues.push('channel')
+  if (!settings.botUsername.trim()) issues.push('chat account')
+  if (!hasBotAccessToken && !hasBotRefreshToken) issues.push('bot token')
+  if (hasBotRefreshToken && !hasClientID) issues.push('Twitch app client ID')
+  if (hasBotRefreshToken && !hasClientSecret) issues.push('Twitch app client secret')
+  if (settings.aiProvider === 'openai-compatible' && !hasAIKey) issues.push('AI API key')
+  if (settings.aiProvider === 'gemini' && !hasAIKey && !hasGeminiKey) issues.push('Gemini API key')
+
+  return issues
 }
 
 function PermissionResult({ item }: { item: main.TwitchPermissionItem }) {

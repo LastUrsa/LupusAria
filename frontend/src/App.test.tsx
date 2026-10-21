@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { MediaActionsPanel, NavIcon } from './App'
+import { getAIModelLabel, getSetupIssues, MediaActionsPanel, NavIcon, StreamWrapUpPanel } from './App'
 
 const panelDefaults = {
   rewards: [],
@@ -22,7 +22,6 @@ describe('collapsed navigation icons', () => {
     'setup',
     'aiBudget',
     'features',
-    'wrapup',
     'mediaActions',
     'knowledge'
   ] as const)('renders a recognizable SVG for %s', (section) => {
@@ -32,6 +31,96 @@ describe('collapsed navigation icons', () => {
     expect(icon).toBeInTheDocument()
     expect(icon).toHaveAttribute('aria-hidden', 'true')
     expect(icon?.childElementCount).toBeGreaterThan(0)
+  })
+})
+
+describe('Stream Wrap-Up feature panel', () => {
+  it('is collapsible and keeps the report actions available', () => {
+    const onRefresh = vi.fn()
+    const onCopy = vi.fn()
+    const { container } = render(
+      <StreamWrapUpPanel
+        report={{
+          sessionId: 'session-1',
+          streamId: 'stream-1',
+          status: 'complete',
+          startedAt: '2026-10-20T20:00:00Z',
+          followerCount: 2,
+          subscriptionCount: 3,
+          giftedSubCount: 1,
+          bits: 500,
+          raidCount: 1,
+          formatted: 'Thanks for the support!',
+          stats: '2 followers'
+        }}
+        permission="broadcaster"
+        permissionOptions={[{ value: 'broadcaster', label: 'Broadcaster' }]}
+        onPermissionChange={vi.fn()}
+        onRefresh={onRefresh}
+        onCopy={onCopy}
+      />
+    )
+
+    const panel = container.querySelector('details.feature-panel')
+    expect(panel).not.toHaveAttribute('open')
+    expect(screen.getByText('Thanks for the support!')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Preview' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Wrap-Up' }))
+    expect(onRefresh).toHaveBeenCalledOnce()
+    expect(onCopy).toHaveBeenCalledOnce()
+  })
+})
+
+describe('Overview AI model label', () => {
+  it.each([
+    [{ aiProvider: 'openai-compatible', aiModel: 'gpt-5.6-luna', geminiModel: 'gemini-3.1-flash-lite' }, 'gpt-5.6-luna'],
+    [{ aiProvider: 'gemini', aiModel: 'ignored', geminiModel: 'gemini-3.1-flash-lite' }, 'gemini-3.1-flash-lite'],
+    [{ aiProvider: 'mock', aiModel: '', geminiModel: '' }, 'Mock (no external AI)'],
+    [{ aiProvider: 'openai-compatible', aiModel: '  ', geminiModel: '' }, 'Not configured']
+  ])('shows the effective model for %s', (settings, expected) => {
+    expect(getAIModelLabel(settings)).toBe(expected)
+  })
+})
+
+describe('Overview setup warning', () => {
+  const configuredSettings = {
+    channel: 'channel-owner',
+    botUsername: 'chat-bot',
+    twitchOAuthToken: '',
+    twitchRefreshToken: '',
+    twitchClientId: '',
+    twitchClientSecret: '',
+    hasTwitchOAuthToken: true,
+    hasTwitchRefreshToken: false,
+    hasTwitchClientId: false,
+    hasTwitchClientSecret: false,
+    aiProvider: 'mock',
+    aiApiKey: '',
+    geminiApiKey: '',
+    hasAiApiKey: false,
+    hasGeminiApiKey: false
+  }
+
+  it('does not warn about optional disabled features', () => {
+    expect(getSetupIssues(configuredSettings)).toEqual([])
+  })
+
+  it('reports only fields that can block startup', () => {
+    expect(getSetupIssues({
+      ...configuredSettings,
+      channel: '',
+      hasTwitchOAuthToken: false,
+      aiProvider: 'openai-compatible'
+    })).toEqual(['channel', 'bot token', 'AI API key'])
+  })
+
+  it('requires Twitch app credentials when the bot uses a refresh token', () => {
+    expect(getSetupIssues({
+      ...configuredSettings,
+      hasTwitchOAuthToken: false,
+      hasTwitchRefreshToken: true
+    })).toEqual(['Twitch app client ID', 'Twitch app client secret'])
   })
 })
 
