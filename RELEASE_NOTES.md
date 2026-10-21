@@ -1,5 +1,14 @@
 # LupusAria Release Notes
 
+## v0.10.0
+
+- Adds persistent per-stream support tracking for new followers, subscriptions and resubscriptions, community gift subscriptions, Bits, and incoming raids through the existing Twitch EventSub connection.
+- Adds `!wrapup`, `!wrapup preview`, `!wrapup stats`, and confirmation-protected `!wrapup reset` commands with broadcaster-only defaults and configurable permissions.
+- Adds a live Stream Wrap-Up panel with session status, support totals, a complete formatted thank-you list, and one-click clipboard copying.
+- Resumes active broadcasts after application restarts, deduplicates EventSub deliveries across restarts, retains completed sessions for offline access, and warns when Twitch disconnections may have left gaps.
+- Documents the required broadcaster scopes, local persistence, session lifecycle, commands, and UI workflow, with expanded lifecycle, aggregation, authorization, and normalization tests.
+- Updates frontend dependencies and pins local, CI, and Windows release builds to Go 1.26.9 so release security scans pass without known vulnerabilities.
+
 ## v0.9.2
 
 - Reloads saved Media Actions for each channel point redemption so position, scale, media, and other edits match previews immediately without restarting the bot.

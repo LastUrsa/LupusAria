@@ -223,7 +223,7 @@ export namespace main {
 	    filename: string;
 	    path: string;
 	    durationMs: number;
-	    volume: number;
+	    volume?: number;
 	    mediaPlaybackMode: string;
 	    excludeFromGifRotation: boolean;
 
@@ -370,6 +370,44 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+
+}
+export namespace wrapup {
+
+	export class Report {
+	    sessionId: string;
+	    streamId: string;
+	    status: string;
+	    startedAt: string;
+	    followerCount: number;
+	    subscriptionCount: number;
+	    giftedSubCount: number;
+	    bits: number;
+	    raidCount: number;
+	    formatted: string;
+	    stats: string;
+	    completenessWarning?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.streamId = source["streamId"];
+	        this.status = source["status"];
+	        this.startedAt = source["startedAt"];
+	        this.followerCount = source["followerCount"];
+	        this.subscriptionCount = source["subscriptionCount"];
+	        this.giftedSubCount = source["giftedSubCount"];
+	        this.bits = source["bits"];
+	        this.raidCount = source["raidCount"];
+	        this.formatted = source["formatted"];
+	        this.stats = source["stats"];
+	        this.completenessWarning = source["completenessWarning"];
+	    }
 	}
 
 }
