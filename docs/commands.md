@@ -76,7 +76,7 @@ Stream Wrap-Up uses Twitch's existing EventSub connection and is enabled wheneve
 - `!wrapup stats` sends only the numerical summary.
 - `!wrapup reset` starts a 30-second confirmation window. `!wrapup reset confirm` clears events only from the current or most recently completed session.
 
-The full supporter list is available under **Stream Wrap-Up** in the app. Use **Copy Wrap-Up** to copy the complete formatted list; Twitch chat receives only the concise summary.
+The full supporter list is available under **Features → Stream Wrap-Up** in the app. Expand the panel and use **Copy Wrap-Up** to copy the complete formatted list; Twitch chat receives only the concise summary.
 
 ## AutoSO
 

@@ -140,7 +140,7 @@ Enter that token in **Broadcaster OAuth token** or save its refresh token in **B
 
 Lupus Aria starts or resumes a session from Twitch's authoritative stream ID, stores each EventSub delivery ID for durable deduplication, finalizes the session when Twitch reports the stream offline, and retains the completed session for offline access. The state file defaults to `.lupusaria-wrapup.json` beside the app configuration and is created with user-only file permissions. Override it with `WRAPUP_STATE_PATH` if needed.
 
-The app's **Stream Wrap-Up** section shows session status, Twitch stream ID, event totals, the complete thank-you list, and a **Copy Wrap-Up** button. Updates arrive live while the backend is connected. If EventSub disconnects, the report warns that events during the interruption may be missing; Twitch does not provide reliable backfill for all support events.
+The **Features → Stream Wrap-Up** panel shows session status, Twitch stream ID, event totals, the complete thank-you list, and a **Copy Wrap-Up** button. Updates arrive live while the backend is connected. If EventSub disconnects, the report warns that events during the interruption may be missing; Twitch does not provide reliable backfill for all support events.
 
 Configuration:
 
