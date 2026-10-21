@@ -1,5 +1,12 @@
 # LupusAria Release Notes
 
+## v0.10.1
+
+- Renames the legacy Ads credential labels to Broadcaster credentials and clearly identifies which token the permissions validator checks.
+- Groups Twitch app, bot, and broadcaster credentials in Setup, highlights a missing broadcaster token, and documents how the UI fields map to the legacy `TWITCH_ADS_*` environment variables.
+- Documents the combined broadcaster scopes required for Stream Wrap-Up, Media Actions, and ad alerts, including the correct channel-owner authorization flow.
+- Updates local, CI, and release builds to Go 1.26.10 to resolve `GO-2026-6809` in the standard library.
+
 ## v0.10.0
 
 - Adds persistent per-stream support tracking for new followers, subscriptions and resubscriptions, community gift subscriptions, Bits, and incoming raids through the existing Twitch EventSub connection.
