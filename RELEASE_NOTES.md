@@ -1,5 +1,13 @@
 # LupusAria Release Notes
 
+## v0.10.2
+
+- Moves Stream Wrap-Up from its standalone navigation tab into a collapsible Features panel while preserving live totals, completeness warnings, preview refresh, copying, and command permissions.
+- Replaces the Overview configuration traffic lights with neutral Channel, Chat account, and effective AI model details.
+- Shows an actionable Setup warning only for missing fields that can prevent the bot from starting, while leaving optional disabled features neutral.
+- Refreshes the README around Windows installation, Twitch authorization roles, current features, and source-development prerequisites.
+- Updates UI coverage and documentation for the revised navigation, Overview, and Stream Wrap-Up workflows.
+
 ## v0.10.1
 
 - Renames the legacy Ads credential labels to Broadcaster credentials and clearly identifies which token the permissions validator checks.
