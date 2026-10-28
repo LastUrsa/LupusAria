@@ -128,15 +128,9 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	if options.WrapUp != nil {
 		wrapEvents = make(chan wrapup.Event, 64)
 		if helix != nil {
-			if info, e := helix.GetStreamInfo(ctx, cfg.Twitch.Channel); e != nil {
-				logger.Warn("could not reconcile wrap-up stream status", "error", e)
-			} else if info.Live {
-				if e = options.WrapUp.Online(info.ID, broadcasterID, info.StartedAt); e != nil {
-					logger.Warn("could not resume wrap-up stream session", "error", e)
-				}
-			} else if e = options.WrapUp.Offline(time.Now().UTC()); e != nil {
-				logger.Warn("could not finalize wrap-up stream session", "error", e)
-			}
+			reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
+		} else {
+			logger.Warn("wrap-up stream tracking unavailable: missing Twitch client ID")
 		}
 	}
 
@@ -278,10 +272,16 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	}
 	if wrapEvents != nil {
 		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-ctx.Done():
 					return
+				case <-ticker.C:
+					if helix != nil {
+						reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
+					}
 				case event := <-wrapEvents:
 					var err error
 					switch event.Type {
@@ -344,21 +344,22 @@ func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string
 			)
 		}
 		return twitch.NewEventSubChatClient(twitch.EventSubConfig{
-			ClientID:         cfg.Twitch.ClientID,
-			Token:            cfg.Twitch.OAuthToken,
-			SendToken:        sendToken,
-			AdClientID:       cfg.Twitch.AdsClientID,
-			AdToken:          cfg.Twitch.AdsOAuthToken,
-			RedeemClientID:   cfg.Twitch.AdsClientID,
-			RedeemToken:      cfg.Twitch.AdsOAuthToken,
-			BroadcasterToken: cfg.Twitch.AdsOAuthToken,
-			ModeratorID:      broadcasterID,
-			Channel:          cfg.Twitch.Channel,
-			BroadcasterID:    broadcasterID,
-			UserID:           botUserID,
-			AdBreaks:         adBreaks,
-			Redeems:          redeems,
-			WrapUpEvents:     wrapEvents,
+			ClientID:            cfg.Twitch.ClientID,
+			Token:               cfg.Twitch.OAuthToken,
+			SendToken:           sendToken,
+			AdClientID:          cfg.Twitch.AdsClientID,
+			AdToken:             cfg.Twitch.AdsOAuthToken,
+			RedeemClientID:      cfg.Twitch.AdsClientID,
+			RedeemToken:         cfg.Twitch.AdsOAuthToken,
+			BroadcasterToken:    cfg.Twitch.AdsOAuthToken,
+			BroadcasterClientID: cfg.Twitch.AdsClientID,
+			ModeratorID:         broadcasterID,
+			Channel:             cfg.Twitch.Channel,
+			BroadcasterID:       broadcasterID,
+			UserID:              botUserID,
+			AdBreaks:            adBreaks,
+			Redeems:             redeems,
+			WrapUpEvents:        wrapEvents,
 		}, logger)
 	}
 	if logger != nil {
@@ -514,4 +515,32 @@ func resolveRecentStreamerIDs(ctx context.Context, helix userResolver, channel, 
 		logger.Warn("recent streamer chatter polling needs broadcaster and bot user IDs", "broadcaster_found", broadcasterID != "", "bot_found", moderatorID != "")
 	}
 	return broadcasterID, moderatorID
+}
+
+// Recheck Twitch even when an online/offline notification was missed. Failed
+// lookups must never finalize a live session.
+func reconcileWrapUp(ctx context.Context, provider bot.StreamInfoProvider, service *wrapup.Service, channel, broadcasterID string, logger *slog.Logger) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	info, err := provider.GetStreamInfo(ctx, channel)
+	if err != nil {
+		logger.Warn("could not reconcile wrap-up stream status; recording may be unavailable, will retry in one minute", "error", err)
+		return
+	}
+	current, exists := service.Current()
+	if info.Live {
+		if exists && current.Status == "live" && current.StreamID == info.ID {
+			return
+		}
+		err = service.Online(info.ID, broadcasterID, info.StartedAt)
+	} else if exists && current.Status == "live" {
+		err = service.Offline(time.Now().UTC())
+	} else {
+		return
+	}
+	if err != nil {
+		logger.Warn("could not persist wrap-up stream status; check state file access", "error", err)
+		return
+	}
+	logger.Info("wrap-up stream status reconciled", "live", info.Live, "stream_id", info.ID)
 }
