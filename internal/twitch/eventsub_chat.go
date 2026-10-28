@@ -19,21 +19,22 @@ import (
 const eventSubWebSocketURL = "wss://eventsub.wss.twitch.tv/ws"
 
 type EventSubConfig struct {
-	ClientID         string
-	Token            string
-	SendToken        string
-	AdClientID       string
-	AdToken          string
-	RedeemClientID   string
-	RedeemToken      string
-	BroadcasterToken string
-	ModeratorID      string
-	Channel          string
-	BroadcasterID    string
-	UserID           string
-	AdBreaks         chan<- AdBreakEvent
-	Redeems          chan<- ChannelPointRedeemEvent
-	WrapUpEvents     chan<- wrapup.Event
+	ClientID            string
+	Token               string
+	SendToken           string
+	AdClientID          string
+	AdToken             string
+	RedeemClientID      string
+	RedeemToken         string
+	BroadcasterToken    string
+	BroadcasterClientID string
+	ModeratorID         string
+	Channel             string
+	BroadcasterID       string
+	UserID              string
+	AdBreaks            chan<- AdBreakEvent
+	Redeems             chan<- ChannelPointRedeemEvent
+	WrapUpEvents        chan<- wrapup.Event
 }
 
 type AdBreakEvent struct {
@@ -204,7 +205,7 @@ func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, s
 	if c.cfg.WrapUpEvents != nil {
 		helix := c.helix
 		if strings.TrimSpace(c.cfg.BroadcasterToken) != "" {
-			helix = NewHelixClient(c.cfg.ClientID, c.cfg.BroadcasterToken)
+			helix = NewHelixClient(firstNonEmpty(c.cfg.BroadcasterClientID, c.cfg.ClientID), c.cfg.BroadcasterToken)
 		}
 		condition := map[string]string{"broadcaster_user_id": c.cfg.BroadcasterID}
 		for _, sub := range []struct {
@@ -219,7 +220,7 @@ func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, s
 		} {
 			if err := helix.CreateEventSubWebSocketSubscription(ctx, sub.typ, sub.version, sub.condition, sessionID); err != nil {
 				if c.logger != nil {
-					c.logger.Warn("wrap-up EventSub subscription unavailable", "type", sub.typ, "error", err)
+					c.logger.Warn("wrap-up EventSub subscription unavailable; support events may be missing (check broadcaster credentials and permissions)", "type", sub.typ, "error", err)
 				}
 			}
 		}

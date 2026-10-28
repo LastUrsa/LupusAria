@@ -1,5 +1,13 @@
 # LupusAria Release Notes
 
+## Unreleased
+
+- Updates locked Vitest tooling to 4.1.12 to resolve two moderate mock-registration vulnerabilities found during the security audit.
+
+- Fixes Stream Wrap-Up subscriptions when bot and broadcaster tokens belong to different Twitch applications by pairing each broadcaster token with its own Client ID.
+- Rechecks Twitch stream status every minute to recover missed online/offline notifications without ending a session on lookup failures.
+- Clarifies recording errors in runtime logs and documents troubleshooting and recovery limits.
+
 ## v0.10.2
 
 - Moves Stream Wrap-Up from its standalone navigation tab into a collapsible Features panel while preserving live totals, completeness warnings, preview refresh, copying, and command permissions.

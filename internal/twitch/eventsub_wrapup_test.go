@@ -1,6 +1,11 @@
 package twitch
 
 import (
+	"context"
+	"io"
+	"lupusaria/internal/wrapup"
+	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +57,35 @@ func TestAnonymousWrapUpEventsDoNotInventIdentity(t *testing.T) {
 		if !ok || e.UserID != "" || e.Name != "Anonymous" {
 			t.Fatalf("%s exposed anonymous identity: %#v", kind, e)
 		}
+	}
+}
+
+func TestWrapUpSubscriptionsUseMatchingBroadcasterCredentials(t *testing.T) {
+	for _, separate := range []bool{false, true} {
+		t.Run(map[bool]string{false: "shared application", true: "separate applications"}[separate], func(t *testing.T) {
+			original := http.DefaultTransport
+			t.Cleanup(func() { http.DefaultTransport = original })
+			expectedID := "bot-app"
+			cfg := EventSubConfig{ClientID: "bot-app", Token: "bot-token", BroadcasterToken: "broadcaster-token", BroadcasterID: "b", WrapUpEvents: make(chan wrapup.Event, 8)}
+			if separate {
+				cfg.BroadcasterClientID = "broadcaster-app"
+				expectedID = "broadcaster-app"
+			}
+			calls := 0
+			http.DefaultTransport = eventSubRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				if req.Header.Get("Client-ID") != expectedID || req.Header.Get("Authorization") != "Bearer broadcaster-token" {
+					t.Errorf("incorrect credential pairing: client ID %q", req.Header.Get("Client-ID"))
+				}
+				return &http.Response{StatusCode: 202, Body: io.NopCloser(strings.NewReader(`{"data":[]}`)), Header: make(http.Header)}, nil
+			})
+			client := NewEventSubChatClient(cfg, nil)
+			if err := client.subscribeToBroadcasterEvents(context.Background(), "session"); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 8 {
+				t.Fatalf("subscriptions = %d, want 8", calls)
+			}
+		})
 	}
 }
