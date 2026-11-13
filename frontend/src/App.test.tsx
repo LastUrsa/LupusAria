@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { getAIModelLabel, getSetupIssues, MediaActionsPanel, NavIcon, StreamWrapUpPanel } from './App'
+import { RafflePanel, acceptRaffleSnapshot, getAIModelLabel, getSetupIssues, MediaActionsPanel, NavIcon, StreamWrapUpPanel } from './App'
 
 const panelDefaults = {
   rewards: [],
@@ -364,4 +364,44 @@ describe('Media Actions responsive toolbar', () => {
     fireEvent.change(slider, { target: { value: '35' } })
     expect(onUpdateAssets).toHaveBeenCalledWith('action-1', 'sound', [{ ...asset, volume: 35 }])
   })
+})
+
+describe('Raffle panel', () => {
+  const snapshot = { revision: 1, sessionId: 1, streamId: 'A', generation: 1, status: 'ACTIVE', verification: 'Verified with Twitch', entries: [{ number: 1, name: '<script>Viewer & ✨</script>' }], winner: { number: 1, name: 'Winner', drawnAt: '2026-11-13T12:00:00Z', announcement: 'sent' }, error: '' }
+  it('renders authoritative entries and winner, then removes both after clear', () => {
+    const { rerender } = render(<RafflePanel snapshot={snapshot} running={true} />)
+    expect(screen.getByText('Total Entries: 1')).toBeInTheDocument()
+    expect(screen.getByText('<script>Viewer & ✨</script>')).toBeInTheDocument()
+    expect(screen.getByText('#1 — Winner')).toBeInTheDocument()
+    expect(document.querySelector('script')).toBeNull()
+    rerender(<RafflePanel snapshot={{ ...snapshot, revision: 2, generation: 2, entries: [], winner: undefined }} running={true} />)
+    expect(screen.getByText('Total Entries: 0')).toBeInTheDocument()
+    expect(screen.queryByText('#1 — Winner')).not.toBeInTheDocument()
+    expect(screen.queryByText('<script>Viewer & ✨</script>')).not.toBeInTheDocument()
+  })
+  it.each(['END_PENDING', 'RECOVERING'])('preserves saved entries while %s', status => {
+    render(<RafflePanel snapshot={{ ...snapshot, status, verification: 'Verification pending' }} running={true} />)
+    expect(screen.getByText(`Status: ${status}`)).toBeInTheDocument()
+    expect(screen.getByText('Total Entries: 1')).toBeInTheDocument()
+    expect(screen.getByText('Verification pending')).toBeInTheDocument()
+  })
+  it('hides old identities after closure even if an inconsistent payload supplies them', () => {
+    render(<RafflePanel snapshot={{ ...snapshot, status: 'CLOSED' }} running={true} />)
+    expect(screen.getByText('Total Entries: 0')).toBeInTheDocument()
+    expect(screen.queryByText('#1 — Winner')).not.toBeInTheDocument()
+  })
+  it('rejects old events after clear and accepts a fresh reconnect snapshot', () => {
+    const cleared = { ...snapshot, revision: 3, generation: 2, entries: [], winner: undefined }
+    expect(acceptRaffleSnapshot(cleared, snapshot)).toBe(cleared)
+    expect(acceptRaffleSnapshot(null, cleared)).toBe(cleared)
+    const next = { ...snapshot, revision: 4 }
+    expect(acceptRaffleSnapshot(cleared, next)).toBe(next)
+  })
+})
+
+it('marks cached raffle entries as unverified when the backend is unavailable', () => {
+ render(<RafflePanel snapshot={{revision:1,sessionId:1,streamId:'A',generation:1,status:'ACTIVE',verification:'Verified with Twitch',entries:[{number:1,name:'SavedViewer'}],error:''}} running={true} connected={false} />)
+ expect(screen.getByText('Status: RECOVERING — backend unavailable; showing saved display')).toBeInTheDocument()
+ expect(screen.queryByText('Verified with Twitch')).not.toBeInTheDocument()
+ expect(screen.getByText('SavedViewer')).toBeInTheDocument()
 })

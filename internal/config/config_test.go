@@ -437,3 +437,23 @@ func writeTestEnv(t *testing.T, path, contents string) {
 		t.Fatal(err)
 	}
 }
+
+func TestRaffleConfigurationDefaultsAndOverrides(t *testing.T) {
+	cfg, err := LoadPartial(filepath.Join(t.TempDir(), "missing.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Bot.RaffleEnabled || cfg.Bot.RaffleConfirmation != time.Minute || cfg.Bot.RafflePollInterval != time.Minute || filepath.Base(cfg.Bot.RafflePath) != ".lupusaria-raffle.sqlite" {
+		t.Fatalf("raffle defaults: %+v", cfg.Bot)
+	}
+	t.Setenv("RAFFLE_ENABLED", "false")
+	t.Setenv("RAFFLE_CONFIRMATION_SECONDS", "90")
+	t.Setenv("RAFFLE_POLL_SECONDS", "30")
+	cfg, err = LoadPartial(filepath.Join(t.TempDir(), "missing.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Bot.RaffleEnabled || cfg.Bot.RaffleConfirmation != 90*time.Second || cfg.Bot.RafflePollInterval != 30*time.Second {
+		t.Fatal("raffle overrides ignored")
+	}
+}

@@ -4,7 +4,9 @@ on:
   push:
     branches:
       - main
+      - raffle-feature
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,7 +27,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: true
 
       - name: Set up Node
@@ -39,9 +41,24 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Run isolated Twitch rehearsal and record UI snapshots
+        env:
+          LUPUSARIA_REHEARSAL_TRACE: ${{ runner.temp }}/raffle-rehearsal.json
+        run: go test ./internal/rehearsal -run '^TestRaffleRehearsal$' -count=1 -v
+
       - name: Run frontend tests
+        env:
+          LUPUSARIA_REHEARSAL_TRACE: ${{ runner.temp }}/raffle-rehearsal.json
         working-directory: frontend
         run: npm test
+
+      - name: Upload rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: raffle-rehearsal-trace
+          path: ${{ runner.temp }}/raffle-rehearsal.json
+          if-no-files-found: error
 
       - name: Build frontend
         working-directory: frontend
@@ -65,3 +82,9 @@ jobs:
 
       - name: Run govulncheck
         run: govulncheck ./...
+
+  windows-smoke:
+    needs: quality-gates
+    uses: ./.github/workflows/windows-smoke.yml
+    permissions:
+      contents: read

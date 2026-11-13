@@ -20,7 +20,7 @@ func TestGetStreamInfoParsesLiveAndOfflineResponses(t *testing.T) {
 		if got := req.URL.Query().Get("user_login"); got != "lastursa" {
 			t.Fatalf("user_login = %q", got)
 		}
-		return `{"data":[{"user_login":"lastursa","title":"Testing","game_name":"Music","viewer_count":7,"started_at":"2026-06-16T12:00:00Z"}]}`
+		return `{"data":[{"id":"stream-a","user_login":"lastursa","title":"Testing","game_name":"Music","viewer_count":7,"started_at":"2026-06-16T12:00:00Z"}]}`
 	})
 
 	info, err := client.GetStreamInfo(context.Background(), "lastursa")
@@ -414,4 +414,20 @@ type helixRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f helixRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestStreamStatusRejectsMalformedOrUnidentifiedResponses(t *testing.T) {
+	for _, body := range []string{`{}`, `{"data":null}`, `{"data":[{"user_login":"channel"}]}`, `{"data":[]} {}`, `{"data":[{"id":"A","user_login":"other"}]}`} {
+		client := newTestHelixClient(t, func(*http.Request) string { return body })
+		if _, err := client.GetStreamInfo(context.Background(), "channel"); err == nil {
+			t.Fatalf("accepted malformed stream status %s", body)
+		}
+	}
+}
+func TestHelixRetryGuidance(t *testing.T) {
+	err := helixStatusError(&http.Response{StatusCode: 429, Status: "429 Too Many Requests", Header: http.Header{"Retry-After": []string{"120"}}, Body: io.NopCloser(strings.NewReader(`{"error":"rate limited"}`))})
+	e, ok := err.(*HelixError)
+	if !ok || time.Until(e.RetryAt) < 119*time.Second {
+		t.Fatalf("retry guidance missing: %v", err)
+	}
 }

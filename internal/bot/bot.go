@@ -18,6 +18,7 @@ import (
 	"lupusaria/internal/budget"
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/personality"
+	"lupusaria/internal/raffle"
 	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
 	"lupusaria/internal/wrapup"
@@ -30,6 +31,8 @@ type Chat interface {
 }
 
 type Config struct {
+	BroadcasterID         string
+	Raffle                *raffle.Service
 	Name                  string
 	Channel               string
 	StreamerName          string
@@ -214,6 +217,13 @@ func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
 		return
 	}
 
+	if isRaffleOutput(msg.Text) {
+		return
+	}
+	if isRaffleCommand(msg.Text) {
+		b.handleRaffle(ctx, msg)
+		return
+	}
 	b.remember(msg)
 	if b.recent != nil {
 		b.recent.ObserveMessage(time.Now(), msg.Username, msg.DisplayName)
@@ -483,7 +493,7 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 			b.say(msg.Channel, permissionDeniedMessage("!commands", b.cfg.CommandsPermission))
 			return true
 		}
-		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !wrapup [preview|stats|reset], !autoso, !autoso next, !autoso refresh, !autoso status, !soroulette.", b.cfg.Name))
+		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !wrapup [preview|stats|reset], !rafadd, !rafpick, !rafclear, !autoso, !autoso next, !autoso refresh, !autoso status, !soroulette.", b.cfg.Name))
 		return true
 	case b.cfg.EnableReset && lower == "!reset":
 		if !b.commandAllowed(msg, b.cfg.ResetPermission) {
@@ -974,11 +984,28 @@ func (c *loggingChat) Connect(ctx context.Context) (<-chan twitch.Message, error
 	logged := make(chan twitch.Message)
 	go func() {
 		defer close(logged)
-		for msg := range messages {
-			c.write("in", msg)
-			logged <- msg
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-messages:
+				if !ok {
+					return
+				}
+				// Twitch can echo the bot's own sends back through EventSub. Apply
+				// participant redaction on both sides of the transport boundary.
+				if !isRaffleCommand(msg.Text) && !isRaffleOutput(msg.Text) {
+					c.write("in", msg)
+				}
+				select {
+				case logged <- msg:
+				case <-ctx.Done():
+					return
+				}
+			}
 		}
 	}()
+
 	return logged, nil
 }
 
@@ -986,12 +1013,14 @@ func (c *loggingChat) Say(channel, text string) error {
 	if err := c.inner.Say(channel, text); err != nil {
 		return err
 	}
-	c.write("out", twitch.Message{
-		Channel:     strings.TrimPrefix(channel, "#"),
-		Username:    strings.ToLower(c.botName),
-		DisplayName: c.botName,
-		Text:        text,
-	})
+	if !isRaffleOutput(text) {
+		c.write("out", twitch.Message{
+			Channel:     strings.TrimPrefix(channel, "#"),
+			Username:    strings.ToLower(c.botName),
+			DisplayName: c.botName,
+			Text:        text,
+		})
+	}
 	return nil
 }
 
@@ -1876,13 +1905,16 @@ func (b *Bot) isModOrBroadcaster(msg twitch.Message) bool {
 	return b.isBroadcaster(msg) || msg.IsMod
 }
 
-func (b *Bot) commandAllowed(msg twitch.Message, permission string) bool {
+func (b *Bot) commandAllowed(msg twitch.Message, permission string, broadcasterID ...string) bool {
 	switch normalizeRuntimePermission(permission) {
 	case "everyone":
 		return true
 	case "mods":
 		return b.isModOrBroadcaster(msg)
 	case "broadcaster":
+		if len(broadcasterID) > 0 {
+			return broadcasterID[0] != "" && msg.UserID == broadcasterID[0]
+		}
 		return b.isBroadcaster(msg)
 	default:
 		return true
@@ -1933,4 +1965,44 @@ func stripMention(text, botName string) string {
 		kept = append(kept, word)
 	}
 	return strings.TrimSpace(strings.Join(kept, " "))
+}
+
+func isRaffleCommand(text string) bool {
+	fields := strings.Fields(strings.ToLower(text))
+	if len(fields) == 0 {
+		return false
+	}
+	return fields[0] == "!rafadd" || fields[0] == "!rafpick" || fields[0] == "!rafclear"
+}
+func isRaffleOutput(text string) bool {
+	return strings.HasSuffix(text, " added to raffle") || (strings.HasPrefix(text, "Congratulations ") && strings.HasSuffix(text, " you are the winner!"))
+}
+func (b *Bot) handleRaffle(ctx context.Context, msg twitch.Message) {
+	if b.cfg.Raffle == nil {
+		return
+	}
+	fields := strings.Fields(strings.ToLower(msg.Text))
+	command := fields[0]
+	permission := "everyone"
+	if command != "!rafadd" {
+		permission = "broadcaster"
+	}
+	if !b.commandAllowed(msg, permission, b.cfg.BroadcasterID) {
+		b.say(msg.Channel, permissionDeniedMessage(command, permission))
+		return
+	}
+	fence, err := b.cfg.Raffle.Capture()
+	if msg.RaffleFenced {
+		fence = raffle.Fence{SessionID: msg.RaffleSession, Generation: msg.RaffleGeneration}
+	}
+	if err == nil {
+		err = b.cfg.Raffle.Execute(ctx, raffle.Request{Command: command, MessageID: msg.ID, UserID: msg.UserID, Login: msg.Username, Name: msg.DisplayName, Fence: fence}, func(text string) error { return b.say(msg.Channel, text) })
+	}
+	if errors.Is(err, raffle.ErrStale) {
+		return
+	}
+	if err != nil {
+		b.cfg.Raffle.ReportError(err)
+		b.logger.Warn("raffle command failed; committed state preserved", "command", command)
+	}
 }

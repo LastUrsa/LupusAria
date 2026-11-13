@@ -289,3 +289,11 @@ func TestCheckTimersWaitsUntilDue(t *testing.T) {
 		t.Fatalf("sent = %#v", chat.sent)
 	}
 }
+
+func TestRaffleCommandsAreReserved(t *testing.T) {
+	for _, command := range []string{"!rafadd", "!rafclear", "!rafpick", " !RAFADD "} {
+		if err := Save(filepath.Join(t.TempDir(), "announcements.json"), []Announcement{{Kind: KindCommand, Command: command, Message: "conflict"}}); err == nil {
+			t.Fatalf("reserved command %s accepted", command)
+		}
+	}
+}

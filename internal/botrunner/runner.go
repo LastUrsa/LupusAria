@@ -16,12 +16,18 @@ import (
 	"lupusaria/internal/bot"
 	"lupusaria/internal/config"
 	"lupusaria/internal/knowledge"
+	"lupusaria/internal/raffle"
 	"lupusaria/internal/recentstreamers"
 	"lupusaria/internal/twitch"
 	"lupusaria/internal/wrapup"
 )
 
 type Options struct {
+	RaffleRepository  *raffle.Repository
+	RaffleChanged     func(raffle.Snapshot)
+	RaffleReady       func(*raffle.Service, *raffle.Repository)
+	RaffleUnavailable func(string)
+
 	MediaActionRedeem func(context.Context, twitch.ChannelPointRedeemEvent)
 	WrapUp            *wrapup.Service
 }
@@ -127,14 +133,89 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	}
 	if options.WrapUp != nil {
 		wrapEvents = make(chan wrapup.Event, 64)
-		if helix != nil {
+		if helix != nil && !(cfg.Bot.RaffleEnabled && broadcasterID != "") {
 			reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
-		} else {
+		} else if helix == nil {
 			logger.Warn("wrap-up stream tracking unavailable: missing Twitch client ID")
 		}
 	}
 
-	chat := bot.WithChatLogging(newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, redeems, wrapEvents, logger), cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
+	var raffleService *raffle.Service
+	var streamSignals chan twitch.StreamSignal
+	if cfg.Bot.RaffleEnabled {
+		var err error
+		if helix == nil || broadcasterID == "" {
+			logger.Warn("raffle unavailable: Twitch broadcaster identity required")
+			if options.RaffleUnavailable != nil {
+				options.RaffleUnavailable("Raffle unavailable: Twitch broadcaster identity required")
+			}
+		} else {
+			repo := options.RaffleRepository
+			openedRepo := repo == nil
+			if repo == nil {
+				repo, err = raffle.Open(cfg.Bot.RafflePath)
+				if err == nil && options.RaffleReady == nil {
+					defer repo.Close()
+				}
+			}
+			if err == nil {
+				raffleService, err = raffle.New(repo, broadcasterID, raffle.Options{Confirmation: cfg.Bot.RaffleConfirmation, Changed: options.RaffleChanged})
+			}
+			if err != nil {
+				if openedRepo && repo != nil {
+					repo.Close()
+				}
+				logger.Warn("raffle unavailable: database initialization failed")
+				if options.RaffleUnavailable != nil {
+					options.RaffleUnavailable("Raffle storage unavailable; saved data has not been replaced")
+				}
+			} else {
+				if options.RaffleReady != nil {
+					options.RaffleReady(raffleService, repo)
+				}
+				var streamAuth adTokenRefresher
+				if cfg.Twitch.RefreshToken != "" {
+					streamAuth = twitch.NewAuthManager(twitch.AuthConfig{ClientID: cfg.Twitch.ClientID, ClientSecret: cfg.Twitch.ClientSecret, RefreshToken: cfg.Twitch.RefreshToken, StatePath: cfg.Twitch.TokenStatePath})
+				}
+				lifecycleProvider := verifiedStreamProvider{provider: helix, auth: streamAuth, observed: func(info twitch.StreamInfo) {
+					if options.WrapUp != nil {
+						applyWrapUpStatus(options.WrapUp, info, broadcasterID, logger)
+					}
+				}}
+				if e := raffleService.Reconcile(ctx, lifecycleProvider, cfg.Twitch.Channel, true); e != nil {
+					logger.Warn("raffle verification unavailable; preserving saved state")
+				}
+				streamSignals = make(chan twitch.StreamSignal, 16)
+				// Use a child context so a failed chat startup also stops reconciliation.
+				raffleCtx, stopRaffle := context.WithCancel(ctx)
+				defer stopRaffle()
+				done := make(chan struct{})
+				defer func() { stopRaffle(); <-done }()
+				go func() {
+					defer close(done)
+					raffleService.Run(raffleCtx, lifecycleProvider, cfg.Twitch.Channel, streamSignals, cfg.Bot.RafflePollInterval, func(e error) { raffleService.ReportError(e); logger.Warn("raffle reconciliation failed; will retry") })
+				}()
+			}
+		}
+	}
+	if raffleService == nil && cfg.Bot.RaffleEnabled && options.WrapUp != nil && helix != nil && broadcasterID != "" {
+		reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
+	}
+	rawChat := newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, redeems, wrapEvents, logger)
+	if transport, ok := rawChat.(*twitch.EventSubChatClient); ok {
+		transport.SetStreamSignals(streamSignals)
+	}
+	if raffleService != nil {
+		if transport, ok := rawChat.(interface{ SetMessageObserver(func(*twitch.Message)) }); ok {
+			transport.SetMessageObserver(func(msg *twitch.Message) {
+				f, _ := raffleService.Capture()
+				msg.RaffleSession = f.SessionID
+				msg.RaffleGeneration = f.Generation
+				msg.RaffleFenced = true
+			})
+		}
+	}
+	chat := bot.WithChatLogging(rawChat, cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
 
 	if helix != nil && cfg.RecentStreamers.Enabled {
 		recentService = recentstreamers.New(recentstreamers.Config{
@@ -157,6 +238,11 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	if err != nil {
 		logger.Warn("failed to load announcements; continuing without them", "path", cfg.Announcements.Path, "error", err)
 	} else if cfg.Announcements.Enabled {
+		for _, item := range announcementItems {
+			if item.Command == "!rafadd" || item.Command == "!rafpick" || item.Command == "!rafclear" {
+				logger.Warn("announcement uses reserved raffle command; raffle takes precedence", "command", item.Command)
+			}
+		}
 		announcementService = announcements.New(announcements.Config{
 			Enabled:      cfg.Announcements.Enabled,
 			Channel:      cfg.Twitch.Channel,
@@ -167,6 +253,8 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 	}
 
 	runner := bot.New(bot.Config{
+		BroadcasterID:         broadcasterID,
+		Raffle:                raffleService,
 		Name:                  cfg.Bot.Name,
 		Channel:               cfg.Twitch.Channel,
 		StreamerName:          cfg.Bot.StreamerName,
@@ -279,7 +367,7 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					if helix != nil {
+					if helix != nil && raffleService == nil {
 						reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
 					}
 				case event := <-wrapEvents:
@@ -527,6 +615,34 @@ func reconcileWrapUp(ctx context.Context, provider bot.StreamInfoProvider, servi
 		logger.Warn("could not reconcile wrap-up stream status; recording may be unavailable, will retry in one minute", "error", err)
 		return
 	}
+	applyWrapUpStatus(service, info, broadcasterID, logger)
+}
+
+type verifiedStreamProvider struct {
+	auth     adTokenRefresher
+	provider bot.StreamInfoProvider
+	observed func(twitch.StreamInfo)
+}
+
+func (p verifiedStreamProvider) GetStreamInfo(ctx context.Context, channel string) (twitch.StreamInfo, error) {
+	info, err := p.provider.GetStreamInfo(ctx, channel)
+	if err != nil && isUnauthorized(err) && p.auth != nil {
+		tokens, refreshErr := p.auth.Refresh(ctx)
+		if refreshErr != nil {
+			return twitch.StreamInfo{}, refreshErr
+		}
+		if setter, ok := p.provider.(interface{ SetAccessToken(string) }); ok {
+			setter.SetAccessToken(tokens.AccessToken)
+			info, err = p.provider.GetStreamInfo(ctx, channel)
+		}
+	}
+	if err == nil {
+		p.observed(info)
+	}
+	return info, err
+}
+func applyWrapUpStatus(service *wrapup.Service, info twitch.StreamInfo, broadcasterID string, logger *slog.Logger) {
+	var err error
 	current, exists := service.Current()
 	if info.Live {
 		if exists && current.Status == "live" && current.StreamID == info.ID {

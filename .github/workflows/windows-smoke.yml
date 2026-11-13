@@ -1,0 +1,58 @@
+name: Windows Candidate Smoke
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm --prefix frontend ci
+      - name: Test SQLite and Twitch rehearsal on Windows
+        run: go test ./internal/raffle ./internal/rehearsal -count=1 -v
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+      - name: Build Windows candidate installer
+        shell: pwsh
+        run: |
+          $env:Path += ";$(go env GOPATH)\bin;C:\Program Files (x86)\NSIS;C:\Program Files (x86)\NSIS\Bin"
+          wails build -clean -platform windows/amd64 -nsis
+      - name: Download and verify previous release installer
+        id: baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/windows-baseline.ps1
+      - name: Install, launch, upgrade, and uninstall candidate
+        shell: pwsh
+        env:
+          LUPUSARIA_BASELINE_INSTALLER: ${{ steps.baseline.outputs.installer }}
+        run: ./scripts/windows-smoke.ps1 -Installer ./build/bin/LupusAria-amd64-installer.exe -PreviousInstaller $env:LUPUSARIA_BASELINE_INSTALLER
+      - name: Upload candidate and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-candidate-smoke
+          if-no-files-found: warn
+          path: |
+            build/bin/*.exe
+            ${{ runner.temp }}/windows-smoke-results.json

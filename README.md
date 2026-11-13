@@ -12,6 +12,7 @@ It is intended to be usable from this public repo by streamers who want a local 
 - Twitch emote context enrichment with local cached visual descriptions.
 - AutoSO tracking from chatters, watch time, recent stream history, and configurable `!soroulette` pools.
 - Configurable command and stream-timer announcements with direct link recall, deduplicated ad-pod alerts, and channel point Media Actions with Twitch cooldown visibility for OBS overlays.
+- Broadcast-bound raffles with durable entries, cryptographic draws, broadcaster-only clearing, and live desktop status.
 - Persistent Stream Wrap-Up tracking for follows, subscriptions, gift subscriptions, Bits, and incoming raids, with a live report and copyable thank-you list.
 - Reconnecting OBS Media Actions overlay with visual placement, independent entrance and exit animations, styled captions, GIF playback controls, and per-sound volume.
 - Global, per-user, hourly, daily, and monthly AI guardrails.
@@ -42,7 +43,7 @@ On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral templat
 
 ## Desktop App
 
-To run from source, install Go 1.26.10, Node.js 24, the platform-specific [Wails dependencies](https://wails.io/docs/gettingstarted/installation), and Wails v2.12.0. Then install the frontend packages and start the development app:
+To run from source, install Go 1.26.11, Node.js 24, the platform-specific [Wails dependencies](https://wails.io/docs/gettingstarted/installation), and Wails v2.12.0. Then install the frontend packages and start the development app:
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0

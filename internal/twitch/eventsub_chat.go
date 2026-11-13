@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"lupusaria/internal/wrapup"
 	"net/http"
@@ -35,6 +34,7 @@ type EventSubConfig struct {
 	AdBreaks            chan<- AdBreakEvent
 	Redeems             chan<- ChannelPointRedeemEvent
 	WrapUpEvents        chan<- wrapup.Event
+	StreamSignals       chan<- StreamSignal
 }
 
 type AdBreakEvent struct {
@@ -55,10 +55,11 @@ type ChannelPointRedeemEvent struct {
 }
 
 type EventSubChatClient struct {
-	cfg    EventSubConfig
-	helix  *HelixClient
-	sender *HelixClient
-	logger *slog.Logger
+	messageObserver func(*Message)
+	cfg             EventSubConfig
+	helix           *HelixClient
+	sender          *HelixClient
+	logger          *slog.Logger
 
 	wsURL  string
 	dialer *websocket.Dialer
@@ -202,6 +203,14 @@ func (c *EventSubChatClient) subscribeToRedeems(ctx context.Context, sessionID s
 }
 
 func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, sessionID string) error {
+	if c.cfg.StreamSignals != nil && c.cfg.WrapUpEvents == nil {
+		condition := map[string]string{"broadcaster_user_id": c.cfg.BroadcasterID}
+		for _, kind := range []string{"stream.online", "stream.offline"} {
+			if err := c.helix.CreateEventSubWebSocketSubscription(ctx, kind, "1", condition, sessionID); err != nil {
+				return err
+			}
+		}
+	}
 	if c.cfg.WrapUpEvents != nil {
 		helix := c.helix
 		if strings.TrimSpace(c.cfg.BroadcasterToken) != "" {
@@ -235,7 +244,7 @@ func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, s
 }
 
 func (c *EventSubChatClient) needsBroadcasterSession() bool {
-	return c.cfg.Redeems != nil || c.cfg.AdBreaks != nil || c.cfg.WrapUpEvents != nil
+	return c.cfg.StreamSignals != nil || c.cfg.Redeems != nil || c.cfg.AdBreaks != nil || c.cfg.WrapUpEvents != nil
 }
 
 func (c *EventSubChatClient) connectSession(ctx context.Context, rawURL string) (*websocket.Conn, eventSubSession, error) {
@@ -292,7 +301,7 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, io.EOF) {
+			if ctx.Err() != nil {
 				return
 			}
 			if c.logger != nil {
@@ -341,13 +350,24 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 			_ = conn.Close()
 			conn = next
 			setConn(conn)
+			c.signal(StreamSignal{})
 		case "notification":
 			subscriptionType := firstNonEmpty(msg.Metadata.SubscriptionType, msg.Payload.Subscription.Type)
+			if (subscriptionType == "stream.online" || subscriptionType == "stream.offline") && msg.Payload.Event.BroadcasterUserID == c.cfg.BroadcasterID {
+				c.signal(StreamSignal{ID: msg.Metadata.MessageID, Broadcaster: msg.Payload.Event.BroadcasterUserID})
+			}
 			switch subscriptionType {
 			case "channel.chat.message":
 				chatMsg, ok := eventSubChatMessageToMessage(msg.Payload.Event, string(data))
 				if ok && messages != nil {
-					messages <- chatMsg
+					if c.messageObserver != nil {
+						c.messageObserver(&chatMsg)
+					}
+					select {
+					case messages <- chatMsg:
+					case <-ctx.Done():
+						return
+					}
 				}
 			case "channel.ad_break.begin":
 				if adBreak, ok := eventSubAdBreakToEvent(msg.Payload.Event); ok {
@@ -405,6 +425,7 @@ func (c *EventSubChatClient) reconnectFresh(ctx context.Context, subscribe event
 				err = fmt.Errorf("resubscribe %s: %w", label, err)
 			} else {
 				setConn(conn)
+				c.signal(StreamSignal{})
 				return conn, nil
 			}
 		}
@@ -714,3 +735,19 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+type StreamSignal struct{ ID, Broadcaster string }
+
+func (c *EventSubChatClient) signal(v StreamSignal) {
+	if c.cfg.StreamSignals != nil {
+		select {
+		case c.cfg.StreamSignals <- v:
+		default:
+		}
+	}
+}
+
+// SetStreamSignals configures lifecycle triggers before Connect.
+func (c *EventSubChatClient) SetStreamSignals(ch chan<- StreamSignal) { c.cfg.StreamSignals = ch }
+
+func (c *EventSubChatClient) SetMessageObserver(f func(*Message)) { c.messageObserver = f }

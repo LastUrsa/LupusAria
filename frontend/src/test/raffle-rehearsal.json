@@ -1,0 +1,360 @@
+[
+  {
+    "label": "inactive",
+    "snapshot": {
+      "revision": 2,
+      "sessionId": 0,
+      "streamId": "",
+      "generation": 0,
+      "status": "INACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "active-empty",
+    "snapshot": {
+      "revision": 3,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "five-entries",
+    "snapshot": {
+      "revision": 8,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 1,
+          "name": "Viewer1"
+        },
+        {
+          "number": 2,
+          "name": "Viewer2"
+        },
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "winner",
+    "snapshot": {
+      "revision": 11,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 2,
+          "name": "Viewer2"
+        },
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 1,
+        "name": "Viewer1",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "sent"
+      },
+      "error": ""
+    }
+  },
+  {
+    "label": "failed-announcement",
+    "snapshot": {
+      "revision": 14,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 2,
+        "name": "Viewer2",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "failed"
+      },
+      "error": "Raffle operation failed; committed state preserved"
+    }
+  },
+  {
+    "label": "reconnected",
+    "snapshot": {
+      "revision": 16,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 2,
+        "name": "Viewer2",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "failed"
+      },
+      "error": ""
+    }
+  },
+  {
+    "label": "degraded-verification",
+    "snapshot": {
+      "revision": 20,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Twitch verification unavailable; retrying",
+      "entries": [
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 2,
+        "name": "Viewer2",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "failed"
+      },
+      "error": ""
+    }
+  },
+  {
+    "label": "restarted",
+    "snapshot": {
+      "revision": 23,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 2,
+        "name": "Viewer2",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "failed"
+      },
+      "error": ""
+    }
+  },
+  {
+    "label": "winners-blocked",
+    "snapshot": {
+      "revision": 25,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 3,
+          "name": "Viewer3"
+        },
+        {
+          "number": 4,
+          "name": "Viewer4"
+        },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 2,
+        "name": "Viewer2",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "failed"
+      },
+      "error": ""
+    }
+  },
+  {
+    "label": "cleared",
+    "snapshot": {
+      "revision": 26,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 2,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "re-entered",
+    "snapshot": {
+      "revision": 27,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 2,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 1,
+          "name": "Viewer1"
+        }
+      ],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "end-pending",
+    "snapshot": {
+      "revision": 28,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 2,
+      "status": "END_PENDING",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 1,
+          "name": "Viewer1"
+        }
+      ],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "closed",
+    "snapshot": {
+      "revision": 33,
+      "sessionId": 0,
+      "streamId": "",
+      "generation": 0,
+      "status": "INACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "new-broadcast",
+    "snapshot": {
+      "revision": 34,
+      "sessionId": 2,
+      "streamId": "broadcast-B",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [],
+      "winner": null,
+      "error": ""
+    }
+  },
+  {
+    "label": "stale-event-ignored",
+    "snapshot": {
+      "revision": 36,
+      "sessionId": 2,
+      "streamId": "broadcast-B",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
+        {
+          "number": 1,
+          "name": "ViewerB"
+        }
+      ],
+      "winner": null,
+      "error": ""
+    }
+  }
+]
