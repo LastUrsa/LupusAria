@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -68,6 +69,7 @@ type ChatMessageResult struct {
 }
 
 type HelixClient struct {
+	tokenMu     sync.RWMutex
 	clientID    string
 	accessToken string
 	httpClient  *http.Client
@@ -84,6 +86,8 @@ func NewHelixClient(clientID, accessToken string) *HelixClient {
 }
 
 func (c *HelixClient) SetAccessToken(accessToken string) {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
 	c.accessToken = trimOAuthPrefix(accessToken)
 }
 
@@ -103,11 +107,20 @@ func (c *HelixClient) GetStreamInfo(ctx context.Context, channel string) (Stream
 		return StreamInfo{}, err
 	}
 
+	if result.Data == nil {
+		return StreamInfo{}, errors.New("stream response missing data array")
+	}
 	if len(result.Data) == 0 {
 		return StreamInfo{Channel: channel, Live: false}, nil
 	}
 
+	if len(result.Data) != 1 {
+		return StreamInfo{}, errors.New("ambiguous stream status response")
+	}
 	stream := result.Data[0]
+	if stream.ID == "" || !strings.EqualFold(stream.UserLogin, channel) {
+		return StreamInfo{}, errors.New("stream response has invalid identity")
+	}
 	return StreamInfo{
 		ID:          stream.ID,
 		Channel:     stream.UserLogin,
@@ -419,8 +432,9 @@ func (c *HelixClient) getJSON(ctx context.Context, endpoint string, target any) 
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Cache-Control", "no-cache, no-store")
 	req.Header.Set("Client-Id", c.clientID)
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Authorization", "Bearer "+c.token())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -431,7 +445,18 @@ func (c *HelixClient) getJSON(ctx context.Context, endpoint string, target any) 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return helixStatusError(resp)
 	}
-	return json.NewDecoder(resp.Body).Decode(target)
+	if strings.Contains(endpoint, "/streams?") && resp.Header.Get("Age") != "" && resp.Header.Get("Age") != "0" {
+		return errors.New("cached stream status response cannot verify lifecycle")
+	}
+	decoder := json.NewDecoder(resp.Body)
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("unexpected trailing JSON response")
+	}
+	return nil
 }
 
 func (c *HelixClient) postJSON(ctx context.Context, endpoint string, payload, target any) error {
@@ -444,7 +469,7 @@ func (c *HelixClient) postJSON(ctx context.Context, endpoint string, payload, ta
 		return err
 	}
 	req.Header.Set("Client-Id", c.clientID)
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Authorization", "Bearer "+c.token())
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -462,13 +487,32 @@ func (c *HelixClient) postJSON(ctx context.Context, endpoint string, payload, ta
 	return json.NewDecoder(resp.Body).Decode(target)
 }
 
+// HelixError retains status text for existing callers and exposes retry guidance.
+type HelixError struct {
+	Message string
+	RetryAt time.Time
+}
+
+func (e *HelixError) Error() string { return e.Message }
 func helixStatusError(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	detail := strings.Join(strings.Fields(string(body)), " ")
-	if detail == "" {
-		return fmt.Errorf("helix request failed with status %s", resp.Status)
+	message := fmt.Sprintf("helix request failed with status %s", resp.Status)
+	if detail != "" {
+		message += ": " + detail
 	}
-	return fmt.Errorf("helix request failed with status %s: %s", resp.Status, detail)
+	var retry time.Time
+	if seconds, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
+		retry = time.Now().Add(time.Duration(seconds) * time.Second)
+	} else if at, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil {
+		retry = at
+	}
+	if resp.StatusCode == 429 {
+		if reset, err := strconv.ParseInt(resp.Header.Get("Ratelimit-Reset"), 10, 64); err == nil && time.Unix(reset, 0).After(retry) {
+			retry = time.Unix(reset, 0)
+		}
+	}
+	return &HelixError{Message: message, RetryAt: retry}
 }
 
 func sanitizeChatAPIMessage(message string) string {
@@ -554,4 +598,10 @@ func trimOAuthPrefix(token string) string {
 		return token[len("oauth:"):]
 	}
 	return token
+}
+
+func (c *HelixClient) token() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.accessToken
 }

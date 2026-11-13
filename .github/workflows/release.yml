@@ -45,7 +45,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: true
 
       - name: Set up Node
@@ -59,9 +59,24 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Run isolated Twitch rehearsal and record UI snapshots
+        env:
+          LUPUSARIA_REHEARSAL_TRACE: ${{ runner.temp }}/raffle-rehearsal.json
+        run: go test ./internal/rehearsal -run '^TestRaffleRehearsal$' -count=1 -v
+
       - name: Run frontend tests
+        env:
+          LUPUSARIA_REHEARSAL_TRACE: ${{ runner.temp }}/raffle-rehearsal.json
         working-directory: frontend
         run: npm test
+
+      - name: Upload rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: raffle-rehearsal-trace
+          path: ${{ runner.temp }}/raffle-rehearsal.json
+          if-no-files-found: error
 
       - name: Build frontend
         working-directory: frontend
@@ -143,7 +158,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: true
 
       - name: Set up Node
@@ -165,6 +180,18 @@ jobs:
         run: |
           $env:Path += ";$(go env GOPATH)\bin;C:\Program Files (x86)\NSIS;C:\Program Files (x86)\NSIS\Bin"
           wails build -clean -platform windows/amd64 -nsis
+
+      - name: Smoke test the release installer
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1 -Installer ./build/bin/LupusAria-amd64-installer.exe
+
+      - name: Upload Windows smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-smoke
+          path: ${{ runner.temp }}/windows-smoke-results.json
+          if-no-files-found: warn
 
       - name: Validate installer metadata
         shell: pwsh

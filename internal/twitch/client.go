@@ -22,6 +22,9 @@ type Config struct {
 }
 
 type Message struct {
+	RaffleSession          int64
+	RaffleGeneration       int
+	RaffleFenced           bool
 	ID                     string
 	Channel                string
 	UserID                 string
@@ -44,8 +47,9 @@ type Emote struct {
 }
 
 type Client struct {
-	cfg    Config
-	logger *slog.Logger
+	messageObserver func(*Message)
+	cfg             Config
+	logger          *slog.Logger
 
 	mu   sync.Mutex
 	conn net.Conn
@@ -123,7 +127,14 @@ func (c *Client) readLoop(ctx context.Context, conn net.Conn, messages chan<- Me
 		if !ok {
 			continue
 		}
-		messages <- msg
+		if c.messageObserver != nil {
+			c.messageObserver(&msg)
+		}
+		select {
+		case messages <- msg:
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	if err := scanner.Err(); err != nil && ctx.Err() == nil && err != io.EOF {
@@ -313,3 +324,5 @@ func unescapeIRCTag(value string) string {
 	}
 	return out.String()
 }
+
+func (c *Client) SetMessageObserver(f func(*Message)) { c.messageObserver = f }

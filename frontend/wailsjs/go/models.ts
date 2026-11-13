@@ -49,6 +49,7 @@ export namespace main {
 	    }
 	}
 	export class ControlSettings {
+	    raffleEnabled: boolean;
 	    running: boolean;
 	    status: string;
 	    error: string;
@@ -128,6 +129,7 @@ export namespace main {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.raffleEnabled = source["raffleEnabled"];
 	        this.running = source["running"];
 	        this.status = source["status"];
 	        this.error = source["error"];
@@ -373,6 +375,90 @@ export namespace main {
 	}
 
 }
+
+export namespace raffle {
+
+	export class Entry {
+	    number: number;
+	    name: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Entry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.number = source["number"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Winner {
+	    number: number;
+	    name: string;
+	    drawnAt: string;
+	    announcement: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Winner(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.number = source["number"];
+	        this.name = source["name"];
+	        this.drawnAt = source["drawnAt"];
+	        this.announcement = source["announcement"];
+	    }
+	}
+	export class Snapshot {
+	    revision: number;
+	    sessionId: number;
+	    streamId: string;
+	    generation: number;
+	    status: string;
+	    verification: string;
+	    entries: Entry[];
+	    winner?: Winner;
+	    error: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Snapshot(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.revision = source["revision"];
+	        this.sessionId = source["sessionId"];
+	        this.streamId = source["streamId"];
+	        this.generation = source["generation"];
+	        this.status = source["status"];
+	        this.verification = source["verification"];
+	        this.entries = this.convertValues(source["entries"], Entry);
+	        this.winner = this.convertValues(source["winner"], Winner);
+	        this.error = source["error"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace wrapup {
 
 	export class Report {

@@ -74,6 +74,11 @@ func Load(path string) ([]Announcement, error) {
 
 func Save(path string, items []Announcement) error {
 	items = Normalize(items)
+	for _, item := range items {
+		if item.Kind == KindCommand && (item.Command == "!rafadd" || item.Command == "!rafpick" || item.Command == "!rafclear") {
+			return fmt.Errorf("%s is reserved for raffles", item.Command)
+		}
+	}
 	raw, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {
 		return err

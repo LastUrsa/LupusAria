@@ -195,3 +195,32 @@ func TestConvertChannelEmotesMapsCatalog(t *testing.T) {
 		t.Fatalf("emote = %#v", got[0])
 	}
 }
+
+type refreshingStream struct {
+	calls int
+	token string
+}
+
+func (p *refreshingStream) GetStreamInfo(context.Context, string) (twitch.StreamInfo, error) {
+	p.calls++
+	if p.token == "" {
+		return twitch.StreamInfo{}, errors.New("401 Unauthorized")
+	}
+	return twitch.StreamInfo{ID: "A", Channel: "channel", Live: true}, nil
+}
+func (p *refreshingStream) SetAccessToken(token string) { p.token = token }
+func TestVerifiedStreamProviderRefreshesTokenAndSharesObservation(t *testing.T) {
+	source := &refreshingStream{}
+	auth := &fakeAdRefresher{tokens: []twitch.TokenSet{{AccessToken: "new-token"}}}
+	observed := 0
+	p := verifiedStreamProvider{provider: source, auth: auth, observed: func(info twitch.StreamInfo) {
+		observed++
+		if info.ID != "A" {
+			t.Fatal(info)
+		}
+	}}
+	info, err := p.GetStreamInfo(context.Background(), "channel")
+	if err != nil || !info.Live || source.calls != 2 || auth.calls != 1 || observed != 1 {
+		t.Fatalf("refresh/share failed: %v %+v", err, info)
+	}
+}

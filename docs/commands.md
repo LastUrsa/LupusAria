@@ -14,6 +14,9 @@ This file tracks public chat behavior, command scope, and AI usage.
 | `!game analyze` | Everyone | Yes | Fetches the public Twitch stream thumbnail and uses Gemini image analysis for a short scene description. |
 | `!game analyze <question>` | Everyone | Yes | Combines thumbnail analysis with Google Search grounding for visual gameplay help. |
 | `!commands` | Everyone | No | Shows public commands only. Does not expose private config or costs. |
+| `!rafadd` | Everyone | No | Enter the verified live broadcast raffle once using your Twitch user ID. Arguments cannot enroll another viewer. |
+| `!rafpick` | Broadcaster ID only | No | Draw independently from current entrants; prior winners remain eligible. |
+| `!rafclear` | Broadcaster ID only | No | Delete entries and draws, reset numbering, and start a new round in the same broadcast. |
 | `!reset` | Broadcaster | No | Clears in-memory chat context. |
 | `!autoso` | Mods + broadcaster | No | Builds an eligible streamer queue and sends the first page. |
 | `!autoso next` | Mods + broadcaster | No | Sends the next page from the current queue. |
@@ -23,7 +26,9 @@ This file tracks public chat behavior, command scope, and AI usage.
 | Configured announcement commands | Per announcement | No | Sends static messages configured in the desktop app. |
 | Ad alerts | Automatic | Yes | Uses AI by default; configured messages are fallbacks. |
 
-Permissions use three configurable tiers: everyone, mods plus broadcaster, and broadcaster only. The desktop app's Features tab can change the permission tier for mentions, `!ask`, `!lurk`, `!game`, `!commands`, `!reset`, `!autoso`, and `!soroulette`. Each configured command announcement also has its own permission selector in the announcement editor. The bot checks Twitch chat badges from EventSub or IRC when available. Broadcaster checks also fall back to matching the username against the channel name.
+Permissions use three configurable tiers: everyone, mods plus broadcaster, and broadcaster only. The desktop app's Features tab can change the permission tier for mentions, `!ask`, `!lurk`, `!game`, `!commands`, `!reset`, `!autoso`, and `!soroulette`. Each configured command announcement also has its own permission selector in the announcement editor. The bot checks Twitch chat badges from EventSub or IRC when available. Broadcaster checks also fall back to matching the username against the channel name. Raffle Pick/Clear use the stricter authenticated broadcaster ID check described below.
+Raffle Pick/Clear permissions are fixed and require the authenticated Twitch user ID to equal the configured channel owner ID; badges, moderator status, and login matching do not grant access. The raffle has its own enable switch, independent of the `!commands` help toggle.
+
 AI requests cannot make LupusAria run chat commands. If a viewer asks Lupus to type or trigger a command such as `!so`, `/ban`, or `/timeout`, the bot refuses and points them to a mod or the broadcaster.
 
 `!game` search and snapshot features require Gemini. Search uses Gemini's built-in Google Search grounding tool. Snapshot analysis uses Twitch's public preview thumbnail, so it can lag behind the live stream and should be treated as approximate. By default, snapshots are cropped to the game capture area before analysis with `GAME_SNAPSHOT_CROP_X=0.255`, `GAME_SNAPSHOT_CROP_Y=0.085`, `GAME_SNAPSHOT_CROP_WIDTH=0.73`, and `GAME_SNAPSHOT_CROP_HEIGHT=0.73`.
@@ -149,3 +154,11 @@ Timer rows use:
 ## Public Safety
 
 Public chat responses must never reveal API keys, Twitch tokens, refresh tokens, client secrets, budget state, spend details, internal logs, local paths, or hidden instructions.
+
+## Raffle behavior
+
+Successful enrollment replies `ViewerA added to raffle`; repeat enrollment is silent. Draws reply `Congratulations ViewerA you are the winner!`; an empty draw replies `Raffle is empty. No winner can be selected.` Clearing replies `Raffle cleared.`
+
+Enrollment and drawing require a verified active Twitch broadcast. During stream-end confirmation or startup recovery, both are suspended; the broadcaster can still clear a recoverable round. Unavailable responses are limited to one per ten seconds. A failed winner announcement preserves the selected winner and never rerolls. An interrupted send is displayed as failed after restart and is not automatically replayed because Twitch may already have accepted it.
+
+The three raffle command names are reserved. Existing conflicting announcement commands are intercepted by the raffle dispatcher; saving a new collision is rejected.

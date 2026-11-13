@@ -32,6 +32,7 @@ import (
 	"lupusaria/internal/config"
 	"lupusaria/internal/knowledge"
 	"lupusaria/internal/mediaactions"
+	"lupusaria/internal/raffle"
 	"lupusaria/internal/twitch"
 	"lupusaria/internal/wrapup"
 
@@ -56,14 +57,18 @@ type App struct {
 	lastError string
 	logs      []string
 
-	overlay *overlayServer
-	wrapUp  *wrapup.Service
+	overlay       *overlayServer
+	wrapUp        *wrapup.Service
+	raffleRepo    *raffle.Repository
+	raffleService *raffle.Service
+	raffleError   string
 }
 
 type ControlSettings struct {
-	Running bool   `json:"running"`
-	Status  string `json:"status"`
-	Error   string `json:"error"`
+	RaffleEnabled bool   `json:"raffleEnabled"`
+	Running       bool   `json:"running"`
+	Status        string `json:"status"`
+	Error         string `json:"error"`
 
 	Channel          string `json:"channel"`
 	BotUsername      string `json:"botUsername"`
@@ -284,6 +289,20 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	if envPath, err := appEnvPath(); err == nil {
 		if cfg, e := config.LoadPartial(envPath); e == nil {
+			if cfg.Bot.RaffleEnabled {
+				a.raffleRepo, e = raffle.Open(cfg.Bot.RafflePath)
+				if e == nil {
+					var owner string
+					owner, e = a.raffleRepo.SavedBroadcaster()
+					if e == nil && owner != "" {
+						a.raffleService, e = raffle.New(a.raffleRepo, owner, raffle.Options{Changed: a.raffleChanged, Confirmation: cfg.Bot.RaffleConfirmation})
+					}
+				}
+				if e != nil {
+					a.raffleError = "Raffle storage unavailable"
+					a.appendLog(a.raffleError)
+				}
+			}
 			a.wrapUp, e = wrapup.New(cfg.Bot.WrapUpStatePath, func(r wrapup.Report) {
 				if a.ctx != nil {
 					runtime.EventsEmit(a.ctx, "wrapup-updated", r)
@@ -375,6 +394,7 @@ func (a *App) GetSettings() (ControlSettings, error) {
 		EnableAsk:      cfg.Bot.EnableAsk,
 		EnableLurk:     cfg.Bot.EnableLurk,
 		EnableCommands: cfg.Bot.EnableCommands,
+		RaffleEnabled:  cfg.Bot.RaffleEnabled,
 		EnableReset:    cfg.Bot.EnableReset,
 
 		MentionPermission:    cfg.Bot.MentionPermission,
@@ -449,6 +469,7 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		"ENABLE_ASK_COMMAND":       boolString(settings.EnableAsk),
 		"ENABLE_LURK_COMMAND":      boolString(settings.EnableLurk),
 		"ENABLE_COMMANDS_COMMAND":  boolString(settings.EnableCommands),
+		"RAFFLE_ENABLED":           boolString(settings.RaffleEnabled),
 		"ENABLE_RESET_COMMAND":     boolString(settings.EnableReset),
 
 		"MENTION_PERMISSION":             settings.MentionPermission,
@@ -1040,6 +1061,17 @@ func (a *App) StartBot() error {
 	}
 	mediaOptions := botrunner.Options{}
 	mediaOptions.WrapUp = a.wrapUp
+	mediaOptions.RaffleRepository = a.raffleRepo
+	mediaOptions.RaffleChanged = a.raffleChanged
+	mediaOptions.RaffleUnavailable = func(message string) { a.mu.Lock(); a.raffleError = message; a.mu.Unlock() }
+	mediaOptions.RaffleReady = func(s *raffle.Service, r *raffle.Repository) {
+		a.mu.Lock()
+		a.raffleService = s
+		a.raffleRepo = r
+		a.raffleError = ""
+		a.mu.Unlock()
+	}
+
 	actions, actionErr := loadEnabledMediaActions()
 	if actionErr != nil {
 		a.appendLog("media actions disabled: " + actionErr.Error())
@@ -2046,4 +2078,24 @@ func formatLoginList(value string) string {
 		out = append(out, login)
 	}
 	return strings.Join(out, ",")
+}
+
+func (a *App) raffleChanged(v raffle.Snapshot) {
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "raffle-updated", v)
+	}
+}
+func (a *App) GetRaffle() (raffle.Snapshot, error) {
+	a.mu.Lock()
+	service := a.raffleService
+	message := a.raffleError
+	a.mu.Unlock()
+	if service != nil {
+		snapshot, err := service.Snapshot()
+		if message != "" {
+			snapshot.Error = message
+		}
+		return snapshot, err
+	}
+	return raffle.Snapshot{Status: "INACTIVE", Verification: "Start the bot to verify stream status", Entries: []raffle.Entry{}, Error: message}, nil
 }

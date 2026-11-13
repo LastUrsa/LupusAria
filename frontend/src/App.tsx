@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { EventsOff, EventsOn } from '../wailsjs/runtime/runtime'
-import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, GetWrapUp, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
+import { CheckTwitchPermissions, GetAnnouncements, GetChannelPointRewards, GetKnowledge, GetLogs, GetMediaActions, GetMediaAssetDataURL, GetMediaOverlayURL, GetSettings, GetWrapUp, GetRaffle, ImportMediaActionAssets, PreviewMediaAction, ResetKnowledgeTemplate, SaveAnnouncements, SaveKnowledge, SaveMediaActions, SaveSettings, StartBot, StopBot } from '../wailsjs/go/main/App'
 import { main } from '../wailsjs/go/models'
 import lupusAriaIcon from './assets/images/LupusAriaIcon.png'
 import './App.css'
@@ -88,6 +88,20 @@ type MediaPlaybackClip = {
   mediaFrameDelaysMs?: number[]
 }
 type Section = 'overview' | 'setup' | 'aiBudget' | 'features' | 'mediaActions' | 'knowledge'
+type RaffleSnapshot = {
+  revision: number
+  sessionId: number
+  streamId: string
+  generation: number
+  status: string
+  verification: string
+  entries: Array<{ number: number; name: string }>
+  winner?: { number: number; name: string; drawnAt: string; announcement: string }
+  error: string
+}
+export function acceptRaffleSnapshot(current: RaffleSnapshot | null, next: RaffleSnapshot): RaffleSnapshot {
+  return current && current.revision > next.revision ? current : next
+}
 type WrapUpReport = { sessionId: string; streamId: string; status: string; startedAt: string; followerCount: number; subscriptionCount: number; giftedSubCount: number; bits: number; raidCount: number; formatted: string; stats: string; completenessWarning?: string }
 type AnnouncementKind = 'command' | 'timer'
 
@@ -141,7 +155,8 @@ const mediaPlaybackModeOptions = [
   { value: 'loop_next', label: 'Loop to Another GIF' }
 ]
 
-const emptySettings: Settings = {
+export const emptySettings: Settings = {
+ raffleEnabled: true,
   running: false,
   status: 'Loading',
   error: '',
@@ -260,6 +275,8 @@ export default function App() {
   const [channelPointRewards, setChannelPointRewards] = useState<ChannelPointReward[]>([])
   const [activePlayback, setActivePlayback] = useState<MediaActionPlayback | null>(null)
   const [mediaOverlayUrl, setMediaOverlayUrl] = useState('')
+  const [raffle, setRaffle] = useState<RaffleSnapshot | null>(null)
+  const [raffleConnected, setRaffleConnected] = useState(false)
   const [permissionCheck, setPermissionCheck] = useState<TwitchPermissionCheck | null>(null)
   const [wrapUp, setWrapUp] = useState<WrapUpReport | null>(null)
   const [notice, setNotice] = useState('')
@@ -296,7 +313,11 @@ export default function App() {
       }
       setLogs((await GetLogs()) ?? [])
       setWrapUp(await GetWrapUp())
+      const snapshot = await GetRaffle()
+      setRaffle(current => acceptRaffleSnapshot(current, snapshot))
+      setRaffleConnected(true)
     } catch (error) {
+      setRaffleConnected(false)
       setNotice(error instanceof Error ? error.message : String(error))
     }
   }
@@ -318,8 +339,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    EventsOn('raffle-updated', (snapshot: RaffleSnapshot) => {
+      setRaffle(current => acceptRaffleSnapshot(current, snapshot))
+      setRaffleConnected(true)
+    })
     EventsOn('wrapup-updated', (report: WrapUpReport) => setWrapUp(report))
-    return () => EventsOff('wrapup-updated')
+    return () => { EventsOff('wrapup-updated'); EventsOff('raffle-updated') }
   }, [])
 
   async function copyWrapUp() {
@@ -816,6 +841,10 @@ export default function App() {
                   <NumberField label="Global cooldown seconds" value={settings.globalCooldownSeconds} onChange={(value) => update('globalCooldownSeconds', value)} />
                   <NumberField label="User cooldown seconds" value={settings.userCooldownSeconds} onChange={(value) => update('userCooldownSeconds', value)} />
                 </div>
+              </FeaturePanel>
+              <FeaturePanel title="Raffle" summary="Viewer entries and draws for the current Twitch broadcast.">
+                <Toggle label="Enable raffle (applies when bot restarts)" checked={settings.raffleEnabled} onChange={(value) => update('raffleEnabled', value)} />
+                <RafflePanel snapshot={raffle} running={settings.running} connected={raffleConnected} />
               </FeaturePanel>
               <StreamWrapUpPanel
                 report={wrapUp}
@@ -1965,6 +1994,32 @@ function StatusChip({
       <span className="status-dot" aria-hidden="true" />
       <span className="status-chip-label">{label}</span>
       <strong>{value}</strong>
+    </div>
+  )
+}
+
+export function RafflePanel({ snapshot, running, connected = true }: { snapshot: RaffleSnapshot | null; running: boolean; connected?: boolean }) {
+  const visible = snapshot && snapshot.status !== 'CLOSED' && snapshot.status !== 'INACTIVE'
+  return (
+    <div aria-live="polite">
+      <p>Status: {!connected ? 'RECOVERING — backend unavailable; showing saved display' : snapshot?.status || 'Awaiting backend snapshot'}{!running && visible ? ' — bot stopped; verification pending' : ''}</p>
+      <p>{connected ? snapshot?.verification : 'Waiting for a fresh backend snapshot'}</p>
+      {snapshot?.error && <p role="alert">{snapshot.error}</p>}
+      <p>Total Entries: {visible ? snapshot.entries.length : 0}</p>
+      {visible && (
+        <table>
+          <thead><tr><th scope="col">#</th><th scope="col">Username</th></tr></thead>
+          <tbody>{snapshot.entries.map(entry => <tr key={entry.number}><td>{entry.number}</td><td>{entry.name}</td></tr>)}</tbody>
+        </table>
+      )}
+      {visible && snapshot.winner && (
+        <div>
+          <strong>Latest Winner</strong>
+          <p>#{snapshot.winner.number} — {snapshot.winner.name}</p>
+          <p>{snapshot.winner.drawnAt} · Announcement: {snapshot.winner.announcement}</p>
+        </div>
+      )}
+      <p>Viewers: !rafadd · Broadcaster: !rafpick, !rafclear</p>
     </div>
   )
 }

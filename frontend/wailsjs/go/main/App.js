@@ -34,6 +34,10 @@ export function GetMediaOverlayURL() {
   return window['go']['main']['App']['GetMediaOverlayURL']();
 }
 
+export function GetRaffle() {
+  return window['go']['main']['App']['GetRaffle']();
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }

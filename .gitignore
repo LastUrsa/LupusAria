@@ -23,3 +23,9 @@ exports/
 /dist/
 /tmp/
 frontend/node_modules/
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db-journal
+*.db-wal
+*.db-shm

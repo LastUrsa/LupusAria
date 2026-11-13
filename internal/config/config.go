@@ -71,6 +71,10 @@ type BotConfig struct {
 	ResetPermission    string
 	WrapUpPermission   string
 	WrapUpStatePath    string
+	RaffleEnabled      bool
+	RafflePath         string
+	RaffleConfirmation time.Duration
+	RafflePollInterval time.Duration
 	MaxContextMessages int
 	StreamContextTTL   time.Duration
 	GlobalCooldown     time.Duration
@@ -188,6 +192,10 @@ func load(envPath string, validateRequired bool) (Config, error) {
 			OutputPricePerMillion: getFloat(values, "AI_OUTPUT_PRICE_PER_1M_TOKENS", outputPrice),
 		},
 		Bot: BotConfig{
+			RaffleEnabled:      getBool(values, "RAFFLE_ENABLED", true),
+			RafflePath:         resolveLocalPath(baseDir, get(values, "RAFFLE_DB_PATH", ".lupusaria-raffle.sqlite")),
+			RaffleConfirmation: time.Duration(max(1, getInt(values, "RAFFLE_CONFIRMATION_SECONDS", 60))) * time.Second,
+			RafflePollInterval: time.Duration(max(1, getInt(values, "RAFFLE_POLL_SECONDS", 60))) * time.Second,
 			Name:               get(values, "BOT_NAME", "LupusAria"),
 			StreamerName:       get(values, "STREAMER_NAME", "the streamer"),
 			StreamerPronouns:   get(values, "STREAMER_PRONOUNS", "they/them"),
