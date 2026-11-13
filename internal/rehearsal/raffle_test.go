@@ -209,7 +209,7 @@ func TestRaffleRehearsal(t *testing.T) {
 	_, attempted := s.outputs()
 	attempts := 0
 	for _, text := range attempted {
-		if text == "Congratulations Viewer1 you are the winner!" {
+		if strings.HasPrefix(text, "Congratulations ") {
 			attempts++
 		}
 	}
@@ -227,7 +227,7 @@ func TestRaffleRehearsal(t *testing.T) {
 	s.reconnect(t, false)
 	eventually(t, "fresh reconnect subscription recreation", func() bool { n, _ := s.counts(); return n > subscriptions })
 	barrier(t, s, "fresh-reconnect")
-	if len(snapshot(t, r).Entries) != 5 {
+	if len(snapshot(t, r).Entries) != 3 {
 		t.Fatal("reconnect lost entrants")
 	}
 	record("reconnected")
@@ -237,7 +237,7 @@ func TestRaffleRehearsal(t *testing.T) {
 		if err := r.service.Reconcile(context.Background(), provider, "rehearsal", false); err == nil {
 			t.Fatalf("fault %s accepted", mode)
 		}
-		if v := snapshot(t, r); v.Status != "ACTIVE" || len(v.Entries) != 5 {
+		if v := snapshot(t, r); v.Status != "ACTIVE" || len(v.Entries) != 3 {
 			t.Fatalf("fault %s destroyed state", mode)
 		}
 	}
@@ -248,10 +248,17 @@ func TestRaffleRehearsal(t *testing.T) {
 	// Restart using the exact same database, then verify the authoritative UI snapshot.
 	r = startRuntime(t, path, clock)
 	waitConnected(t, s)
-	if len(snapshot(t, r).Entries) != 5 {
+	if len(snapshot(t, r).Entries) != 3 {
 		t.Fatal("restart lost entries")
 	}
 	record("restarted")
+	s.command(t, "winner-retry", "Viewer1", "!rafadd", false)
+	s.command(t, "failed-announcement-retry", "Viewer2", "!rafadd", false)
+	barrier(t, s, "blocked-winners")
+	if len(snapshot(t, r).Entries) != 3 {
+		t.Fatal("winner reentered after restart")
+	}
+	record("winners-blocked")
 	s.command(t, "clear", "owner", "!rafclear", false)
 	barrier(t, s, "clear")
 	record("cleared")
@@ -317,7 +324,7 @@ func TestRaffleProcessTermination(t *testing.T) {
 		s.command(t, "crash-entry", "CrashViewer", "!rafadd", false)
 		s.command(t, "crash-pick", "owner", "!rafpick", false)
 		barrier(t, s, "crash-committed")
-		if len(snapshot(t, r).Entries) != 1 || snapshot(t, r).Winner == nil {
+		if len(snapshot(t, r).Entries) != 0 || snapshot(t, r).Winner == nil {
 			t.Fatal("child did not commit")
 		}
 		// Deliberately bypass all deferred cleanup, including WebSocket and DB close.
@@ -335,7 +342,12 @@ func TestRaffleProcessTermination(t *testing.T) {
 	defer r.stop(t)
 	waitConnected(t, s)
 	v := snapshot(t, r)
-	if v.Status != "ACTIVE" || len(v.Entries) != 1 || v.Winner == nil || v.Winner.Name != "CrashViewer" {
+	if v.Status != "ACTIVE" || len(v.Entries) != 0 || v.Winner == nil || v.Winner.Name != "CrashViewer" {
 		t.Fatalf("crash recovery lost committed state: %+v", v)
+	}
+	s.command(t, "crash-winner-retry", "CrashViewer", "!rafadd", false)
+	barrier(t, s, "crash-winner-blocked")
+	if len(snapshot(t, r).Entries) != 0 {
+		t.Fatal("crashed winner reentered")
 	}
 }

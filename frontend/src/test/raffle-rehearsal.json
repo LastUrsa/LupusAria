@@ -73,10 +73,6 @@
       "verification": "Verified with Twitch",
       "entries": [
         {
-          "number": 1,
-          "name": "Viewer1"
-        },
-        {
           "number": 2,
           "name": "Viewer2"
         },
@@ -113,14 +109,6 @@
       "verification": "Verified with Twitch",
       "entries": [
         {
-          "number": 1,
-          "name": "Viewer1"
-        },
-        {
-          "number": 2,
-          "name": "Viewer2"
-        },
-        {
           "number": 3,
           "name": "Viewer3"
         },
@@ -134,8 +122,8 @@
         }
       ],
       "winner": {
-        "number": 1,
-        "name": "Viewer1",
+        "number": 2,
+        "name": "Viewer2",
         "drawnAt": "2026-11-13T12:00:00Z",
         "announcement": "failed"
       },
@@ -153,14 +141,6 @@
       "verification": "Verified with Twitch",
       "entries": [
         {
-          "number": 1,
-          "name": "Viewer1"
-        },
-        {
-          "number": 2,
-          "name": "Viewer2"
-        },
-        {
           "number": 3,
           "name": "Viewer3"
         },
@@ -174,8 +154,8 @@
         }
       ],
       "winner": {
-        "number": 1,
-        "name": "Viewer1",
+        "number": 2,
+        "name": "Viewer2",
         "drawnAt": "2026-11-13T12:00:00Z",
         "announcement": "failed"
       },
@@ -193,14 +173,6 @@
       "verification": "Twitch verification unavailable; retrying",
       "entries": [
         {
-          "number": 1,
-          "name": "Viewer1"
-        },
-        {
-          "number": 2,
-          "name": "Viewer2"
-        },
-        {
           "number": 3,
           "name": "Viewer3"
         },
@@ -214,8 +186,8 @@
         }
       ],
       "winner": {
-        "number": 1,
-        "name": "Viewer1",
+        "number": 2,
+        "name": "Viewer2",
         "drawnAt": "2026-11-13T12:00:00Z",
         "announcement": "failed"
       },
@@ -233,13 +205,37 @@
       "verification": "Verified with Twitch",
       "entries": [
         {
-          "number": 1,
-          "name": "Viewer1"
+          "number": 3,
+          "name": "Viewer3"
         },
         {
-          "number": 2,
-          "name": "Viewer2"
+          "number": 4,
+          "name": "Viewer4"
         },
+        {
+          "number": 5,
+          "name": "Viewer5"
+        }
+      ],
+      "winner": {
+        "number": 2,
+        "name": "Viewer2",
+        "drawnAt": "2026-11-13T12:00:00Z",
+        "announcement": "failed"
+      },
+      "error": ""
+    }
+  },
+  {
+    "label": "winners-blocked",
+    "snapshot": {
+      "revision": 25,
+      "sessionId": 1,
+      "streamId": "broadcast-A",
+      "generation": 1,
+      "status": "ACTIVE",
+      "verification": "Verified with Twitch",
+      "entries": [
         {
           "number": 3,
           "name": "Viewer3"
@@ -254,8 +250,8 @@
         }
       ],
       "winner": {
-        "number": 1,
-        "name": "Viewer1",
+        "number": 2,
+        "name": "Viewer2",
         "drawnAt": "2026-11-13T12:00:00Z",
         "announcement": "failed"
       },
@@ -265,7 +261,7 @@
   {
     "label": "cleared",
     "snapshot": {
-      "revision": 24,
+      "revision": 26,
       "sessionId": 1,
       "streamId": "broadcast-A",
       "generation": 2,
@@ -279,7 +275,7 @@
   {
     "label": "re-entered",
     "snapshot": {
-      "revision": 25,
+      "revision": 27,
       "sessionId": 1,
       "streamId": "broadcast-A",
       "generation": 2,
@@ -298,7 +294,7 @@
   {
     "label": "end-pending",
     "snapshot": {
-      "revision": 26,
+      "revision": 28,
       "sessionId": 1,
       "streamId": "broadcast-A",
       "generation": 2,
@@ -317,7 +313,7 @@
   {
     "label": "closed",
     "snapshot": {
-      "revision": 31,
+      "revision": 33,
       "sessionId": 0,
       "streamId": "",
       "generation": 0,
@@ -331,7 +327,7 @@
   {
     "label": "new-broadcast",
     "snapshot": {
-      "revision": 32,
+      "revision": 34,
       "sessionId": 2,
       "streamId": "broadcast-B",
       "generation": 1,
@@ -345,7 +341,7 @@
   {
     "label": "stale-event-ignored",
     "snapshot": {
-      "revision": 34,
+      "revision": 36,
       "sessionId": 2,
       "streamId": "broadcast-B",
       "generation": 1,

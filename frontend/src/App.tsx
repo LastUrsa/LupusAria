@@ -2020,6 +2020,7 @@ export function RafflePanel({ snapshot, running, connected = true }: { snapshot:
         </div>
       )}
       <p>Viewers: !rafadd · Broadcaster: !rafpick, !rafclear</p>
+      <p>Winners leave the raffle and can enter again after !rafclear.</p>
     </div>
   )
 }

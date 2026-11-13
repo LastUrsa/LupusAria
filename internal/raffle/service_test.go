@@ -181,6 +181,11 @@ func TestEnrollmentAndDrawFailuresPreserveCommittedState(t *testing.T) {
 		t.Fatal("failed draw lost")
 	}
 	f.execute(t, pick)
+	assertEntries(t, f, 0, "ACTIVE")
+	if out := f.execute(t, f.request("!rafadd", "failed-announcement-reentry", "ViewerA")); len(out) != 0 {
+		t.Fatal("failed announcement restored winner eligibility")
+	}
+	f.add(t, "remaining")
 	f.s.random = func(int) (int, error) { return 0, errors.New("rng failed") }
 	if err := f.s.Execute(context.Background(), f.request("!rafpick", "rng", "b"), func(string) error { t.Fatal("announced failed RNG"); return nil }); err == nil {
 		t.Fatal("expected failure")
@@ -197,7 +202,9 @@ func TestEnrollmentAndDrawFailuresPreserveCommittedState(t *testing.T) {
 	}
 	f.r.db.Exec(`DROP TRIGGER fail_entry`)
 	f.add(t, "x")
-	assertEntries(t, f, 2, "ACTIVE")
+	if got := f.snapshot(t); len(got.Entries) != 2 || got.Entries[0].Number != 2 || got.Entries[1].Number != 3 {
+		t.Fatalf("unexpected numbering after removal: %+v", got.Entries)
+	}
 }
 func TestLifecycleGraceRecoveryReplacementAndTerminalSessions(t *testing.T) {
 	f := setup(t)
@@ -320,6 +327,7 @@ func TestCleanupAndReplacementRollback(t *testing.T) {
 			f.reconcile(t, live("A"), true)
 			f.add(t, "v")
 			f.execute(t, f.request("!rafpick", "p", "b"))
+			f.add(t, "remaining")
 			f.reconcile(t, provider{}, false)
 			f.now = f.now.Add(time.Minute)
 			trigger := `CREATE TRIGGER fail_cleanup BEFORE DELETE ON entries BEGIN SELECT RAISE(ABORT,'injected'); END;`
@@ -336,7 +344,9 @@ func TestCleanupAndReplacementRollback(t *testing.T) {
 			if err := f.s.Reconcile(context.Background(), next, "channel", false); err == nil {
 				t.Fatal("expected rollback")
 			}
-			assertEntries(t, f, 1, "END_PENDING")
+			if v := f.snapshot(t); v.Status != "END_PENDING" || len(v.Entries) != 1 || v.Entries[0].Number != 2 {
+				t.Fatalf("rollback changed remaining entry: %+v", v)
+			}
 			if count(t, f.r, "draws") != 1 {
 				t.Fatal("partial cleanup")
 			}
@@ -724,7 +734,9 @@ func TestDrawingDuringRegistrationUsesCommittedSnapshot(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	assertEntries(t, f, 101, "ACTIVE")
+	if v := f.snapshot(t); len(v.Entries) != 91 {
+		t.Fatalf("eligible count=%d want 91", len(v.Entries))
+	}
 	rows, err := f.r.db.Query(`SELECT number,count FROM draws`)
 	if err != nil {
 		t.Fatal(err)
@@ -735,7 +747,7 @@ func TestDrawingDuringRegistrationUsesCommittedSnapshot(t *testing.T) {
 		if err = rows.Scan(&number, &n); err != nil {
 			t.Fatal(err)
 		}
-		if number != n || n < 1 || n > 101 {
+		if number < 1 || number > 101 || n < 1 || n > 101 {
 			t.Fatalf("inconsistent snapshot: number=%d count=%d", number, n)
 		}
 	}
@@ -794,7 +806,7 @@ func TestFutureSchemaIsRejectedWithoutOverwritingParticipants(t *testing.T) {
 	f := setup(t)
 	f.reconcile(t, live("A"), true)
 	f.add(t, "saved")
-	if _, err := f.r.db.Exec(`UPDATE schema_version SET version=2`); err != nil {
+	if _, err := f.r.db.Exec(`UPDATE schema_version SET version=3`); err != nil {
 		t.Fatal(err)
 	}
 	if r, err := Open(f.path); err == nil {
@@ -803,5 +815,180 @@ func TestFutureSchemaIsRejectedWithoutOverwritingParticipants(t *testing.T) {
 	}
 	if count(t, f.r, "entries") != 1 {
 		t.Fatal("unsupported schema destroyed saved data")
+	}
+}
+
+func TestWinnersCannotReenterUntilClearAndNumbersRemainStable(t *testing.T) {
+	f := setup(t)
+	f.reconcile(t, live("A"), true)
+	for _, name := range []string{"one", "two", "three", "four", "five"} {
+		f.add(t, name)
+	}
+	// Remove a middle entry, then select across the resulting gap by ordinal.
+	f.s.random = func(n int) (int, error) {
+		if n != 5 {
+			t.Fatalf("population=%d", n)
+		}
+		return 3, nil
+	}
+	f.execute(t, f.request("!rafpick", "middle", "b"))
+	v := f.snapshot(t)
+	if v.Winner.Number != 3 || v.Winner.Name != "three" || len(v.Entries) != 4 {
+		t.Fatalf("winner not removed: %+v", v)
+	}
+	for i, want := range []int{1, 2, 4, 5} {
+		if v.Entries[i].Number != want {
+			t.Fatal("remaining entrants renumbered")
+		}
+	}
+	r := f.request("!rafadd", "renamed-winner", "three")
+	r.Name = "ChangedDisplayName"
+	r.Login = "new-login"
+	if out := f.execute(t, r); len(out) != 0 {
+		t.Fatal("winner reentry acknowledged", out)
+	}
+	f.r.Close()
+	var err error
+	f.r, err = Open(f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.s, err = New(f.r, "b", Options{Now: func() time.Time { return f.now }, Random: func(n int) (int, error) {
+		if n != 4 {
+			t.Fatalf("population=%d", n)
+		}
+		return 3, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile(t, live("A"), true)
+	if out := f.execute(t, f.request("!rafadd", "after-restart", "three")); len(out) != 0 {
+		t.Fatal("winner reentered after restart")
+	}
+	f.execute(t, f.request("!rafpick", "after-gap", "b"))
+	if w := f.snapshot(t).Winner; w.Number != 4 || w.Name != "four" {
+		t.Fatalf("ordinal mapped incorrectly: %+v", w)
+	}
+	f.add(t, "six")
+	v = f.snapshot(t)
+	if len(v.Entries) != 4 || v.Entries[3].Number != 6 {
+		t.Fatal("removed numbers reused or failed reentry consumed number")
+	}
+	f.execute(t, f.request("!rafclear", "unauthorized-reset", "three"))
+	if out := f.execute(t, f.request("!rafadd", "still-excluded", "three")); len(out) != 0 {
+		t.Fatal("unauthorized clear restored eligibility")
+	}
+	f.execute(t, f.request("!rafclear", "reset-eligibility", "b"))
+	f.execute(t, f.request("!rafadd", "eligible-again", "three"))
+	assertEntries(t, f, 1, "ACTIVE")
+	if f.snapshot(t).Entries[0].Name != "three" {
+		t.Fatal("clear did not reset winner eligibility")
+	}
+}
+func TestDrawsExhaustPopulationWithoutRepeatingWinners(t *testing.T) {
+	f := setup(t)
+	f.reconcile(t, live("A"), true)
+	for i := 1; i <= 10; i++ {
+		f.add(t, fmt.Sprint(i))
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := f.s.Execute(context.Background(), f.request("!rafpick", fmt.Sprintf("draw-%d", i), "b"), func(string) error { return nil }); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	assertEntries(t, f, 0, "ACTIVE")
+	var total, unique int
+	if err := f.r.db.QueryRow(`SELECT count(*),count(DISTINCT user_id) FROM draws`).Scan(&total, &unique); err != nil {
+		t.Fatal(err)
+	}
+	if total != 10 || unique != 10 {
+		t.Fatalf("draws=%d unique winners=%d", total, unique)
+	}
+	if out := f.execute(t, f.request("!rafadd", "winner-after-empty", "1")); len(out) != 0 {
+		t.Fatal("exhausted winner reentered")
+	}
+	f.reconcile(t, live("B"), false)
+	f.execute(t, f.request("!rafadd", "new-broadcast-eligible", "1"))
+	assertEntries(t, f, 1, "ACTIVE")
+}
+func TestWinnerRemovalAndEligibilityRollbackWithDraw(t *testing.T) {
+	f := setup(t)
+	f.reconcile(t, live("A"), true)
+	f.add(t, "v")
+	if _, err := f.r.db.Exec(`CREATE TRIGGER fail_winner_removal BEFORE DELETE ON entries BEGIN SELECT RAISE(ABORT,'injected'); END;`); err != nil {
+		t.Fatal(err)
+	}
+	request := f.request("!rafpick", "atomic-pick", "b")
+	if err := f.s.Execute(context.Background(), request, func(string) error { t.Fatal("failed transaction announced a winner"); return nil }); err == nil {
+		t.Fatal("expected removal failure")
+	}
+	assertEntries(t, f, 1, "ACTIVE")
+	if count(t, f.r, "draws") != 0 || f.snapshot(t).Winner != nil {
+		t.Fatal("partial draw persisted")
+	}
+	f.r.db.Exec(`DROP TRIGGER fail_winner_removal`)
+	f.execute(t, request)
+	assertEntries(t, f, 0, "ACTIVE")
+	if out := f.execute(t, f.request("!rafadd", "failed-send-winner", "v")); len(out) != 0 {
+		t.Fatal("winner reentered")
+	}
+}
+func TestVersionOneMigrationExcludesHistoricalWinnersAtomically(t *testing.T) {
+	f := setup(t)
+	f.reconcile(t, live("A"), true)
+	f.add(t, "winner")
+	f.add(t, "remaining")
+	_, err := f.r.db.Exec(`DROP TRIGGER exclude_round_winners; DROP TRIGGER prevent_repeat_round_winner; DROP INDEX draws_by_user; UPDATE schema_version SET version=1;
+ INSERT INTO draws(session,generation,message_id,number,user_id,name,count,drawn,announcement) SELECT session,generation,'old-draw-1',number,user_id,name,2,0,'sent' FROM entries WHERE user_id='winner';
+ INSERT INTO draws(session,generation,message_id,number,user_id,name,count,drawn,announcement) SELECT session,generation,'old-draw-2',number,user_id,name,2,0,'sent' FROM entries WHERE user_id='winner';
+ CREATE TRIGGER fail_migration BEFORE DELETE ON entries BEGIN SELECT RAISE(ABORT,'injected'); END;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := Open(f.path); err == nil {
+		r.Close()
+		t.Fatal("expected migration rollback")
+	}
+	var version int
+	f.r.db.QueryRow(`SELECT version FROM schema_version`).Scan(&version)
+	if version != 1 || count(t, f.r, "entries") != 2 {
+		t.Fatal("failed migration partially committed")
+	}
+	f.r.db.Exec(`DROP TRIGGER fail_migration`)
+	f.r.Close()
+	f.r, err = Open(f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.s, err = New(f.r, "b", Options{Random: func(n int) (int, error) { return n, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.reconcile(t, live("A"), true)
+	v := f.snapshot(t)
+	if len(v.Entries) != 1 || v.Entries[0].Number != 2 || count(t, f.r, "draws") != 2 {
+		t.Fatalf("legacy migration lost state: %+v", v)
+	}
+	f.execute(t, f.request("!rafadd", "legacy-winner-retry", "winner"))
+	if len(f.snapshot(t).Entries) != 1 {
+		t.Fatal("migrated winner reentered")
+	}
+	f.execute(t, f.request("!rafpick", "remaining-pick", "b"))
+	if w := f.snapshot(t).Winner; w.Number != 2 || w.Name != "remaining" {
+		t.Fatal("sparse migrated entry cannot win")
+	}
+	f.execute(t, f.request("!rafclear", "clear-legacy", "b"))
+	f.execute(t, f.request("!rafadd", "legacy-reset", "winner"))
+	assertEntries(t, f, 1, "ACTIVE")
+	f.r.db.QueryRow(`SELECT version FROM schema_version`).Scan(&version)
+	if version != 2 {
+		t.Fatalf("schema version=%d", version)
 	}
 }

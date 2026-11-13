@@ -287,19 +287,25 @@ func (s *Service) Execute(ctx context.Context, r Request, send func(string) erro
 			reply = "Raffle is empty. No winner can be selected."
 			break
 		}
-		number, e := s.random(count)
+		ordinal, e := s.random(count)
 		if e != nil {
 			return e
 		}
-		if number < 1 || number > count {
+		if ordinal < 1 || ordinal > count {
 			return errors.New("random result outside valid range")
 		}
 		var user, name string
-		if err = tx.QueryRow(`SELECT user_id,name FROM entries WHERE session=? AND generation=? AND number=?`, v.ID, v.Generation, number).Scan(&user, &name); err != nil {
+		var number int
+		// Draw an unbiased ordinal among remaining entries. Assigned numbers stay
+		// stable, so removing winners may leave gaps and numbers are never reused.
+		if err = tx.QueryRow(`SELECT user_id,name,number FROM entries WHERE session=? AND generation=? ORDER BY number LIMIT 1 OFFSET ?`, v.ID, v.Generation, ordinal-1).Scan(&user, &name, &number); err != nil {
 			return err
 		}
 		result, err = tx.Exec(`INSERT INTO draws(session,generation,message_id,number,user_id,name,count,drawn,announcement) VALUES(?,?,?,?,?,?,?,?,'pending')`, v.ID, v.Generation, r.MessageID, number, user, name, count, s.now().UnixNano())
 		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`DELETE FROM entries WHERE session=? AND generation=? AND user_id=?`, v.ID, v.Generation, user); err != nil {
 			return err
 		}
 		drawID, err = result.LastInsertId()

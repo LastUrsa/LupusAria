@@ -29,6 +29,7 @@ func TestInstallerPersistenceFixture(t *testing.T) {
 		defer r.stop(t)
 		waitConnected(t, s)
 		s.command(t, "installer-entry", "InstallerViewer", "!rafadd", false)
+		s.command(t, "installer-remaining-entry", "RemainingViewer", "!rafadd", false)
 		s.command(t, "installer-draw", "owner", "!rafpick", false)
 		barrier(t, s, "installer-seed")
 		v := snapshot(t, r)
@@ -49,7 +50,7 @@ func TestInstallerPersistenceFixture(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v.StreamID != "installer-broadcast" || v.Generation != 1 || len(v.Entries) != 1 || v.Entries[0].Number != 1 || v.Entries[0].Name != "InstallerViewer" || v.Winner == nil || v.Winner.Name != "InstallerViewer" {
+		if v.StreamID != "installer-broadcast" || v.Generation != 1 || len(v.Entries) != 1 || v.Entries[0].Number != 2 || v.Entries[0].Name != "RemainingViewer" || v.Winner == nil || v.Winner.Name != "InstallerViewer" {
 			t.Fatalf("installer changed committed state: %+v", v)
 		}
 	default:

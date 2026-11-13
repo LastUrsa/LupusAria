@@ -55,7 +55,10 @@ it('replays real backend lifecycle snapshots through the complete app and Wails 
     await act(async () => bridge.publish(step.snapshot))
     expect(within(panel).getByText(`Total Entries: ${step.snapshot.entries.length}`)).toBeInTheDocument()
     expect(within(panel).getByText(`Status: ${step.snapshot.status}`)).toBeInTheDocument()
-    if (step.snapshot.winner) expect(within(panel).getByText(`#${step.snapshot.winner.number} — ${step.snapshot.winner.name}`)).toBeInTheDocument()
+    if (step.snapshot.winner) {
+      expect(within(panel).getByText(`#${step.snapshot.winner.number} — ${step.snapshot.winner.name}`)).toBeInTheDocument()
+      expect(within(panel).queryByRole('cell', { name: step.snapshot.winner.name })).not.toBeInTheDocument()
+    }
     else expect(within(panel).queryByText('Latest Winner')).not.toBeInTheDocument()
   }
   // A delayed event from A cannot restore old entries after B became current.

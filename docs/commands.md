@@ -15,8 +15,8 @@ This file tracks public chat behavior, command scope, and AI usage.
 | `!game analyze <question>` | Everyone | Yes | Combines thumbnail analysis with Google Search grounding for visual gameplay help. |
 | `!commands` | Everyone | No | Shows public commands only. Does not expose private config or costs. |
 | `!rafadd` | Everyone | No | Enter the verified live broadcast raffle once using your Twitch user ID. Arguments cannot enroll another viewer. |
-| `!rafpick` | Broadcaster ID only | No | Draw independently from current entrants; prior winners remain eligible. |
-| `!rafclear` | Broadcaster ID only | No | Delete entries and draws, reset numbering, and start a new round in the same broadcast. |
+| `!rafpick` | Broadcaster ID only | No | Select and remove one eligible entrant. Winners cannot re-enter until `!rafclear` or a new broadcast. |
+| `!rafclear` | Broadcaster ID only | No | Delete entries and draws, reset numbering, and start a new round in the same broadcast, restoring previous winners' eligibility. |
 | `!reset` | Broadcaster | No | Clears in-memory chat context. |
 | `!autoso` | Mods + broadcaster | No | Builds an eligible streamer queue and sends the first page. |
 | `!autoso next` | Mods + broadcaster | No | Sends the next page from the current queue. |
@@ -162,3 +162,5 @@ Successful enrollment replies `ViewerA added to raffle`; repeat enrollment is si
 Enrollment and drawing require a verified active Twitch broadcast. During stream-end confirmation or startup recovery, both are suspended; the broadcaster can still clear a recoverable round. Unavailable responses are limited to one per ten seconds. A failed winner announcement preserves the selected winner and never rerolls. An interrupted send is displayed as failed after restart and is not automatically replayed because Twitch may already have accepted it.
 
 The three raffle command names are reserved. Existing conflicting announcement commands are intercepted by the raffle dispatcher; saving a new collision is rejected.
+
+A committed pick removes the winner from the entry list and prevents that Twitch user ID from re-entering the current round, including after a restart or failed chat announcement. Re-entry attempts are silent. `!rafclear` resets eligibility for everyone. Remaining entry numbers stay unchanged, so gaps are expected; new entrants receive the next unused number. Each remaining entrant has equal probability regardless of those gaps.

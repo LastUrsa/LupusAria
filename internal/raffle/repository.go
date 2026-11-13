@@ -17,6 +17,9 @@ import (
 //go:embed schema.sql
 var schema string
 
+//go:embed migrations/002_remove_winners.sql
+var removeWinnersMigration string
+
 type Repository struct{ db *sql.DB }
 
 func Open(path string) (*Repository, error) {
@@ -60,12 +63,14 @@ func Open(path string) (*Repository, error) {
 	if err = db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name='schema_version'`).Scan(&exists); err != nil {
 		return fail(err)
 	}
+	version := 0
 	if exists != 0 {
 		var v int
 		if err = db.QueryRow(`SELECT version FROM schema_version`).Scan(&v); err != nil {
 			return fail(err)
 		}
-		if v != 1 {
+		version = v
+		if v < 1 || v > 2 {
 			return fail(fmt.Errorf("unsupported raffle schema version %d", v))
 		}
 	}
@@ -76,6 +81,12 @@ func Open(path string) (*Repository, error) {
 	if _, err = tx.Exec(schema); err != nil {
 		tx.Rollback()
 		return fail(err)
+	}
+	if version < 2 {
+		if _, err = tx.Exec(removeWinnersMigration); err != nil {
+			tx.Rollback()
+			return fail(err)
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		return fail(err)
