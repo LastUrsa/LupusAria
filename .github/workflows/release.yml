@@ -181,9 +181,18 @@ jobs:
           $env:Path += ";$(go env GOPATH)\bin;C:\Program Files (x86)\NSIS;C:\Program Files (x86)\NSIS\Bin"
           wails build -clean -platform windows/amd64 -nsis
 
+      - name: Download and verify previous release installer
+        id: baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/windows-baseline.ps1
+
       - name: Smoke test the release installer
         shell: pwsh
-        run: ./scripts/windows-smoke.ps1 -Installer ./build/bin/LupusAria-amd64-installer.exe
+        env:
+          LUPUSARIA_BASELINE_INSTALLER: ${{ steps.baseline.outputs.installer }}
+        run: ./scripts/windows-smoke.ps1 -Installer ./build/bin/LupusAria-amd64-installer.exe -PreviousInstaller $env:LUPUSARIA_BASELINE_INSTALLER
 
       - name: Upload Windows smoke evidence
         if: always()
