@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -770,7 +771,11 @@ func TestSecureDeletionRemovesParticipantPayloadsFromLiveDatabase(t *testing.T) 
 }
 
 func TestReplacementConnectionsRetainDatabaseSafetySettings(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "raffle # ? unicode ✨.sqlite")
+	name := "raffle # unicode ✨.sqlite"
+	if runtime.GOOS != "windows" {
+		name = "raffle # ? unicode ✨.sqlite"
+	}
+	path := filepath.Join(t.TempDir(), name)
 	r, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
