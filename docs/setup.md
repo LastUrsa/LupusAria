@@ -236,7 +236,7 @@ npm --prefix frontend audit --audit-level=moderate
 govulncheck ./...
 ```
 
-The `CI / Quality Gates` workflow runs these checks on pull requests and pushes to `main`.
+The `CI / Quality Gates` workflow runs these checks on pull requests and pushes to `main`, then runs the Windows installer smoke workflow. It also supports manual dispatch.
 
 ## Release Process
 
@@ -246,13 +246,18 @@ The release workflow:
 
 - runs the quality gates
 - builds the Windows executable and NSIS installer
+- verifies the published baseline installer checksum and exercises installation, native startup/shutdown, upgrade, state preservation, and uninstall on Windows
 - packages a portable zip
 - writes `SHA256SUMS.txt`
 - extracts human-readable notes from `RELEASE_NOTES.md`
 - uploads release artifacts
 - publishes or updates the GitHub Release when enabled
 
-Before tagging, update `wails.json`, `frontend/package.json`, and `frontend/package-lock.json`, then add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`.
+Before tagging, update `wails.json`, `frontend/package.json`, and both root version fields in `frontend/package-lock.json`, then add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`. Update the README and command/setup guidance for user-facing changes. Feature additions increment the minor version; fixes within an existing feature increment the patch version.
+
+Commit the prepared release on `main`, create an annotated `vX.Y.Z` tag pointing to that commit, and push the commit and tag. A tag push enables publication automatically after the workflow gates pass. Manual workflow dispatch can build a candidate with `publish_release=false`. For v0.11.0, version metadata is `0.11.0` and the release-notes heading is `## v0.11.0`.
+
+After the workflow completes, verify that the release has its installer, standalone executable, portable ZIP, and checksums, and that the Windows smoke report passed. Published binaries use the tagged source commit. Simulation and CI results do not establish live Twitch authorization/delivery or interactive visual UI behavior.
 
 ## Raffle storage and recovery
 

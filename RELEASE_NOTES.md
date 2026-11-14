@@ -1,5 +1,18 @@
 # LupusAria Release Notes
 
+## v0.11.0
+
+- Adds persistent broadcast raffles through `!rafadd`, broadcaster-only `!rafpick`, and broadcaster-only `!rafclear`, with a live **Features → Raffle** panel and a feature enable switch.
+- Selects winners with cryptographic randomness, removes them from the eligible entries, and prevents re-entry until the next clear or new broadcast. Clearing restores everyone's eligibility and resets numbering; remaining entrants retain their assigned numbers between draws.
+- Binds every raffle to Twitch's verified broadcast ID. Preserves committed state through app restarts and connection failures, pauses commands during recovery, and confirms offline status twice at least 60 seconds apart before automatic cleanup. A verified different broadcast starts a fresh raffle.
+- Adds transactional SQLite storage, durable command deduplication, stale-command/UI fencing, and atomic draw, clear, and cleanup operations. Schema v2 migrates earlier raffle candidates by excluding their recorded current-round winners while retaining draw history and remaining entry numbers.
+- Reuses existing Twitch authentication, command permissions, EventSub connections, stream-status queries, and Wails UI events. Excludes raffle commands and participant-specific announcement echoes from chat transcripts and AI context.
+- Updates Go to 1.26.11 to resolve the standard-library vulnerability identified during release validation.
+- Adds test-only Twitch HTTP/WebSocket simulation, process-termination recovery tests, and full-app snapshot replay. Extends Windows CI and release gates to verify installation, native startup, shutdown, upgrade from the previous published release, configuration/raffle-state preservation, executable checksums, and uninstall.
+- Expands the README with raffle setup and command guidance, plus storage, migration, retention, recovery, and rollback documentation.
+
+Validation: Linux regression/race/vet/security gates, 29 frontend tests, the Twitch rehearsal, and Windows installer/upgrade smoke checks passed for the merged feature. The release workflow reruns these gates for the tagged build. Live Twitch authorization/delivery and interactive visual UI validation remain unverified.
+
 ## v0.10.3
 
 - Updates locked Vitest tooling to 4.1.12 to resolve two moderate mock-registration vulnerabilities found during the security audit.
