@@ -118,6 +118,44 @@ const sections: Array<{ id: Section; label: string }> = [
   { id: 'knowledge', label: 'Knowledge' }
 ]
 
+// These controls are read at startup by the bot runner.
+const restartSettings: Array<[label: string, keys: Array<keyof Settings>]> = [
+  ['Twitch channel', ['channel']],
+  ['Bot username', ['botUsername']],
+  ['Streamer profile', ['streamerName', 'streamerPronouns']],
+  ['Twitch credentials', [
+    'twitchClientId', 'twitchClientSecret', 'twitchOAuthToken', 'twitchRefreshToken',
+    'twitchAdsClientId', 'twitchAdsClientSecret', 'twitchAdsOAuthToken', 'twitchAdsRefreshToken'
+  ]],
+  ['AI provider', ['aiProvider']],
+  ['AI models', ['aiModel', 'geminiModel']],
+  ['AI credentials', ['aiApiKey', 'geminiApiKey']],
+  ['AI limits', ['maxRequestsPerHour', 'dailyBudgetUsd', 'monthlyBudgetUsd']],
+  ['Chat context limit', ['maxContextMessages']],
+  ['Chat cooldowns', ['globalCooldownSeconds', 'userCooldownSeconds']]
+]
+
+export function getSaveNotice(previous: Settings, next: Settings, knowledgeChanged: boolean, activationFailed: boolean): string {
+  if (!previous.running) return 'Saved. Applies on startup.'
+
+  const restart = restartSettings
+    .filter(([, keys]) => keys.some(key => {
+      const before = previous[key]
+      const after = next[key]
+      return typeof before === 'string' && typeof after === 'string'
+        ? before.trim() !== after.trim()
+        : before !== after
+    }))
+    .map(([label]) => label)
+  if (knowledgeChanged) restart.push('Knowledge')
+
+  const messages = ['Saved.']
+  if (activationFailed) messages.push('Live update failed.')
+  if (restart.length) messages.push(`Restart required for ${restart.join(', ')}.`)
+  if (messages.length === 1) return 'Saved and applied.'
+  return messages.join(' ')
+}
+
 const aiProviderOptions = [
   { value: 'mock', label: 'Mock' },
   { value: 'gemini', label: 'Gemini' },
@@ -391,14 +429,28 @@ export default function App() {
   async function save() {
     setBusy(true)
     try {
-      await SaveSettings(settings)
-      await SaveAnnouncements(announcements)
+      const [previous, savedKnowledge] = await Promise.all([GetSettings(), GetKnowledge()])
+      const activationErrors: string[] = []
+      async function saveAndApply(write: () => Promise<void>) {
+        try {
+          await write()
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          const prefix = 'Settings saved. Live update failed: '
+          if (!message.startsWith(prefix)) throw error
+          const detail = message.slice(prefix.length)
+          if (!activationErrors.includes(detail)) activationErrors.push(detail)
+        }
+      }
+      await saveAndApply(() => SaveSettings(settings))
+      await saveAndApply(() => SaveAnnouncements(announcements))
       await SaveMediaActions(mediaActions as any)
       await SaveKnowledge(knowledge)
       dirtyRef.current = false
       setDirty(false)
-      setNotice('Settings saved. Restart the bot to apply runtime changes.')
-      showToast('Settings saved.')
+      const summary = getSaveNotice(previous, settings, (savedKnowledge ?? emptyKnowledge).content !== knowledge.content, activationErrors.length > 0)
+      setNotice([summary, ...activationErrors].join(' '))
+      showToast(summary)
       await refresh(true)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error))
@@ -843,7 +895,7 @@ export default function App() {
                 </div>
               </FeaturePanel>
               <FeaturePanel title="Raffle" summary="Viewer entries and draws for the current Twitch broadcast.">
-                <Toggle label="Enable raffle (applies when bot restarts)" checked={settings.raffleEnabled} onChange={(value) => update('raffleEnabled', value)} />
+                <Toggle label="Enable raffle" checked={settings.raffleEnabled} onChange={(value) => update('raffleEnabled', value)} />
                 <RafflePanel snapshot={raffle} running={settings.running} connected={raffleConnected} />
               </FeaturePanel>
               <StreamWrapUpPanel

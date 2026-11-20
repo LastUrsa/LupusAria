@@ -1,5 +1,10 @@
 # LupusAria Release Notes
 
+## Unreleased
+
+- Applies chat command settings, AutoSO, announcements, ad alerts, raffle, and screenshot crop from the desktop panel while the bot stays connected.
+- Names the changed settings that require a restart and shows errors when saved changes fail to apply live.
+
 ## v0.11.0
 
 - Adds persistent broadcast raffles through `!rafadd`, broadcaster-only `!rafpick`, and broadcaster-only `!rafclear`, with a live **Features → Raffle** panel and a feature enable switch.

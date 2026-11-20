@@ -41,9 +41,11 @@ For hosted GPT-5.6 Luna replies, select the OpenAI-compatible provider, set the 
 
 On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral template if the file does not exist. Edit it directly, or use the desktop app's Knowledge tab, to add stable channel facts such as streamer identity, pronouns, recurring chat references, project links, and boundaries.
 
+**Save changes** applies chat command settings, AutoSO, announcements, ad alerts, raffle, and screenshot crop while the desktop bot stays connected. The save notice names any changed settings that need a restart. See [Live settings](docs/setup.md#live-settings).
+
 ## Run a Raffle
 
-Open **Features → Raffle** and keep **Enable raffle** on. Save and restart the bot if you change the switch. Once Twitch confirms your live broadcast, the panel shows `ACTIVE` and viewers can enter:
+Open **Features → Raffle**, turn on **Enable raffle**, and select **Save changes**. Once Twitch confirms your live broadcast, the panel shows `ACTIVE` and viewers can enter:
 
 | Command | Who can use it | What it does |
 | --- | --- | --- |
@@ -57,7 +59,7 @@ The panel updates the remaining entry count, assigned numbers, and latest winner
 
 Entries survive app restarts and temporary Twitch disconnections. During startup recovery or stream-end confirmation, enrollment and drawing pause while Twitch status is checked. Stream-end cleanup requires two successful offline checks at least 60 seconds apart, or confirmation of a different broadcast. Each new broadcast starts empty.
 
-Raffle state stays in a local SQLite file beside your configuration. To disable the feature while preserving committed state, turn off its switch and restart the bot. See [Raffle storage and recovery](docs/setup.md#raffle-storage-and-recovery) for settings, backup retention, migrations, and rollback.
+Raffle state stays in a local SQLite file beside your configuration. To disable the feature while preserving committed state, turn off its switch and select **Save changes**. See [Raffle storage and recovery](docs/setup.md#raffle-storage-and-recovery) for settings, backup retention, migrations, and rollback.
 
 Before upgrading, close the app and back up your configuration and local state. Version 0.11.0 adds raffle schema v2; if you used an earlier raffle candidate, its recorded current-round winners are removed from eligibility during migration. Clearing the raffle restores their eligibility.
 

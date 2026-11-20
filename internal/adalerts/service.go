@@ -69,7 +69,6 @@ type Service struct {
 	cfg    Config
 	chat   Chat
 	helix  ScheduleProvider
-	ctx    context.Context
 	logger *slog.Logger
 	now    func() time.Time
 
@@ -109,23 +108,25 @@ func New(cfg Config, chat Chat, helix ScheduleProvider, logger *slog.Logger) *Se
 		cfg:    cfg,
 		chat:   chat,
 		helix:  helix,
-		ctx:    context.Background(),
 		logger: logger,
 		now:    time.Now,
 	}
 }
 
-func (s *Service) Start(ctx context.Context) {
+func (s *Service) Start(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
 	if !s.cfg.Enabled {
-		return
+		close(done)
+		return done
 	}
 	if s.helix == nil || s.chat == nil || s.cfg.BroadcasterID == "" {
 		s.logger.Info("ad alerts disabled; missing helix client, chat, or broadcaster ID")
-		return
+		close(done)
+		return done
 	}
 
 	go func() {
-		s.ctx = ctx
+		defer close(done)
 		s.logger.Info("ad alerts started", "broadcaster_id", s.cfg.BroadcasterID, "warning_lead", s.cfg.WarningLead, "poll_interval", s.cfg.PollInterval)
 		s.poll(ctx)
 		ticker := time.NewTicker(s.cfg.PollInterval)
@@ -139,6 +140,7 @@ func (s *Service) Start(ctx context.Context) {
 			}
 		}
 	}()
+	return done
 }
 
 func (s *Service) poll(ctx context.Context) {
@@ -154,13 +156,17 @@ func (s *Service) poll(ctx context.Context) {
 		"preroll_free_time", schedule.PrerollFreeTime,
 		"snooze_count", schedule.SnoozeCount,
 	)
-	s.HandleSchedule(schedule)
+	s.applySchedule(ctx, schedule)
 }
 
 func (s *Service) HandleSchedule(schedule Schedule) {
+	s.applySchedule(context.Background(), schedule)
+}
+
+func (s *Service) applySchedule(ctx context.Context, schedule Schedule) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.handleSchedule(s.ctx, schedule)
+	s.handleSchedule(ctx, schedule)
 }
 
 func (s *Service) HandleAdBreakBegin(ctx context.Context, event AdBreakBegin) {
@@ -344,6 +350,9 @@ func (s *Service) sendEnd(ctx context.Context, duration time.Duration) {
 }
 
 func (s *Service) say(ctx context.Context, event Event, fallback string) {
+	if ctx.Err() != nil {
+		return
+	}
 	text := fallback
 	if s.cfg.Composer != nil {
 		composed, err := s.cfg.Composer.ComposeAdAlert(ctx, event)
@@ -352,6 +361,9 @@ func (s *Service) say(ctx context.Context, event Event, fallback string) {
 		} else if composed != "" {
 			text = composed
 		}
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	if err := s.chat.Say(s.cfg.Channel, text); err != nil {
 		s.logger.Warn("failed to send ad alert", "event", event.Kind, "error", err)

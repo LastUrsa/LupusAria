@@ -56,6 +56,19 @@ Gemini can remain configured as the fallback provider and is used for the curren
 AI_FALLBACK_PROVIDER=gemini
 ```
 
+## Live settings
+
+While the desktop bot runs, **Save changes** applies chat command toggles and permissions, AutoSO and shoutout settings, announcement edits and timers, ad alerts, raffle, and screenshot crop. Disabling a feature stops its background polling. Enabling ad alerts during a run requires the active Twitch EventSub connection and valid broadcaster credentials. Re-enabling raffle checks the current broadcast before accepting entries.
+
+The save notice reflects the changes you made:
+
+- **Saved and applied.** Live settings took effect on the running bot.
+- **Saved. Restart required for Twitch channel.** The notice names the changed settings that need a restart. Examples include channel and account settings, credentials, AI configuration and limits, chat cooldowns and context limits, and Knowledge.
+- **Saved. Applies on startup.** The bot was stopped, so it reads the saved settings at its next start.
+- **Saved. Live update failed.** The notice includes the activation error and names any settings that still need a restart.
+
+Edit the settings in the desktop app to apply them live. Direct edits to `.env` take effect at the next start.
+
 ## Media Actions and OBS Overlay
 
 The Media Actions tab maps Twitch channel point redeems to local media and sound alerts. Each action can:
@@ -261,7 +274,7 @@ After the workflow completes, verify that the release has its installer, standal
 
 ## Raffle storage and recovery
 
-The Raffle panel is under **Features**. Save its enable switch and restart the bot to apply the change. `RAFFLE_ENABLED=false` disables raffle command processing and verification without deleting committed state. Re-enable it and restart to reconcile the saved broadcast. A missing Twitch client ID or unresolved broadcaster ID disables the raffle while other bot features continue.
+The Raffle panel is under **Features**. Save the enable switch to apply the change while the bot runs. Turning it off suspends raffle commands and verification and preserves committed state. Turning it back on verifies the current broadcast and recovers saved entries for the same broadcast. A missing Twitch client ID or unresolved broadcaster ID disables the raffle while other bot features continue.
 
 Raffles use `.lupusaria-raffle.sqlite` beside the application configuration by default. `RAFFLE_DB_PATH` overrides the path. The pure Go SQLite driver needs no database server or Windows C compiler. Schema version 1 creates sessions, entries, draws, processed command IDs, EventSub delivery IDs, and a durable UI revision. It does not migrate or modify Wrap-Up JSON or other existing feature stores. Schema version 2 adds round-winner eligibility constraints and removes any historical current-round winners from the eligible entries during an atomic migration. Existing draw history and remaining entry numbers are preserved. Draw records serve as the eligibility ledger until manual clear or stream cleanup deletes them. A selected winner remains excluded after restart or announcement failure; `!rafclear` restores eligibility. New code chooses an unbiased ordinal among remaining entries, preserving assigned numbers even when winners leave gaps. Unsupported schema versions are rejected without replacing the database.
 

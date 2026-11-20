@@ -3,6 +3,7 @@ package twitch
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -173,5 +174,52 @@ func TestEventSubAdBreakToEventParsesNativePayload(t *testing.T) {
 	}
 	if event.Automatic {
 		t.Fatal("expected manual ad break")
+	}
+}
+
+func TestLiveAdSettingsOnlyAddAndRemoveAdSubscription(t *testing.T) {
+	ctx := context.Background()
+	helix := NewHelixClient("ads-client", "ads-token")
+	var requests []string
+	helix.httpClient.Transport = eventSubRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests = append(requests, req.Method)
+		if req.Header.Get("Authorization") != "Bearer ads-token" {
+			t.Fatalf("unexpected authorization header")
+		}
+		switch req.Method {
+		case http.MethodPost:
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), `"type":"channel.ad_break.begin"`) ||
+				!strings.Contains(string(body), `"session_id":"broadcaster-session"`) {
+				t.Fatalf("subscription request = %s", body)
+			}
+			return &http.Response{StatusCode: http.StatusAccepted, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"ads-sub"}]}`))}, nil
+		case http.MethodDelete:
+			if got := req.URL.Query().Get("id"); got != "ads-sub" {
+				t.Fatalf("deleted subscription = %q", got)
+			}
+			return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody}, nil
+		default:
+			t.Fatalf("unexpected method %s", req.Method)
+			return nil, nil
+		}
+	})
+	client := NewEventSubChatClient(EventSubConfig{
+		AdToken: "ads-token", BroadcasterID: "broadcaster", AdBreaks: make(chan AdBreakEvent),
+	}, nil)
+	client.ConfigureLiveAdSettings(false, helix)
+	if err := client.subscribeToBroadcasterEvents(ctx, "broadcaster-session"); err != nil {
+		t.Fatal(err)
+	}
+	for _, enabled := range []bool{true, true, false, false, true} {
+		if err := client.SetAdBreaksEnabled(ctx, enabled); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := strings.Join(requests, " "); got != "POST DELETE POST" {
+		t.Fatalf("subscription requests = %s", got)
 	}
 }

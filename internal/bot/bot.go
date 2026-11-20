@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"lupusaria/internal/adalerts"
@@ -82,18 +83,23 @@ type StreamThumbnailFetcher interface {
 }
 
 type Bot struct {
-	cfg    Config
-	chat   Chat
-	ai     ai.Client
-	budget *budget.Guard
-	stream *cachedStreamContext
-	thumb  StreamThumbnailFetcher
-	recent *recentstreamers.Service
-	ann    *announcements.Service
-	ad     *adalerts.Service
-	know   knowledge.Base
-	emotes *emoteDescriber
-	logger *slog.Logger
+	snapshotCrop      atomic.Pointer[SnapshotCrop]
+	raffleEpoch       uint64
+	cfg               Config
+	chat              Chat
+	ai                ai.Client
+	budget            *budget.Guard
+	stream            *cachedStreamContext
+	thumb             StreamThumbnailFetcher
+	recent            *recentstreamers.Service
+	annMu             sync.RWMutex
+	ann               *announcements.Service
+	recentCtx         context.Context
+	stopRecent        context.CancelFunc
+	stopAnnouncements context.CancelFunc
+	know              knowledge.Base
+	emotes            *emoteDescriber
+	logger            *slog.Logger
 
 	contextMu     sync.Mutex
 	context       []chatContextEntry
@@ -177,6 +183,11 @@ func normalizeConfigPermissions(cfg Config) Config {
 }
 
 func (b *Bot) Run(ctx context.Context) error {
+	return b.RunWithSettings(ctx, nil, nil, nil)
+}
+
+// RunWithSettings applies changes between messages on the chat loop.
+func (b *Bot) RunWithSettings(ctx context.Context, updates <-chan SettingsUpdate, start func(context.Context), apply func(context.Context) error) error {
 	messages, err := b.chat.Connect(ctx)
 	if err != nil {
 		return err
@@ -185,13 +196,13 @@ func (b *Bot) Run(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if b.recent != nil {
-		b.recent.StartChatterPolling(runCtx)
+		b.startRecent(runCtx)
 	}
 	if b.ann != nil {
-		b.ann.Start(runCtx)
+		b.startAnnouncements(runCtx)
 	}
-	if b.ad != nil {
-		b.ad.Start(runCtx)
+	if start != nil {
+		start(runCtx)
 	}
 	go b.runAIQueue(runCtx)
 
@@ -199,6 +210,12 @@ func (b *Bot) Run(ctx context.Context) error {
 		select {
 		case <-runCtx.Done():
 			return runCtx.Err()
+		case update, ok := <-updates:
+			if !ok {
+				updates = nil
+				continue
+			}
+			update.Done <- apply(runCtx)
 		case msg, ok := <-messages:
 			if !ok {
 				return nil
@@ -206,10 +223,6 @@ func (b *Bot) Run(ctx context.Context) error {
 			b.handleMessage(runCtx, msg)
 		}
 	}
-}
-
-func (b *Bot) SetAdAlerts(service *adalerts.Service) {
-	b.ad = service
 }
 
 func (b *Bot) handleMessage(ctx context.Context, msg twitch.Message) {
@@ -435,7 +448,7 @@ func (b *Bot) retryAIReply(ctx context.Context, msg twitch.Message, messages []a
 func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool {
 	text := strings.TrimSpace(msg.Text)
 	lower := strings.ToLower(text)
-	if b.recent != nil && b.recent.HandleCommand(ctx, msg) {
+	if b.recent != nil && b.recent.HandleCommand(b.recentCommandContext(ctx), msg) {
 		return true
 	}
 	if b.ann != nil && b.ann.HandleCommand(ctx, msg) {
@@ -493,7 +506,7 @@ func (b *Bot) handlePublicCommand(ctx context.Context, msg twitch.Message) bool 
 			b.say(msg.Channel, permissionDeniedMessage("!commands", b.cfg.CommandsPermission))
 			return true
 		}
-		b.say(msg.Channel, fmt.Sprintf("Commands: @%s <message>, !ask <question>, !lurk [reason], !game [analyze] [question], !wrapup [preview|stats|reset], !rafadd, !rafpick, !rafclear, !autoso, !autoso next, !autoso refresh, !autoso status, !soroulette.", b.cfg.Name))
+		b.say(msg.Channel, b.commandList())
 		return true
 	case b.cfg.EnableReset && lower == "!reset":
 		if !b.commandAllowed(msg, b.cfg.ResetPermission) {
@@ -672,8 +685,12 @@ func (b *Bot) analyzeGameSnapshot(ctx context.Context, channel, gameName, questi
 	if err != nil {
 		return "", err
 	}
-	if b.cfg.SnapshotCrop.Enabled {
-		cropped, croppedMimeType, err := cropSnapshot(image, b.cfg.SnapshotCrop)
+	crop := b.cfg.SnapshotCrop
+	if live := b.snapshotCrop.Load(); live != nil {
+		crop = *live
+	}
+	if crop.Enabled {
+		cropped, croppedMimeType, err := cropSnapshot(image, crop)
 		if err != nil {
 			b.logger.Warn("failed to crop game snapshot; using full thumbnail", "error", err)
 		} else {
@@ -806,17 +823,17 @@ func (b *Bot) buildAIMessages(ctx context.Context, msg twitch.Message, request a
 }
 
 func (b *Bot) announcementContext() string {
-	if b == nil || b.ann == nil {
-		return ""
+	if service := b.currentAnnouncements(); service != nil {
+		return service.Context()
 	}
-	return b.ann.Context()
+	return ""
 }
 
 func (b *Bot) announcementLink(query string) (string, bool) {
-	if b == nil || b.ann == nil {
-		return "", false
+	if service := b.currentAnnouncements(); service != nil {
+		return service.ResolveLink(query)
 	}
-	return b.ann.ResolveLink(query)
+	return "", false
 }
 
 func (b *Bot) formatEmoteContext(ctx context.Context, msg twitch.Message, allowDescribe bool) string {
@@ -1978,7 +1995,7 @@ func isRaffleOutput(text string) bool {
 	return strings.HasSuffix(text, " added to raffle") || (strings.HasPrefix(text, "Congratulations ") && strings.HasSuffix(text, " you are the winner!"))
 }
 func (b *Bot) handleRaffle(ctx context.Context, msg twitch.Message) {
-	if b.cfg.Raffle == nil {
+	if b.cfg.Raffle == nil || msg.RaffleFenced && msg.RaffleEpoch != b.raffleEpoch {
 		return
 	}
 	fields := strings.Fields(strings.ToLower(msg.Text))

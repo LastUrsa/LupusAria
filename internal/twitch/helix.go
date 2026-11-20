@@ -348,14 +348,21 @@ func (c *HelixClient) GetAdSchedule(ctx context.Context, broadcasterID string) (
 }
 
 func (c *HelixClient) CreateEventSubWebSocketSubscription(ctx context.Context, subscriptionType, version string, condition map[string]string, sessionID string) error {
+	_, err := c.createEventSubSubscription(ctx, subscriptionType, version, condition, sessionID)
+	return err
+}
+
+const eventSubSubscriptionsURL = "https://api.twitch.tv/helix/eventsub/subscriptions"
+
+func (c *HelixClient) createEventSubSubscription(ctx context.Context, subscriptionType, version string, condition map[string]string, sessionID string) (string, error) {
 	if strings.TrimSpace(subscriptionType) == "" {
-		return errors.New("missing EventSub subscription type")
+		return "", errors.New("missing EventSub subscription type")
 	}
 	if strings.TrimSpace(version) == "" {
 		version = "1"
 	}
 	if strings.TrimSpace(sessionID) == "" {
-		return errors.New("missing EventSub WebSocket session ID")
+		return "", errors.New("missing EventSub WebSocket session ID")
 	}
 	payload := struct {
 		Type      string            `json:"type"`
@@ -373,8 +380,34 @@ func (c *HelixClient) CreateEventSubWebSocketSubscription(ctx context.Context, s
 	payload.Transport.Method = "websocket"
 	payload.Transport.SessionID = sessionID
 
-	var result any
-	return c.postJSON(ctx, "https://api.twitch.tv/helix/eventsub/subscriptions", payload, &result)
+	var result struct {
+		Data []struct{ ID string } `json:"data"`
+	}
+	if err := c.postJSON(ctx, eventSubSubscriptionsURL, payload, &result); err != nil {
+		return "", err
+	}
+	if len(result.Data) == 0 {
+		return "", nil
+	}
+	return result.Data[0].ID, nil
+}
+
+func (c *HelixClient) deleteEventSubSubscription(ctx context.Context, id string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, eventSubSubscriptionsURL+"?id="+url.QueryEscape(id), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Client-Id", c.clientID)
+	req.Header.Set("Authorization", "Bearer "+c.token())
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
+		return helixStatusError(resp)
+	}
+	return nil
 }
 
 func (c *HelixClient) SendChatMessage(ctx context.Context, broadcasterID, senderID, message, replyParentMessageID string) (ChatMessageResult, error) {

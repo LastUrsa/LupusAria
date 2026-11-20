@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"lupusaria/internal/announcements"
+	"lupusaria/internal/bot"
 	"lupusaria/internal/botrunner"
 	"lupusaria/internal/config"
 	"lupusaria/internal/knowledge"
@@ -51,11 +52,14 @@ var obsOverlayHTML []byte
 type App struct {
 	ctx context.Context
 
-	mu        sync.Mutex
-	cancelBot context.CancelFunc
-	running   bool
-	lastError string
-	logs      []string
+	mu              sync.Mutex
+	cancelBot       context.CancelFunc
+	settingsMu      sync.Mutex
+	settingsUpdates chan bot.SettingsUpdate
+	botDone         <-chan struct{}
+	running         bool
+	lastError       string
+	logs            []string
 
 	overlay       *overlayServer
 	wrapUp        *wrapup.Service
@@ -447,6 +451,8 @@ func (a *App) GetSettings() (ControlSettings, error) {
 }
 
 func (a *App) SaveSettings(settings ControlSettings) error {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
 	envPath, err := appEnvPath()
 	if err != nil {
 		return err
@@ -523,7 +529,7 @@ func (a *App) SaveSettings(settings ControlSettings) error {
 		return err
 	}
 	a.appendLog("settings saved")
-	return nil
+	return a.applyLiveSettings()
 }
 
 func (a *App) CheckTwitchPermissions() (TwitchPermissionCheck, error) {
@@ -882,6 +888,8 @@ func (a *App) GetAnnouncements() ([]AnnouncementSettings, error) {
 }
 
 func (a *App) SaveAnnouncements(settings []AnnouncementSettings) error {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
 	envPath, err := appEnvPath()
 	if err != nil {
 		return err
@@ -907,7 +915,7 @@ func (a *App) SaveAnnouncements(settings []AnnouncementSettings) error {
 		return err
 	}
 	a.appendLog("announcements saved")
-	return nil
+	return a.applyLiveSettings()
 }
 
 func (a *App) GetMediaActions() ([]MediaActionSettings, error) {
@@ -1035,7 +1043,32 @@ func (a *App) PreviewMediaAction(action MediaActionSettings) error {
 	return nil
 }
 
+func (a *App) applyLiveSettings() error {
+	a.mu.Lock()
+	updates, done := a.settingsUpdates, a.botDone
+	a.mu.Unlock()
+	if updates == nil {
+		return nil
+	}
+	update := bot.SettingsUpdate{Done: make(chan error, 1)}
+	select {
+	case updates <- update:
+	case <-done:
+		return nil
+	}
+	select {
+	case err := <-update.Done:
+		if err != nil {
+			return fmt.Errorf("Settings saved. Live update failed: %w", err)
+		}
+	case <-done:
+	}
+	return nil
+}
+
 func (a *App) StartBot() error {
+	a.settingsMu.Lock()
+	defer a.settingsMu.Unlock()
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
@@ -1043,6 +1076,8 @@ func (a *App) StartBot() error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelBot = cancel
+	updates := make(chan bot.SettingsUpdate)
+	a.settingsUpdates, a.botDone = updates, ctx.Done()
 	a.running = true
 	a.lastError = ""
 	a.mu.Unlock()
@@ -1055,11 +1090,12 @@ func (a *App) StartBot() error {
 		a.mu.Lock()
 		a.running = false
 		a.cancelBot = nil
+		a.settingsUpdates, a.botDone = nil, nil
 		a.lastError = err.Error()
 		a.mu.Unlock()
 		return err
 	}
-	mediaOptions := botrunner.Options{}
+	mediaOptions := botrunner.Options{SettingsUpdates: updates}
 	mediaOptions.WrapUp = a.wrapUp
 	mediaOptions.RaffleRepository = a.raffleRepo
 	mediaOptions.RaffleChanged = a.raffleChanged
@@ -1081,9 +1117,11 @@ func (a *App) StartBot() error {
 	}
 	go func() {
 		err := botrunner.RunWithOptions(ctx, envPath, logger, mediaOptions)
+		cancel()
 		a.mu.Lock()
 		a.running = false
 		a.cancelBot = nil
+		a.settingsUpdates, a.botDone = nil, nil
 		if err != nil {
 			a.lastError = err.Error()
 		}

@@ -259,12 +259,12 @@ func TestCommandsShowsPublicCommandList(t *testing.T) {
 		t.Fatalf("expected one response, got %#v", chat.sent)
 	}
 	lower := strings.ToLower(chat.sent[0])
-	for _, want := range []string{"!ask", "!lurk", "!game", "!autoso"} {
+	for _, want := range []string{"!ask", "!lurk", "!game", "!commands"} {
 		if !strings.Contains(lower, want) {
 			t.Fatalf("command list missing %q: %q", want, chat.sent[0])
 		}
 	}
-	for _, forbidden := range []string{"cost", "budget", "token", "secret", "key"} {
+	for _, forbidden := range []string{"cost", "budget", "token", "secret", "key", "!autoso"} {
 		if strings.Contains(lower, forbidden) {
 			t.Fatalf("public command list exposed private term %q in %q", forbidden, chat.sent[0])
 		}

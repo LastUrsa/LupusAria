@@ -25,6 +25,7 @@ type Message struct {
 	RaffleSession          int64
 	RaffleGeneration       int
 	RaffleFenced           bool
+	RaffleEpoch            uint64
 	ID                     string
 	Channel                string
 	UserID                 string
