@@ -330,6 +330,9 @@ func (s *Service) checkTimers(ctx context.Context) {
 			s.markSent(key)
 			continue
 		}
+		if ctx.Err() != nil {
+			return
+		}
 		if err := s.chat.Say(s.cfg.Channel, item.Message); err != nil {
 			s.logger.Warn("failed to send timed announcement", "id", item.ID, "error", err)
 			continue

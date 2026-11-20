@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { RafflePanel, acceptRaffleSnapshot, getAIModelLabel, getSetupIssues, MediaActionsPanel, NavIcon, StreamWrapUpPanel } from './App'
+import { RafflePanel, acceptRaffleSnapshot, emptySettings, getAIModelLabel, getSaveNotice, getSetupIssues, MediaActionsPanel, NavIcon, StreamWrapUpPanel } from './App'
 
 const panelDefaults = {
   rewards: [],
@@ -404,4 +404,28 @@ it('marks cached raffle entries as unverified when the backend is unavailable', 
  expect(screen.getByText('Status: RECOVERING — backend unavailable; showing saved display')).toBeInTheDocument()
  expect(screen.queryByText('Verified with Twitch')).not.toBeInTheDocument()
  expect(screen.getByText('SavedViewer')).toBeInTheDocument()
+})
+
+describe('save notices', () => {
+  const running = { ...emptySettings, running: true }
+
+  it('confirms live changes without a restart message', () => {
+    expect(getSaveNotice(running, { ...running, raffleEnabled: !running.raffleEnabled }, false, false))
+      .toBe('Saved and applied.')
+  })
+
+  it('names the restart settings in a mixed save', () => {
+    expect(getSaveNotice(running, { ...running, channel: 'new-channel', enableAsk: false }, true, false))
+      .toBe('Saved. Restart required for Twitch channel, Knowledge.')
+  })
+
+  it('reports a live failure alongside a restart requirement', () => {
+    expect(getSaveNotice(running, { ...running, twitchOAuthToken: 'new-token' }, false, true))
+      .toBe('Saved. Live update failed. Restart required for Twitch credentials.')
+  })
+
+  it('reports startup when the bot is stopped', () => {
+    expect(getSaveNotice(emptySettings, { ...emptySettings, channel: 'new-channel' }, false, false))
+      .toBe('Saved. Applies on startup.')
+  })
 })

@@ -67,6 +67,13 @@ type EventSubChatClient struct {
 	mu   sync.Mutex
 	conn *websocket.Conn
 	aux  *websocket.Conn
+
+	adMu                 sync.Mutex
+	broadcasterSessionID string
+	adSubscriptionID     string
+	adEnabled            bool
+	liveAdSettings       bool
+	ads                  *HelixClient
 }
 
 func NewEventSubChatClient(cfg EventSubConfig, logger *slog.Logger) *EventSubChatClient {
@@ -75,6 +82,7 @@ func NewEventSubChatClient(cfg EventSubConfig, logger *slog.Logger) *EventSubCha
 		helix:  NewHelixClient(cfg.ClientID, cfg.Token),
 		sender: NewHelixClient(cfg.ClientID, firstNonEmpty(cfg.SendToken, cfg.Token)),
 		logger: logger,
+		ads:    NewHelixClient(firstNonEmpty(cfg.AdClientID, cfg.ClientID), cfg.AdToken),
 		wsURL:  eventSubWebSocketURL,
 		dialer: websocket.DefaultDialer,
 	}
@@ -168,18 +176,51 @@ func (c *EventSubChatClient) subscribeToChat(ctx context.Context, sessionID stri
 	return c.helix.CreateEventSubWebSocketSubscription(ctx, "channel.chat.message", "1", condition, sessionID)
 }
 
-func (c *EventSubChatClient) subscribeToAdBreaks(ctx context.Context, sessionID string) error {
-	if c.cfg.AdBreaks == nil {
+// ConfigureLiveAdSettings is called before connecting the chat transport.
+func (c *EventSubChatClient) ConfigureLiveAdSettings(enabled bool, client *HelixClient) {
+	c.liveAdSettings = true
+	c.adEnabled = enabled
+	c.ads = client
+}
+
+func (c *EventSubChatClient) SetAdBreaksEnabled(ctx context.Context, enabled bool) error {
+	c.adMu.Lock()
+	defer c.adMu.Unlock()
+	if !enabled {
+		c.adEnabled = false
+		if c.adSubscriptionID != "" {
+			if err := c.ads.deleteEventSubSubscription(ctx, c.adSubscriptionID); err != nil {
+				return err
+			}
+			c.adSubscriptionID = ""
+		}
 		return nil
 	}
+	if c.broadcasterSessionID == "" {
+		return errors.New("Twitch broadcaster EventSub session unavailable")
+	}
+	if c.adSubscriptionID == "" {
+		id, err := c.createAdBreakSubscription(ctx, c.broadcasterSessionID)
+		if err != nil {
+			return err
+		}
+		if id == "" {
+			return errors.New("Twitch did not return an ad subscription ID")
+		}
+		c.adSubscriptionID = id
+	}
+	c.adEnabled = true
+	return nil
+}
+
+func (c *EventSubChatClient) createAdBreakSubscription(ctx context.Context, sessionID string) (string, error) {
 	if strings.TrimSpace(c.cfg.AdToken) == "" {
-		return errors.New("missing Twitch ads access token")
+		return "", errors.New("missing Twitch ads access token")
 	}
 	condition := map[string]string{
 		"broadcaster_user_id": c.cfg.BroadcasterID,
 	}
-	helix := NewHelixClient(firstNonEmpty(c.cfg.AdClientID, c.cfg.ClientID), c.cfg.AdToken)
-	return helix.CreateEventSubWebSocketSubscription(ctx, "channel.ad_break.begin", "1", condition, sessionID)
+	return c.ads.createEventSubSubscription(ctx, "channel.ad_break.begin", "1", condition, sessionID)
 }
 
 func (c *EventSubChatClient) subscribeToRedeems(ctx context.Context, sessionID string) error {
@@ -237,8 +278,16 @@ func (c *EventSubChatClient) subscribeToBroadcasterEvents(ctx context.Context, s
 	if err := c.subscribeToRedeems(ctx, sessionID); err != nil {
 		return fmt.Errorf("subscribe to channel point redeems: %w", err)
 	}
-	if err := c.subscribeToAdBreaks(ctx, sessionID); err != nil && c.logger != nil {
-		c.logger.Warn("EventSub ad break subscription unavailable; ad alerts will use schedule polling", "error", err)
+	c.adMu.Lock()
+	defer c.adMu.Unlock()
+	c.broadcasterSessionID = sessionID
+	c.adSubscriptionID = ""
+	if c.cfg.AdBreaks != nil && (!c.liveAdSettings || c.adEnabled) {
+		id, err := c.createAdBreakSubscription(ctx, sessionID)
+		if err != nil && c.logger != nil {
+			c.logger.Warn("EventSub ad break subscription unavailable; ad alerts will use schedule polling", "error", err)
+		}
+		c.adSubscriptionID = id
 	}
 	return nil
 }
@@ -313,6 +362,11 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 				default:
 				}
 			}
+			if label == "EventSub broadcaster" {
+				c.adMu.Lock()
+				c.broadcasterSessionID, c.adSubscriptionID = "", ""
+				c.adMu.Unlock()
+			}
 			next, err := c.reconnectFresh(ctx, subscribe, setConn, label)
 			if err != nil {
 				if c.logger != nil {
@@ -340,7 +394,7 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 			if msg.Payload.Session.ReconnectURL == "" {
 				continue
 			}
-			next, _, err := c.connectSession(ctx, msg.Payload.Session.ReconnectURL)
+			next, session, err := c.connectSession(ctx, msg.Payload.Session.ReconnectURL)
 			if err != nil {
 				if c.logger != nil {
 					c.logger.Warn("failed to follow EventSub reconnect URL", "error", err)
@@ -350,6 +404,11 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 			_ = conn.Close()
 			conn = next
 			setConn(conn)
+			if label == "EventSub broadcaster" {
+				c.adMu.Lock()
+				c.broadcasterSessionID = session.ID
+				c.adMu.Unlock()
+			}
 			c.signal(StreamSignal{})
 		case "notification":
 			subscriptionType := firstNonEmpty(msg.Metadata.SubscriptionType, msg.Payload.Subscription.Type)
@@ -370,6 +429,14 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 					}
 				}
 			case "channel.ad_break.begin":
+				if c.liveAdSettings {
+					c.adMu.Lock()
+					active := c.adEnabled && c.adSubscriptionID != "" && c.adSubscriptionID == msg.Payload.Subscription.ID
+					c.adMu.Unlock()
+					if !active {
+						continue
+					}
+				}
 				if adBreak, ok := eventSubAdBreakToEvent(msg.Payload.Event); ok {
 					select {
 					case c.cfg.AdBreaks <- adBreak:
@@ -408,6 +475,13 @@ func (c *EventSubChatClient) readLoop(ctx context.Context, conn *websocket.Conn,
 				}
 			}
 		case "revocation":
+			if msg.Payload.Subscription.Type == "channel.ad_break.begin" {
+				c.adMu.Lock()
+				if c.adSubscriptionID == msg.Payload.Subscription.ID {
+					c.adSubscriptionID = ""
+				}
+				c.adMu.Unlock()
+			}
 			if c.logger != nil {
 				c.logger.Warn("EventSub chat subscription revoked", "type", msg.Payload.Subscription.Type, "status", msg.Payload.Subscription.Status)
 			}
@@ -478,6 +552,7 @@ type eventSubSession struct {
 }
 
 type eventSubSubscription struct {
+	ID     string `json:"id"`
 	Type   string `json:"type"`
 	Status string `json:"status"`
 }

@@ -223,7 +223,7 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 
 	if lower == "!soroulette" {
 		if !permissionAllows(s.cfg.SORoulettePermission, msg) {
-			_ = s.chat.Say(msg.Channel, permissionDeniedMessage(s.cfg.SORoulettePermission, "!soroulette"))
+			_ = s.say(ctx, msg.Channel, permissionDeniedMessage(s.cfg.SORoulettePermission, "!soroulette"))
 			return true
 		}
 		go s.sendRoulette(ctx, msg.Channel)
@@ -231,7 +231,7 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 	}
 
 	if !permissionAllows(s.cfg.Permission, msg) {
-		_ = s.chat.Say(msg.Channel, permissionDeniedMessage(s.cfg.Permission, "!autoso"))
+		_ = s.say(ctx, msg.Channel, permissionDeniedMessage(s.cfg.Permission, "!autoso"))
 		return true
 	}
 
@@ -244,9 +244,9 @@ func (s *Service) HandleCommand(ctx context.Context, msg twitch.Message) bool {
 	case "next":
 		go s.sendNext(ctx, msg.Channel)
 	case "status":
-		_ = s.chat.Say(msg.Channel, s.status())
+		_ = s.say(ctx, msg.Channel, s.status())
 	default:
-		_ = s.chat.Say(msg.Channel, "Usage: !autoso, !autoso next, !autoso refresh, !autoso status, or !soroulette.")
+		_ = s.say(ctx, msg.Channel, "Usage: !autoso, !autoso next, !autoso refresh, !autoso status, or !soroulette.")
 	}
 	return true
 }
@@ -272,13 +272,13 @@ func (s *Service) status() string {
 func (s *Service) buildAndSend(ctx context.Context, channel string, refresh bool) {
 	if err := s.syncStreamRun(ctx); err != nil {
 		s.logger.Warn("failed to sync stream shoutout state", "error", err)
-		_ = s.chat.Say(channel, "I could not verify stream shoutout state right now.")
+		_ = s.say(ctx, channel, "I could not verify stream shoutout state right now.")
 		return
 	}
 	candidates, err := s.buildQueue(ctx, time.Now())
 	if err != nil {
 		s.logger.Warn("failed to build recent streamer queue", "error", err)
-		_ = s.chat.Say(channel, "I could not build the streamer list right now.")
+		_ = s.say(ctx, channel, "I could not build the streamer list right now.")
 		return
 	}
 
@@ -288,7 +288,7 @@ func (s *Service) buildAndSend(ctx context.Context, channel string, refresh bool
 	s.mu.Unlock()
 
 	if refresh {
-		_ = s.chat.Say(channel, "Streamer list refreshed.")
+		_ = s.say(ctx, channel, "Streamer list refreshed.")
 	}
 	s.sendNext(ctx, channel)
 }
@@ -359,13 +359,13 @@ func (s *Service) buildQueue(ctx context.Context, now time.Time) ([]Candidate, e
 func (s *Service) sendNext(ctx context.Context, channel string) {
 	if err := s.syncStreamRun(ctx); err != nil {
 		s.logger.Warn("failed to sync stream shoutout state", "error", err)
-		_ = s.chat.Say(channel, "I could not verify stream shoutout state right now.")
+		_ = s.say(ctx, channel, "I could not verify stream shoutout state right now.")
 		return
 	}
 	s.mu.Lock()
 	if s.dispatchRunning {
 		s.mu.Unlock()
-		_ = s.chat.Say(channel, "Streamer shoutouts are already running.")
+		_ = s.say(ctx, channel, "Streamer shoutouts are already running.")
 		return
 	}
 
@@ -389,7 +389,7 @@ func (s *Service) sendNext(ctx context.Context, channel string) {
 	s.mu.Unlock()
 
 	if len(page) == 0 {
-		_ = s.chat.Say(channel, "No unshouted streamers are queued right now.")
+		_ = s.say(ctx, channel, "No unshouted streamers are queued right now.")
 		return
 	}
 	s.dispatchShoutouts(ctx, channel, page, fmt.Sprintf("Shouting out %%d streamer(s). %d left in queue.", remaining))
@@ -398,12 +398,12 @@ func (s *Service) sendNext(ctx context.Context, channel string) {
 func (s *Service) sendRoulette(ctx context.Context, channel string) {
 	if err := s.syncStreamRun(ctx); err != nil {
 		s.logger.Warn("failed to sync stream shoutout state", "error", err)
-		_ = s.chat.Say(channel, "I could not verify stream shoutout state right now.")
+		_ = s.say(ctx, channel, "I could not verify stream shoutout state right now.")
 		return
 	}
 	page := s.roulettePage(5)
 	if len(page) == 0 {
-		_ = s.chat.Say(channel, "No roulette shoutouts are available right now.")
+		_ = s.say(ctx, channel, "No roulette shoutouts are available right now.")
 		return
 	}
 	s.dispatchShoutouts(ctx, channel, page, "Roulette picked %d streamer(s).")
@@ -413,7 +413,7 @@ func (s *Service) dispatchShoutouts(ctx context.Context, channel string, page []
 	s.mu.Lock()
 	if s.dispatchRunning {
 		s.mu.Unlock()
-		_ = s.chat.Say(channel, "Streamer shoutouts are already running.")
+		_ = s.say(ctx, channel, "Streamer shoutouts are already running.")
 		return
 	}
 	var filtered []Candidate
@@ -425,7 +425,7 @@ func (s *Service) dispatchShoutouts(ctx context.Context, channel string, page []
 	}
 	if len(filtered) == 0 {
 		s.mu.Unlock()
-		_ = s.chat.Say(channel, "No unshouted streamers are queued right now.")
+		_ = s.say(ctx, channel, "No unshouted streamers are queued right now.")
 		return
 	}
 	s.dispatchRunning = true
@@ -437,7 +437,7 @@ func (s *Service) dispatchShoutouts(ctx context.Context, channel string, page []
 		s.mu.Unlock()
 	}()
 
-	_ = s.chat.Say(channel, fmt.Sprintf(summaryFormat, len(filtered)))
+	_ = s.say(ctx, channel, fmt.Sprintf(summaryFormat, len(filtered)))
 	for i, candidate := range filtered {
 		select {
 		case <-ctx.Done():
@@ -454,7 +454,7 @@ func (s *Service) dispatchShoutouts(ctx context.Context, channel string, page []
 			}
 		}
 		login := normalizeLogin(candidate.Login)
-		if err := s.chat.Say(channel, "!so @"+login); err != nil {
+		if err := s.say(ctx, channel, "!so @"+login); err != nil {
 			s.logger.Warn("failed to send streamer shoutout", "login", login, "error", err)
 			continue
 		}
@@ -732,4 +732,11 @@ func permissionDeniedMessage(permission, subject string) string {
 
 func roundDuration(d time.Duration) string {
 	return d.Round(time.Second).String()
+}
+
+func (s *Service) say(ctx context.Context, channel, message string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.chat.Say(channel, message)
 }

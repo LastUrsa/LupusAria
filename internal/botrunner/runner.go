@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"lupusaria/internal/adalerts"
@@ -23,6 +26,8 @@ import (
 )
 
 type Options struct {
+	SettingsUpdates <-chan bot.SettingsUpdate
+
 	RaffleRepository  *raffle.Repository
 	RaffleChanged     func(raffle.Snapshot)
 	RaffleReady       func(*raffle.Service, *raffle.Repository)
@@ -77,7 +82,7 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}
 	}
 
-	if (cfg.AdAlerts.Enabled || options.MediaActionRedeem != nil || options.WrapUp != nil) && cfg.Twitch.AdsRefreshToken != "" {
+	if (cfg.AdAlerts.Enabled || options.SettingsUpdates != nil || options.MediaActionRedeem != nil || options.WrapUp != nil) && cfg.Twitch.AdsRefreshToken != "" {
 		tokenSet, err := twitch.NewAuthManager(twitch.AuthConfig{
 			ClientID:                     cfg.Twitch.AdsClientID,
 			ClientSecret:                 cfg.Twitch.AdsClientSecret,
@@ -125,7 +130,7 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}
 	}
 
-	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsOAuthToken != "" {
+	if (cfg.AdAlerts.Enabled || options.SettingsUpdates != nil) && cfg.Twitch.AdsClientID != "" && (cfg.Twitch.AdsOAuthToken != "" || cfg.Twitch.OAuthToken != "") {
 		adBreaks = make(chan twitch.AdBreakEvent, 16)
 	}
 	if options.MediaActionRedeem != nil {
@@ -140,119 +145,164 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}
 	}
 
-	var raffleService *raffle.Service
+	type raffleActivation struct {
+		service *raffle.Service
+		epoch   uint64
+	}
+	var activeRaffle atomic.Pointer[raffleActivation]
+	var raffleEpoch uint64
 	var streamSignals chan twitch.StreamSignal
-	if cfg.Bot.RaffleEnabled {
-		var err error
+	var stopRaffle context.CancelFunc
+	var raffleDone chan struct{}
+	repo := options.RaffleRepository
+	ownsRepo := false
+	disableRaffle := func() {
+		activeRaffle.Store(nil)
+		if stopRaffle != nil {
+			stopRaffle()
+			<-raffleDone
+			stopRaffle = nil
+		}
+	}
+	defer func() {
+		disableRaffle()
+		if ownsRepo {
+			repo.Close()
+		}
+	}()
+	enableRaffle := func(ctx context.Context) (*raffle.Service, error) {
 		if helix == nil || broadcasterID == "" {
-			logger.Warn("raffle unavailable: Twitch broadcaster identity required")
-			if options.RaffleUnavailable != nil {
-				options.RaffleUnavailable("Raffle unavailable: Twitch broadcaster identity required")
-			}
-		} else {
-			repo := options.RaffleRepository
-			openedRepo := repo == nil
-			if repo == nil {
-				repo, err = raffle.Open(cfg.Bot.RafflePath)
-				if err == nil && options.RaffleReady == nil {
-					defer repo.Close()
-				}
-			}
-			if err == nil {
-				raffleService, err = raffle.New(repo, broadcasterID, raffle.Options{Confirmation: cfg.Bot.RaffleConfirmation, Changed: options.RaffleChanged})
-			}
+			return nil, errors.New("raffle requires Twitch broadcaster identity")
+		}
+		if repo == nil {
+			var err error
+			repo, err = raffle.Open(cfg.Bot.RafflePath)
 			if err != nil {
-				if openedRepo && repo != nil {
-					repo.Close()
-				}
-				logger.Warn("raffle unavailable: database initialization failed")
-				if options.RaffleUnavailable != nil {
-					options.RaffleUnavailable("Raffle storage unavailable; saved data has not been replaced")
-				}
-			} else {
-				if options.RaffleReady != nil {
-					options.RaffleReady(raffleService, repo)
-				}
-				var streamAuth adTokenRefresher
-				if cfg.Twitch.RefreshToken != "" {
-					streamAuth = twitch.NewAuthManager(twitch.AuthConfig{ClientID: cfg.Twitch.ClientID, ClientSecret: cfg.Twitch.ClientSecret, RefreshToken: cfg.Twitch.RefreshToken, StatePath: cfg.Twitch.TokenStatePath})
-				}
-				lifecycleProvider := verifiedStreamProvider{provider: helix, auth: streamAuth, observed: func(info twitch.StreamInfo) {
-					if options.WrapUp != nil {
-						applyWrapUpStatus(options.WrapUp, info, broadcasterID, logger)
-					}
-				}}
-				if e := raffleService.Reconcile(ctx, lifecycleProvider, cfg.Twitch.Channel, true); e != nil {
-					logger.Warn("raffle verification unavailable; preserving saved state")
-				}
-				streamSignals = make(chan twitch.StreamSignal, 16)
-				// Use a child context so a failed chat startup also stops reconciliation.
-				raffleCtx, stopRaffle := context.WithCancel(ctx)
-				defer stopRaffle()
-				done := make(chan struct{})
-				defer func() { stopRaffle(); <-done }()
-				go func() {
-					defer close(done)
-					raffleService.Run(raffleCtx, lifecycleProvider, cfg.Twitch.Channel, streamSignals, cfg.Bot.RafflePollInterval, func(e error) { raffleService.ReportError(e); logger.Warn("raffle reconciliation failed; will retry") })
-				}()
+				return nil, errors.New("raffle storage unavailable")
+			}
+			ownsRepo = options.RaffleReady == nil
+		}
+		service, err := raffle.New(repo, broadcasterID, raffle.Options{Confirmation: cfg.Bot.RaffleConfirmation, Changed: options.RaffleChanged})
+		if err != nil {
+			return nil, errors.New("raffle storage unavailable")
+		}
+		var streamAuth adTokenRefresher
+		if cfg.Twitch.RefreshToken != "" {
+			streamAuth = twitch.NewAuthManager(twitch.AuthConfig{ClientID: cfg.Twitch.ClientID, ClientSecret: cfg.Twitch.ClientSecret, RefreshToken: cfg.Twitch.RefreshToken, StatePath: cfg.Twitch.TokenStatePath})
+		}
+		provider := verifiedStreamProvider{provider: helix, auth: streamAuth, observed: func(info twitch.StreamInfo) {
+			if options.WrapUp != nil {
+				applyWrapUpStatus(options.WrapUp, info, broadcasterID, logger)
+			}
+		}}
+		if options.RaffleReady != nil {
+			options.RaffleReady(service, repo)
+		}
+		if err := service.Reconcile(ctx, provider, cfg.Twitch.Channel, true); err != nil {
+			logger.Warn("raffle verification unavailable; preserving saved state")
+		}
+		raffleEpoch++
+		activeRaffle.Store(&raffleActivation{service: service, epoch: raffleEpoch})
+		workerCtx, cancel := context.WithCancel(ctx)
+		stopRaffle = cancel
+		done := make(chan struct{})
+		raffleDone = done
+		go func() {
+			defer close(done)
+			service.Run(workerCtx, provider, cfg.Twitch.Channel, streamSignals, cfg.Bot.RafflePollInterval, func(err error) {
+				service.ReportError(err)
+				logger.Warn("raffle reconciliation failed; will retry")
+			})
+		}()
+		return service, nil
+	}
+	if (cfg.Bot.RaffleEnabled || options.SettingsUpdates != nil) && helix != nil && broadcasterID != "" {
+		streamSignals = make(chan twitch.StreamSignal, 16)
+	}
+	var raffleService *raffle.Service
+	if cfg.Bot.RaffleEnabled {
+		var raffleErr error
+		raffleService, raffleErr = enableRaffle(ctx)
+		if raffleErr != nil {
+			logger.Warn("raffle unavailable", "error", raffleErr)
+			if options.RaffleUnavailable != nil {
+				options.RaffleUnavailable(raffleErr.Error())
+			}
+			if options.WrapUp != nil && helix != nil && broadcasterID != "" {
+				reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
 			}
 		}
 	}
-	if raffleService == nil && cfg.Bot.RaffleEnabled && options.WrapUp != nil && helix != nil && broadcasterID != "" {
-		reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
-	}
+	adsHelix := twitch.NewHelixClient(cfg.Twitch.AdsClientID, firstAdToken(cfg))
 	rawChat := newTwitchChat(cfg, broadcasterID, moderatorID, chatSendToken, adBreaks, redeems, wrapEvents, logger)
-	if transport, ok := rawChat.(*twitch.EventSubChatClient); ok {
-		transport.SetStreamSignals(streamSignals)
+	eventSub, _ := rawChat.(*twitch.EventSubChatClient)
+	if eventSub != nil {
+		if raffleService != nil || options.SettingsUpdates != nil {
+			eventSub.SetStreamSignals(streamSignals)
+		}
+		if options.SettingsUpdates != nil {
+			eventSub.ConfigureLiveAdSettings(cfg.AdAlerts.Enabled, adsHelix)
+		}
 	}
-	if raffleService != nil {
+	if streamSignals != nil {
 		if transport, ok := rawChat.(interface{ SetMessageObserver(func(*twitch.Message)) }); ok {
 			transport.SetMessageObserver(func(msg *twitch.Message) {
-				f, _ := raffleService.Capture()
-				msg.RaffleSession = f.SessionID
-				msg.RaffleGeneration = f.Generation
 				msg.RaffleFenced = true
+				if activation := activeRaffle.Load(); activation != nil {
+					msg.RaffleEpoch = activation.epoch
+					fence, _ := activation.service.Capture()
+					msg.RaffleSession = fence.SessionID
+					msg.RaffleGeneration = fence.Generation
+				}
 			})
 		}
 	}
 	chat := bot.WithChatLogging(rawChat, cfg.Bot.ChatLogPath, logger, cfg.Bot.Name)
 
-	if helix != nil && cfg.RecentStreamers.Enabled {
-		recentService = recentstreamers.New(recentstreamers.Config{
+	newRecent := func(settings config.RecentStreamersConfig) *recentstreamers.Service {
+		if !settings.Enabled || helix == nil {
+			return nil
+		}
+		return recentstreamers.New(recentstreamers.Config{
 			Channel:              cfg.Twitch.Channel,
-			Permission:           cfg.RecentStreamers.Permission,
-			SORoulettePermission: cfg.RecentStreamers.SORoulettePermission,
-			RouletteStreamers:    cfg.RecentStreamers.RouletteStreamers,
+			Permission:           settings.Permission,
+			SORoulettePermission: settings.SORoulettePermission,
+			RouletteStreamers:    settings.RouletteStreamers,
 			BroadcasterID:        broadcasterID,
 			ModeratorID:          moderatorID,
-			MinWatch:             cfg.RecentStreamers.MinWatch,
-			RecentWindow:         cfg.RecentStreamers.RecentWindow,
-			PageSize:             cfg.RecentStreamers.PageSize,
-			ShoutoutDelay:        cfg.RecentStreamers.ShoutoutDelay,
-			CacheTTL:             cfg.RecentStreamers.CacheTTL,
-			ChatterPollInterval:  cfg.RecentStreamers.ChatterPollInterval,
+			MinWatch:             settings.MinWatch,
+			RecentWindow:         settings.RecentWindow,
+			PageSize:             settings.PageSize,
+			ShoutoutDelay:        settings.ShoutoutDelay,
+			CacheTTL:             settings.CacheTTL,
+			ChatterPollInterval:  settings.ChatterPollInterval,
 		}, chat, helix, logger)
 	}
-
-	announcementItems, err := announcements.Load(cfg.Announcements.Path)
-	if err != nil {
-		logger.Warn("failed to load announcements; continuing without them", "path", cfg.Announcements.Path, "error", err)
-	} else if cfg.Announcements.Enabled {
-		for _, item := range announcementItems {
+	newAnnouncements := func(settings config.AnnouncementsConfig, items []announcements.Announcement) *announcements.Service {
+		if !settings.Enabled {
+			return nil
+		}
+		for _, item := range items {
 			if item.Command == "!rafadd" || item.Command == "!rafpick" || item.Command == "!rafclear" {
 				logger.Warn("announcement uses reserved raffle command; raffle takes precedence", "command", item.Command)
 			}
 		}
-		announcementService = announcements.New(announcements.Config{
-			Enabled:      cfg.Announcements.Enabled,
+		return announcements.New(announcements.Config{
+			Enabled:      settings.Enabled,
 			Channel:      cfg.Twitch.Channel,
-			PollInterval: cfg.Announcements.PollInterval,
-			Items:        announcementItems,
+			PollInterval: settings.PollInterval,
+			Items:        items,
 		}, chat, streamProvider, logger)
-		logger.Info("loaded announcements", "path", cfg.Announcements.Path, "count", len(announcementItems))
+	}
+	recentService = newRecent(cfg.RecentStreamers)
+	announcementItems, announcementErr := announcements.Load(cfg.Announcements.Path)
+	if announcementErr != nil {
+		logger.Warn("failed to load announcements; continuing without them", "path", cfg.Announcements.Path, "error", announcementErr)
+	} else {
+		announcementService = newAnnouncements(cfg.Announcements, announcementItems)
 	}
 
-	runner := bot.New(bot.Config{
+	botSettings := bot.Config{
 		BroadcasterID:         broadcasterID,
 		Raffle:                raffleService,
 		Name:                  cfg.Bot.Name,
@@ -260,18 +310,6 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		StreamerName:          cfg.Bot.StreamerName,
 		StreamerPronouns:      cfg.Bot.StreamerPronouns,
 		Personality:           cfg.Bot.Personality,
-		EnableMentions:        cfg.Bot.EnableMentions,
-		EnableAsk:             cfg.Bot.EnableAsk,
-		EnableLurk:            cfg.Bot.EnableLurk,
-		EnableCommands:        cfg.Bot.EnableCommands,
-		EnableReset:           cfg.Bot.EnableReset,
-		MentionPermission:     cfg.Bot.MentionPermission,
-		AskPermission:         cfg.Bot.AskPermission,
-		LurkPermission:        cfg.Bot.LurkPermission,
-		GamePermission:        cfg.Bot.GamePermission,
-		CommandsPermission:    cfg.Bot.CommandsPermission,
-		ResetPermission:       cfg.Bot.ResetPermission,
-		WrapUpPermission:      cfg.Bot.WrapUpPermission,
 		WrapUp:                options.WrapUp,
 		MaxContextMessages:    cfg.Bot.MaxContextMessages,
 		StreamContextTTL:      cfg.Bot.StreamContextTTL,
@@ -295,48 +333,68 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 			Height:  cfg.Bot.SnapshotCrop.Height,
 		},
 		Knowledge: knowledgeBase,
-	}, chat, aiClient, streamProvider, recentService, announcementService, logger)
+	}
+	setCommands(&botSettings, cfg.Bot)
+	runner := bot.New(botSettings, chat, aiClient, streamProvider, recentService, announcementService, logger)
+	runner.SetRaffle(raffleService, raffleEpoch)
 
-	if cfg.AdAlerts.Enabled && cfg.Twitch.AdsClientID != "" && cfg.Twitch.AdsOAuthToken != "" && broadcasterID != "" {
-		adsHelix := twitch.NewHelixClient(cfg.Twitch.AdsClientID, cfg.Twitch.AdsOAuthToken)
-		var adsAuth adTokenRefresher
-		if cfg.Twitch.AdsRefreshToken != "" {
-			adsAuth = twitch.NewAuthManager(twitch.AuthConfig{
-				ClientID:                     cfg.Twitch.AdsClientID,
-				ClientSecret:                 cfg.Twitch.AdsClientSecret,
-				RefreshToken:                 cfg.Twitch.AdsRefreshToken,
-				StatePath:                    cfg.Twitch.AdsTokenStatePath,
-				PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.AdsTokenStatePath),
-			})
+	var adsAuth adTokenRefresher
+	if cfg.Twitch.AdsRefreshToken != "" {
+		adsAuth = twitch.NewAuthManager(twitch.AuthConfig{
+			ClientID:                     cfg.Twitch.AdsClientID,
+			ClientSecret:                 cfg.Twitch.AdsClientSecret,
+			RefreshToken:                 cfg.Twitch.AdsRefreshToken,
+			StatePath:                    cfg.Twitch.AdsTokenStatePath,
+			PreferConfiguredRefreshToken: preferConfiguredRefreshToken(envPath, cfg.Twitch.AdsTokenStatePath),
+		})
+	}
+	adProvider := &twitchAdScheduleProvider{helix: adsHelix, auth: adsAuth, tokenExpiresAt: adsTokenExpiresAt(cfg.Twitch.AdsTokenStatePath), logger: logger}
+	newAdAlerts := func(settings config.AdAlertsConfig) *adalerts.Service {
+		if !settings.Enabled || cfg.Twitch.AdsClientID == "" || firstAdToken(cfg) == "" || broadcasterID == "" {
+			return nil
 		}
-		adService = adalerts.New(adalerts.Config{
+		return adalerts.New(adalerts.Config{
 			Channel:        cfg.Twitch.Channel,
 			BroadcasterID:  broadcasterID,
-			Enabled:        cfg.AdAlerts.Enabled,
-			WarningLead:    cfg.AdAlerts.WarningLead,
-			PollInterval:   cfg.AdAlerts.PollInterval,
-			WarningMessage: cfg.AdAlerts.WarningMessage,
-			StartMessage:   cfg.AdAlerts.StartMessage,
-			EndMessage:     cfg.AdAlerts.EndMessage,
+			Enabled:        settings.Enabled,
+			WarningLead:    settings.WarningLead,
+			PollInterval:   settings.PollInterval,
+			WarningMessage: settings.WarningMessage,
+			StartMessage:   settings.StartMessage,
+			EndMessage:     settings.EndMessage,
 			Composer:       runner,
-		}, chat, &twitchAdScheduleProvider{helix: adsHelix, auth: adsAuth, tokenExpiresAt: adsTokenExpiresAt(cfg.Twitch.AdsTokenStatePath), logger: logger}, logger)
-	} else if cfg.AdAlerts.Enabled {
-		logger.Warn("ad alerts enabled but not started",
-			"has_ads_client_id", cfg.Twitch.AdsClientID != "",
-			"has_ads_token", cfg.Twitch.AdsOAuthToken != "",
-			"has_broadcaster_id", broadcasterID != "",
-		)
+		}, chat, adProvider, logger)
 	}
-
-	runner.SetAdAlerts(adService)
-	if adService != nil && adBreaks != nil {
+	adSettings := cfg.AdAlerts
+	var stopAds context.CancelFunc
+	var adsDone chan struct{}
+	stopAdAlerts := func() {
+		if stopAds != nil {
+			stopAds()
+			<-adsDone
+			stopAds = nil
+		}
+	}
+	defer stopAdAlerts()
+	startAdAlerts := func(ctx context.Context, service *adalerts.Service) {
+		adService = service
+		if service == nil {
+			return
+		}
+		workerCtx, cancel := context.WithCancel(ctx)
+		stopAds = cancel
+		done := make(chan struct{})
+		adsDone = done
+		pollDone := service.Start(workerCtx)
 		go func() {
+			defer close(done)
+			defer func() { <-pollDone }()
 			for {
 				select {
-				case <-ctx.Done():
+				case <-workerCtx.Done():
 					return
 				case event := <-adBreaks:
-					adService.HandleAdBreakBegin(ctx, adalerts.AdBreakBegin{
+					service.HandleAdBreakBegin(workerCtx, adalerts.AdBreakBegin{
 						StartedAt: event.StartedAt,
 						Duration:  event.Duration,
 						Automatic: event.Automatic,
@@ -344,6 +402,12 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 				}
 			}
 		}()
+	}
+	startFeatures := func(ctx context.Context) {
+		startAdAlerts(ctx, newAdAlerts(adSettings))
+		if adSettings.Enabled && adService == nil {
+			logger.Warn("ad alerts unavailable; check Twitch credentials and broadcaster identity")
+		}
 	}
 	if redeems != nil {
 		go func() {
@@ -367,7 +431,7 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					if helix != nil && raffleService == nil {
+					if helix != nil && activeRaffle.Load() == nil {
 						reconcileWrapUp(ctx, helix, options.WrapUp, cfg.Twitch.Channel, broadcasterID, logger)
 					}
 				case event := <-wrapEvents:
@@ -388,11 +452,114 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}()
 	}
 
-	err = runner.Run(ctx)
+	recentSettings := cfg.RecentStreamers
+	announcementSettings := cfg.Announcements
+	err = runner.RunWithSettings(ctx, options.SettingsUpdates, startFeatures, func(ctx context.Context) error {
+		saved, err := config.LoadPartial(envPath)
+		if err != nil {
+			return err
+		}
+		var commands bot.Config
+		setCommands(&commands, saved.Bot)
+		runner.SetCommandSettings(commands)
+		crop := saved.Bot.SnapshotCrop
+		runner.SetSnapshotCrop(bot.SnapshotCrop{Enabled: crop.Enabled, X: crop.X, Y: crop.Y, Width: crop.Width, Height: crop.Height})
+
+		var issues []error
+		switch {
+		case !saved.AdAlerts.Enabled:
+			if adService != nil {
+				stopAdAlerts()
+				adService = nil
+			}
+			if eventSub != nil && adSettings.Enabled {
+				if err := eventSub.SetAdBreaksEnabled(ctx, false); err != nil {
+					issues = append(issues, fmt.Errorf("ad alerts stopped locally, but Twitch subscription removal failed: %w", err))
+				} else {
+					adSettings = saved.AdAlerts
+				}
+			}
+		case saved.AdAlerts != adSettings || adService == nil:
+			service := newAdAlerts(saved.AdAlerts)
+			switch {
+			case service == nil:
+				issues = append(issues, errors.New("ad alerts require Twitch ads credentials and broadcaster identity from startup"))
+			case eventSub == nil:
+				issues = append(issues, errors.New("live ad alerts require a Twitch EventSub connection"))
+			default:
+				if err := adProvider.refreshIfNeeded(ctx, false); err != nil {
+					issues = append(issues, err)
+				} else if err := eventSub.SetAdBreaksEnabled(ctx, true); err != nil {
+					issues = append(issues, fmt.Errorf("enable Twitch ad events: %w", err))
+				} else {
+					stopAdAlerts()
+					// Discard events retained by the previous activation.
+					for range len(adBreaks) {
+						<-adBreaks
+					}
+					startAdAlerts(ctx, service)
+					adSettings = saved.AdAlerts
+				}
+			}
+		}
+		if saved.Bot.RaffleEnabled && activeRaffle.Load() == nil {
+			service, err := enableRaffle(ctx)
+			if err != nil {
+				issues = append(issues, err)
+				if options.RaffleUnavailable != nil {
+					options.RaffleUnavailable(err.Error())
+				}
+			} else {
+				runner.SetRaffle(service, raffleEpoch)
+			}
+		} else if !saved.Bot.RaffleEnabled && activeRaffle.Load() != nil {
+			disableRaffle()
+			runner.SetRaffle(nil, 0)
+			if options.RaffleUnavailable != nil {
+				options.RaffleUnavailable("Raffle disabled")
+			}
+		}
+		if saved.RecentStreamers.Enabled && helix == nil && !recentSettings.Enabled {
+			issues = append(issues, errors.New("AutoSO requires a connected Twitch Helix client"))
+		} else if !reflect.DeepEqual(recentSettings, saved.RecentStreamers) {
+			runner.SetRecentStreamers(ctx, newRecent(saved.RecentStreamers))
+			recentSettings = saved.RecentStreamers
+		}
+
+		var items []announcements.Announcement
+		if saved.Announcements.Enabled {
+			items, err = announcements.Load(announcementSettings.Path)
+			if err != nil {
+				issues = append(issues, fmt.Errorf("load live announcements: %w", err))
+				return errors.Join(issues...)
+			}
+		}
+		saved.Announcements.Path = announcementSettings.Path
+		if saved.Announcements != announcementSettings || !reflect.DeepEqual(items, announcementItems) || announcementErr != nil {
+			runner.SetAnnouncements(ctx, newAnnouncements(saved.Announcements, items))
+			announcementSettings, announcementItems, announcementErr = saved.Announcements, items, nil
+		}
+		return errors.Join(issues...)
+	})
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 	return err
+}
+
+func setCommands(target *bot.Config, settings config.BotConfig) {
+	target.EnableMentions = settings.EnableMentions
+	target.EnableAsk = settings.EnableAsk
+	target.EnableLurk = settings.EnableLurk
+	target.EnableCommands = settings.EnableCommands
+	target.EnableReset = settings.EnableReset
+	target.MentionPermission = settings.MentionPermission
+	target.AskPermission = settings.AskPermission
+	target.LurkPermission = settings.LurkPermission
+	target.GamePermission = settings.GamePermission
+	target.CommandsPermission = settings.CommandsPermission
+	target.ResetPermission = settings.ResetPermission
+	target.WrapUpPermission = settings.WrapUpPermission
 }
 
 func appAccessToken(ctx context.Context, cfg config.Config, logger *slog.Logger) string {
@@ -436,7 +603,7 @@ func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string
 			Token:               cfg.Twitch.OAuthToken,
 			SendToken:           sendToken,
 			AdClientID:          cfg.Twitch.AdsClientID,
-			AdToken:             cfg.Twitch.AdsOAuthToken,
+			AdToken:             firstAdToken(cfg),
 			RedeemClientID:      cfg.Twitch.AdsClientID,
 			RedeemToken:         cfg.Twitch.AdsOAuthToken,
 			BroadcasterToken:    cfg.Twitch.AdsOAuthToken,
@@ -465,6 +632,13 @@ func newTwitchChat(cfg config.Config, broadcasterID, botUserID, sendToken string
 	}, logger)
 }
 
+func firstAdToken(cfg config.Config) string {
+	if cfg.Twitch.AdsOAuthToken != "" {
+		return cfg.Twitch.AdsOAuthToken
+	}
+	return cfg.Twitch.OAuthToken
+}
+
 func convertChannelEmotes(items []twitch.ChannelEmote) []twitch.Emote {
 	emotes := make([]twitch.Emote, 0, len(items))
 	for _, item := range items {
@@ -486,6 +660,7 @@ type adTokenRefresher interface {
 }
 
 type twitchAdScheduleProvider struct {
+	mu             sync.Mutex
 	helix          adScheduleHelix
 	auth           adTokenRefresher
 	tokenExpiresAt time.Time
@@ -513,6 +688,8 @@ func (p *twitchAdScheduleProvider) GetAdSchedule(ctx context.Context, broadcaste
 }
 
 func (p *twitchAdScheduleProvider) refreshIfNeeded(ctx context.Context, force bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.auth == nil {
 		return nil
 	}
