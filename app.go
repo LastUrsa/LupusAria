@@ -52,14 +52,20 @@ var obsOverlayHTML []byte
 type App struct {
 	ctx context.Context
 
-	mu              sync.Mutex
-	cancelBot       context.CancelFunc
-	settingsMu      sync.Mutex
-	settingsUpdates chan bot.SettingsUpdate
-	botDone         <-chan struct{}
-	running         bool
-	lastError       string
-	logs            []string
+	mu                sync.Mutex
+	cancelBot         context.CancelFunc
+	settingsMu        sync.Mutex
+	settingsUpdates   chan bot.SettingsUpdate
+	botDone           <-chan struct{}
+	running           bool
+	botReady          bool
+	botStopping       bool
+	runDone           chan struct{}
+	effectiveFeatures map[string]bool
+	serviceLogs       []serviceLog
+	runBot            func(context.Context, string, *slog.Logger, botrunner.Options) error
+	lastError         string
+	logs              []string
 
 	overlay       *overlayServer
 	wrapUp        *wrapup.Service
@@ -286,11 +292,15 @@ type twitchTokenValidation struct {
 }
 
 func NewApp() *App {
-	return &App{}
+	return &App{runBot: botrunner.RunWithOptions}
 }
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.initialize()
+}
+
+func (a *App) initialize() {
 	if envPath, err := appEnvPath(); err == nil {
 		if cfg, e := config.LoadPartial(envPath); e == nil {
 			if cfg.Bot.RaffleEnabled {
@@ -305,6 +315,7 @@ func (a *App) startup(ctx context.Context) {
 				if e != nil {
 					a.raffleError = "Raffle storage unavailable"
 					a.appendLog(a.raffleError)
+					a.recordServiceLog("warn", "Raffle storage could not be opened.", "")
 				}
 			}
 			a.wrapUp, e = wrapup.New(cfg.Bot.WrapUpStatePath, func(r wrapup.Report) {
@@ -314,6 +325,7 @@ func (a *App) startup(ctx context.Context) {
 			})
 			if e != nil {
 				a.appendLog("stream wrap-up unavailable: " + e.Error())
+				a.recordServiceLog("warn", "Stream Wrap-Up storage is unavailable.", "")
 			}
 		}
 	}
@@ -325,6 +337,7 @@ func (a *App) startup(ctx context.Context) {
 	overlay, err := newOverlayServer()
 	if err != nil {
 		a.appendLog("media overlay unavailable: " + err.Error())
+		a.recordServiceLog("warn", "The OBS Media Actions overlay is unavailable.", "")
 		return
 	}
 	a.overlay = overlay
@@ -349,6 +362,15 @@ func installOBSOverlay() (string, error) {
 
 func (a *App) shutdown(ctx context.Context) {
 	_ = a.StopBot()
+	a.mu.Lock()
+	done := a.runDone
+	a.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
+	}
 	if a.overlay != nil {
 		_ = a.overlay.Close(ctx)
 	}
@@ -1079,23 +1101,43 @@ func (a *App) StartBot() error {
 	updates := make(chan bot.SettingsUpdate)
 	a.settingsUpdates, a.botDone = updates, ctx.Done()
 	a.running = true
+	a.botReady, a.botStopping = false, false
+	done := make(chan struct{})
+	a.runDone = done
 	a.lastError = ""
 	a.mu.Unlock()
 
-	logger := slog.New(slog.NewTextHandler(logWriter{app: a}, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(serviceLogHandler{Handler: slog.NewTextHandler(logWriter{app: a}, &slog.HandlerOptions{Level: slog.LevelInfo}), app: a})
 	a.appendLog("starting bot")
+	a.recordServiceLog("info", "Bot starting.", "")
 	envPath, err := appEnvPath()
 	if err != nil {
 		cancel()
 		a.mu.Lock()
 		a.running = false
+		a.botReady, a.botStopping = false, false
+		close(done)
+		a.runDone = nil
 		a.cancelBot = nil
 		a.settingsUpdates, a.botDone = nil, nil
 		a.lastError = err.Error()
 		a.mu.Unlock()
 		return err
 	}
-	mediaOptions := botrunner.Options{SettingsUpdates: updates}
+	mediaOptions := botrunner.Options{
+		SettingsUpdates: updates,
+		Ready: func() {
+			a.mu.Lock()
+			a.botReady = true
+			a.mu.Unlock()
+			a.recordServiceLog("info", "Twitch chat connected.", "")
+		},
+		FeaturesChanged: func(features map[string]bool) {
+			a.mu.Lock()
+			a.effectiveFeatures = features
+			a.mu.Unlock()
+		},
+	}
 	mediaOptions.WrapUp = a.wrapUp
 	mediaOptions.RaffleRepository = a.raffleRepo
 	mediaOptions.RaffleChanged = a.raffleChanged
@@ -1116,10 +1158,20 @@ func (a *App) StartBot() error {
 		a.appendLog(fmt.Sprintf("loaded media actions: %d; redeem listener enabled", len(actions)))
 	}
 	go func() {
-		err := botrunner.RunWithOptions(ctx, envPath, logger, mediaOptions)
+		run := a.runBot
+		if run == nil {
+			run = botrunner.RunWithOptions
+		}
+		err := run(ctx, envPath, logger, mediaOptions)
+		if err == nil && ctx.Err() == nil {
+			err = errors.New("chat session ended unexpectedly")
+		}
 		cancel()
 		a.mu.Lock()
 		a.running = false
+		a.botReady, a.botStopping = false, false
+		close(done)
+		a.runDone = nil
 		a.cancelBot = nil
 		a.settingsUpdates, a.botDone = nil, nil
 		if err != nil {
@@ -1128,8 +1180,10 @@ func (a *App) StartBot() error {
 		a.mu.Unlock()
 		if err != nil {
 			a.appendLog("bot stopped with error: " + err.Error())
+			a.recordServiceLog("error", safeBotError(err.Error()), "")
 		} else {
 			a.appendLog("bot stopped")
+			a.recordServiceLog("info", "Bot stopped.", "")
 		}
 	}()
 	return nil
@@ -1138,6 +1192,9 @@ func (a *App) StartBot() error {
 func (a *App) StopBot() error {
 	a.mu.Lock()
 	cancel := a.cancelBot
+	if cancel != nil {
+		a.botStopping = true
+	}
 	a.mu.Unlock()
 	if cancel != nil {
 		a.appendLog("stopping bot")

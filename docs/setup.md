@@ -69,6 +69,16 @@ The save notice reflects the changes you made:
 
 Edit the settings in the desktop app to apply them live. Direct edits to `.env` take effect at the next start.
 
+## LivePanel service mode
+
+Configure Twitch and the optional AI provider in the LupusAria desktop app. Close it before launching the headless service from LivePanel or by running `LupusAria.exe --service`. Both modes share the per-user configuration and state. One mode owns the loopback service at a time.
+
+LivePanel discovers SIP v1 at `http://127.0.0.1:47050`. Service health and bot readiness are separate. **Go Live** starts chat and the configured features. **End Stream** stops the bot and leaves the service available for settings and diagnostics. The LupusAria drawer shows saved and active feature states, recent logs, and operation failures.
+
+SIP exposes app discovery, health, capabilities, and status under `/api/v1`. The `/bot/start` and `/bot/stop` routes accept an empty JSON object. `GET /features` lists feature IDs with their saved and effective states. `POST /features` accepts an ID and an `enabled` boolean. `GET /logs` returns recent operational messages. The feed omits chat transcripts, AI content, and credentials. The local early startup log is `logs/sip-startup.log` beside the configuration file.
+
+For contract testing, use [the Postman collection](postman/LupusAria-SIP-v1.postman_collection.json) with an empty test configuration. Run `./scripts/test-sip-newman.sh` on Linux or `./scripts/test-sip-newman.ps1` against a built Windows executable. The tests check discovery, health, status, diagnostics, feature updates while idle, invalid requests, startup failure, repeated stop, and logs.
+
 ## Media Actions and OBS Overlay
 
 The Media Actions tab maps Twitch channel point redeems to local media and sound alerts. Each action can:

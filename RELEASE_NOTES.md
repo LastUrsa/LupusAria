@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Adds loopback SIP v1 and headless `--service` mode for LivePanel. Service mode stays available while the Twitch bot is idle.
+- Exposes bot lifecycle, live feature preferences, and safe operational logs to LivePanel.
+- Runs the SIP Postman collection in PR, release, and Windows smoke workflows.
+
 - Applies chat command settings, AutoSO, announcements, ad alerts, raffle, and screenshot crop from the desktop panel while the bot stays connected.
 - Names the changed settings that require a restart and shows errors when saved changes fail to apply live.
 
