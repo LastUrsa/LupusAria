@@ -36,6 +36,9 @@ jobs:
         run: |
           $env:Path += ";$(go env GOPATH)\bin;C:\Program Files (x86)\NSIS;C:\Program Files (x86)\NSIS\Bin"
           wails build -clean -platform windows/amd64 -nsis
+      - name: Verify built Windows service with Newman
+        shell: pwsh
+        run: ./scripts/test-sip-newman.ps1
       - name: Download and verify previous release installer
         id: baseline
         shell: pwsh

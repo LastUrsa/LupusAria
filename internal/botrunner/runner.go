@@ -26,6 +26,8 @@ import (
 )
 
 type Options struct {
+	Ready           func()
+	FeaturesChanged func(map[string]bool)
 	SettingsUpdates <-chan bot.SettingsUpdate
 
 	RaffleRepository  *raffle.Repository
@@ -403,8 +405,27 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 			}
 		}()
 	}
+	recentSettings := cfg.RecentStreamers
+	announcementSettings := cfg.Announcements
+	commandSettings := cfg.Bot
+	snapshotEnabled := cfg.Bot.SnapshotCrop.Enabled
+	publishFeatures := func() {
+		if options.FeaturesChanged != nil {
+			options.FeaturesChanged(map[string]bool{
+				"mentions": commandSettings.EnableMentions, "ask": commandSettings.EnableAsk,
+				"lurk": commandSettings.EnableLurk, "commands": commandSettings.EnableCommands,
+				"reset": commandSettings.EnableReset, "auto-so": recentService != nil,
+				"announcements": announcementService != nil, "ad-alerts": adService != nil,
+				"raffle": activeRaffle.Load() != nil, "screenshot-crop": snapshotEnabled,
+			})
+		}
+	}
 	startFeatures := func(ctx context.Context) {
 		startAdAlerts(ctx, newAdAlerts(adSettings))
+		publishFeatures()
+		if options.Ready != nil {
+			options.Ready()
+		}
 		if adSettings.Enabled && adService == nil {
 			logger.Warn("ad alerts unavailable; check Twitch credentials and broadcaster identity")
 		}
@@ -452,8 +473,6 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}()
 	}
 
-	recentSettings := cfg.RecentStreamers
-	announcementSettings := cfg.Announcements
 	err = runner.RunWithSettings(ctx, options.SettingsUpdates, startFeatures, func(ctx context.Context) error {
 		saved, err := config.LoadPartial(envPath)
 		if err != nil {
@@ -462,6 +481,9 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		var commands bot.Config
 		setCommands(&commands, saved.Bot)
 		runner.SetCommandSettings(commands)
+		commandSettings = saved.Bot
+		snapshotEnabled = saved.Bot.SnapshotCrop.Enabled
+		defer publishFeatures()
 		crop := saved.Bot.SnapshotCrop
 		runner.SetSnapshotCrop(bot.SnapshotCrop{Enabled: crop.Enabled, X: crop.X, Y: crop.Y, Width: crop.Width, Height: crop.Height})
 
@@ -522,7 +544,8 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		if saved.RecentStreamers.Enabled && helix == nil && !recentSettings.Enabled {
 			issues = append(issues, errors.New("AutoSO requires a connected Twitch Helix client"))
 		} else if !reflect.DeepEqual(recentSettings, saved.RecentStreamers) {
-			runner.SetRecentStreamers(ctx, newRecent(saved.RecentStreamers))
+			recentService = newRecent(saved.RecentStreamers)
+			runner.SetRecentStreamers(ctx, recentService)
 			recentSettings = saved.RecentStreamers
 		}
 
@@ -536,7 +559,8 @@ func RunWithOptions(ctx context.Context, envPath string, logger *slog.Logger, op
 		}
 		saved.Announcements.Path = announcementSettings.Path
 		if saved.Announcements != announcementSettings || !reflect.DeepEqual(items, announcementItems) || announcementErr != nil {
-			runner.SetAnnouncements(ctx, newAnnouncements(saved.Announcements, items))
+			announcementService = newAnnouncements(saved.Announcements, items)
+			runner.SetAnnouncements(ctx, announcementService)
 			announcementSettings, announcementItems, announcementErr = saved.Announcements, items, nil
 		}
 		return errors.Join(issues...)

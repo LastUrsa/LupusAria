@@ -43,6 +43,10 @@ On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral templat
 
 **Save changes** applies chat command settings, AutoSO, announcements, ad alerts, raffle, and screenshot crop while the desktop bot stays connected. The save notice names any changed settings that need a restart. See [Live settings](docs/setup.md#live-settings).
 
+## Use with LivePanel
+
+LivePanel can launch `LupusAria.exe --service` without opening a window. **Go Live** starts the Twitch bot and **End Stream** stops it. Select the details icon on the LupusAria card in LivePanel to change feature switches and view recent operational logs. See [LivePanel service mode](docs/setup.md#livepanel-service-mode).
+
 ## Run a Raffle
 
 Open **Features → Raffle**, turn on **Enable raffle**, and select **Save changes**. Once Twitch confirms your live broadcast, the panel shows `ACTIVE` and viewers can enter:

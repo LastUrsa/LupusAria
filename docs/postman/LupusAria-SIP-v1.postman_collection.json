@@ -1,0 +1,515 @@
+{
+  "info": {
+    "name": "LupusAria SIP v1 service smoke",
+    "description": "Use an isolated, empty configuration. Lifecycle changes are intentionally exercised without production credentials.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:47050"
+    }
+  ],
+  "item": [
+    {
+      "name": "Discover service",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-1"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/app"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.appId).to.equal('lupusaria'); pm.expect(resultBody.mode).to.equal('service'); pm.expect(resultBody.protocolVersion).to.equal(1); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service health",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-2"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.status).to.equal('ready'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "SIP capabilities",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-3"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/capabilities"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.capabilities).to.include.members(['bot-lifecycle', 'bot-features', 'diagnostics', 'recent-logs']); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bot initially idle",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-4"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.botState).to.equal('idle'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Diagnostics",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-5"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/diagnostics"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.version).to.be.a('string').and.not.empty; pm.expect(resultBody.startedAt).to.be.a('string'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "List feature controls",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-6"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/features"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.features).to.have.lengthOf(10); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Save enabled feature while idle",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-7"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/features",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"id\": \"raffle\", \"enabled\": true}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { const feature = resultBody.features.find(f => f.id === 'raffle'); pm.expect(feature.enabled).to.equal(true); pm.expect(feature.effective).to.equal(false); pm.expect(resultBody.operation.outcome).to.equal('success'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Save disabled feature while idle",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-8"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/features",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"id\": \"raffle\", \"enabled\": false}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { const feature = resultBody.features.find(f => f.id === 'raffle'); pm.expect(feature.enabled).to.equal(false); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reject invalid toggle",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-9"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/features",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"id\": \"unknown\", \"enabled\": false}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.errorCode).to.equal('INVALID_REQUEST'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reject browser Origin",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-10"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Origin",
+            "value": "https://example.invalid"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/features",
+        "body": {
+          "mode": "raw",
+          "raw": "{\"id\": \"raffle\", \"enabled\": true}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 403', () => pm.response.to.have.status(403));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.errorCode).to.equal('FORBIDDEN'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Start with incomplete config",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-11"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/bot/start",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 503', () => pm.response.to.have.status(503));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.botState).to.equal('failed'); pm.expect(resultBody.operation.outcome).to.equal('failed'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bot failure remains visible",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-12"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.botState).to.equal('failed'); pm.expect(resultBody.botError).to.be.a('string').and.not.empty; });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Stop an inactive bot",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-13"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/bot/stop",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.success).to.equal(true); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Repeat stop",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-14"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/bot/stop",
+        "body": {
+          "mode": "raw",
+          "raw": "{}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.success).to.equal(true); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Safe recent logs",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Request-ID",
+            "value": "postman-15"
+          }
+        ],
+        "url": "{{baseUrl}}/api/v1/logs"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+              "const resultBody = pm.response.json();",
+              "pm.test('Response metadata', () => { pm.expect(resultBody.requestId).to.equal(pm.request.headers.get('X-Request-ID')); pm.expect(resultBody.sessionId).to.be.a('string'); pm.expect(resultBody.observedAt).to.be.a('string'); });",
+              "pm.test('Expected result', () => { pm.expect(resultBody.logs.some(entry => entry.level === 'error' && entry.requestId)).to.equal(true); pm.expect(resultBody.logs.length).to.be.at.most(100); });"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
