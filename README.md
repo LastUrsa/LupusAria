@@ -45,6 +45,8 @@ On first run, LupusAria creates `.lupusaria-knowledge.md` from a neutral templat
 
 ## Use with LivePanel
 
+LupusAria 1.0.0 adds SIP v1 support for LivePanel 1.1.0 and later.
+
 LivePanel can launch `LupusAria.exe --service` without opening a window. **Go Live** starts the Twitch bot and **End Stream** stops it. Select the details icon on the LupusAria card in LivePanel to change feature switches and view recent operational logs. See [LivePanel service mode](docs/setup.md#livepanel-service-mode).
 
 ## Run a Raffle

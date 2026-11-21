@@ -71,7 +71,7 @@ Edit the settings in the desktop app to apply them live. Direct edits to `.env` 
 
 ## LivePanel service mode
 
-Configure Twitch and the optional AI provider in the LupusAria desktop app. Close it before launching the headless service from LivePanel or by running `LupusAria.exe --service`. Both modes share the per-user configuration and state. One mode owns the loopback service at a time.
+This integration requires LupusAria 1.0.0 and LivePanel 1.1.0 or later. Configure Twitch and the optional AI provider in the LupusAria desktop app. Close it before launching the headless service from LivePanel or by running `LupusAria.exe --service`. Both modes share the per-user configuration and state. One mode owns the loopback service at a time.
 
 LivePanel discovers SIP v1 at `http://127.0.0.1:47050`. Service health and bot readiness are separate. **Go Live** starts chat and the configured features. **End Stream** stops the bot and leaves the service available for settings and diagnostics. The LupusAria drawer shows saved and active feature states, recent logs, and operation failures.
 
@@ -278,7 +278,7 @@ The release workflow:
 
 Before tagging, update `wails.json`, `frontend/package.json`, and both root version fields in `frontend/package-lock.json`, then add a matching `## vX.Y.Z` section to `RELEASE_NOTES.md`. Update the README and command/setup guidance for user-facing changes. Feature additions increment the minor version; fixes within an existing feature increment the patch version.
 
-Commit the prepared release on `main`, create an annotated `vX.Y.Z` tag pointing to that commit, and push the commit and tag. A tag push enables publication automatically after the workflow gates pass. Manual workflow dispatch can build a candidate with `publish_release=false`. For v0.11.0, version metadata is `0.11.0` and the release-notes heading is `## v0.11.0`.
+Commit the prepared release on `main`, create an annotated `vX.Y.Z` tag pointing to that commit, and push the commit and tag. A tag push enables publication automatically after the workflow gates pass. Manual workflow dispatch can build a candidate with `publish_release=false`. For v1.0.0, version metadata is `1.0.0` and the release-notes heading is `## v1.0.0`.
 
 After the workflow completes, verify that the release has its installer, standalone executable, portable ZIP, and checksums, and that the Windows smoke report passed. Published binaries use the tagged source commit. Simulation and CI results do not establish live Twitch authorization/delivery or interactive visual UI behavior.
 

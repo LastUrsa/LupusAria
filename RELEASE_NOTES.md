@@ -1,6 +1,6 @@
 # LupusAria Release Notes
 
-## Unreleased
+## v1.0.0
 
 - Adds loopback SIP v1 and headless `--service` mode for LivePanel. Service mode stays available while the Twitch bot is idle.
 - Exposes bot lifecycle, live feature preferences, and safe operational logs to LivePanel.
